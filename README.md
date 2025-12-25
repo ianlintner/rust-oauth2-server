@@ -37,6 +37,8 @@ A complete, production-ready OAuth2 authorization server built with Rust and Act
 - 🔑 **Secure Client Credentials** generation
 - 🛡️ **Scope-based Authorization**
 - 🚫 **Token Revocation**
+- 🔐 **Social Login Integration** (Google, Microsoft, GitHub, Azure, Okta, Auth0)
+- 🎫 **Session Management** with secure cookies
 - ⚠️ **Rate Limiting** (planned)
 
 ## 📋 Prerequisites
@@ -102,6 +104,8 @@ docker-compose up -d
 
 Configuration can be set via environment variables with the `OAUTH2_` prefix:
 
+### Basic Configuration
+
 ```bash
 export OAUTH2_SERVER_HOST=127.0.0.1
 export OAUTH2_SERVER_PORT=8080
@@ -109,7 +113,72 @@ export OAUTH2_DATABASE_URL=sqlite:oauth2.db
 export OAUTH2_JWT_SECRET=your-secret-key-change-in-production
 ```
 
+### Social Login Configuration
+
+Configure social login providers by setting their respective environment variables:
+
+#### Google OAuth2
+
+```bash
+export OAUTH2_GOOGLE_CLIENT_ID=your-google-client-id
+export OAUTH2_GOOGLE_CLIENT_SECRET=your-google-client-secret
+export OAUTH2_GOOGLE_REDIRECT_URI=http://localhost:8080/auth/callback/google
+```
+
+#### Microsoft/Azure AD
+
+```bash
+export OAUTH2_MICROSOFT_CLIENT_ID=your-microsoft-client-id
+export OAUTH2_MICROSOFT_CLIENT_SECRET=your-microsoft-client-secret
+export OAUTH2_MICROSOFT_REDIRECT_URI=http://localhost:8080/auth/callback/microsoft
+export OAUTH2_MICROSOFT_TENANT_ID=common  # or your tenant ID
+```
+
+#### GitHub
+
+```bash
+export OAUTH2_GITHUB_CLIENT_ID=your-github-client-id
+export OAUTH2_GITHUB_CLIENT_SECRET=your-github-client-secret
+export OAUTH2_GITHUB_REDIRECT_URI=http://localhost:8080/auth/callback/github
+```
+
+#### Okta
+
+```bash
+export OAUTH2_OKTA_CLIENT_ID=your-okta-client-id
+export OAUTH2_OKTA_CLIENT_SECRET=your-okta-client-secret
+export OAUTH2_OKTA_REDIRECT_URI=http://localhost:8080/auth/callback/okta
+export OAUTH2_OKTA_DOMAIN=your-okta-domain.okta.com
+```
+
+#### Auth0
+
+```bash
+export OAUTH2_AUTH0_CLIENT_ID=your-auth0-client-id
+export OAUTH2_AUTH0_CLIENT_SECRET=your-auth0-client-secret
+export OAUTH2_AUTH0_REDIRECT_URI=http://localhost:8080/auth/callback/auth0
+export OAUTH2_AUTH0_DOMAIN=your-tenant.auth0.com
+```
+
 ## 📍 Endpoints
+
+### User Interface
+
+- `GET /` - Redirects to login page
+- `GET /auth/login` - Modern login page with social login options
+- `GET /error` - Error page with detailed error information
+
+### Social Login
+
+- `GET /auth/login/google` - Initiate Google login
+- `GET /auth/login/microsoft` - Initiate Microsoft/Azure AD login
+- `GET /auth/login/github` - Initiate GitHub login
+- `GET /auth/login/azure` - Initiate Azure AD login
+- `GET /auth/login/okta` - Initiate Okta login
+- `GET /auth/login/auth0` - Initiate Auth0 login
+- `GET /auth/callback/{provider}` - OAuth callback handler
+- `GET /auth/success` - Authentication success page
+- `POST /auth/logout` - Logout endpoint
 
 ### OAuth2 Endpoints
 
