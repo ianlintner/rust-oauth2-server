@@ -55,22 +55,25 @@ impl Config {
         let config = config::Config::builder()
             .add_source(config::Environment::with_prefix("OAUTH2"))
             .build()?;
-        
+
         config.try_deserialize()
     }
-    
+
     /// Validate configuration for production use
     pub fn validate_for_production(&self) -> Result<(), String> {
         // Check JWT secret is not the default
         if self.jwt.secret == "insecure-default-for-testing-only-change-in-production" {
             return Err("OAUTH2_JWT_SECRET must be explicitly set for production. Generate a secure random string (minimum 32 characters).".to_string());
         }
-        
+
         // Check JWT secret length
         if self.jwt.secret.len() < 32 {
-            return Err(format!("OAUTH2_JWT_SECRET must be at least 32 characters long (current: {} characters)", self.jwt.secret.len()));
+            return Err(format!(
+                "OAUTH2_JWT_SECRET must be at least 32 characters long (current: {} characters)",
+                self.jwt.secret.len()
+            ));
         }
-        
+
         Ok(())
     }
 }

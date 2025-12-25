@@ -1,6 +1,6 @@
-use actix::prelude::*;
-use crate::models::{Claims, Token, OAuth2Error};
 use crate::db::Database;
+use crate::models::{Claims, OAuth2Error, Token};
+use actix::prelude::*;
 use std::sync::Arc;
 
 pub struct TokenActor {
@@ -33,7 +33,7 @@ impl Handler<CreateToken> for TokenActor {
     fn handle(&mut self, msg: CreateToken, _: &mut Self::Context) -> Self::Result {
         let db = self.db.clone();
         let jwt_secret = self.jwt_secret.clone();
-        
+
         Box::pin(async move {
             // Create access token
             let access_claims = Claims::new(
@@ -42,7 +42,8 @@ impl Handler<CreateToken> for TokenActor {
                 msg.scope.clone(),
                 3600, // 1 hour
             );
-            let access_token = access_claims.encode(&jwt_secret)
+            let access_token = access_claims
+                .encode(&jwt_secret)
                 .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))?;
 
             // Create refresh token if requested
@@ -53,8 +54,11 @@ impl Handler<CreateToken> for TokenActor {
                     msg.scope.clone(),
                     2592000, // 30 days
                 );
-                Some(refresh_claims.encode(&jwt_secret)
-                    .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))?)
+                Some(
+                    refresh_claims
+                        .encode(&jwt_secret)
+                        .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))?,
+                )
             } else {
                 None
             };
@@ -85,15 +89,17 @@ impl Handler<ValidateToken> for TokenActor {
 
     fn handle(&mut self, msg: ValidateToken, _: &mut Self::Context) -> Self::Result {
         let db = self.db.clone();
-        
+
         Box::pin(async move {
-            let token = db.get_token_by_access_token(&msg.token).await?
+            let token = db
+                .get_token_by_access_token(&msg.token)
+                .await?
                 .ok_or_else(|| OAuth2Error::invalid_grant("Token not found"))?;
-            
+
             if !token.is_valid() {
                 return Err(OAuth2Error::invalid_grant("Token is expired or revoked"));
             }
-            
+
             Ok(token)
         })
     }
@@ -110,7 +116,7 @@ impl Handler<RevokeToken> for TokenActor {
 
     fn handle(&mut self, msg: RevokeToken, _: &mut Self::Context) -> Self::Result {
         let db = self.db.clone();
-        
+
         Box::pin(async move {
             db.revoke_token(&msg.token).await?;
             Ok(())

@@ -2,8 +2,8 @@ mod actors;
 mod config;
 mod db;
 mod handlers;
-mod middleware;
 mod metrics;
+mod middleware;
 mod models;
 mod services;
 mod telemetry;
@@ -11,7 +11,7 @@ mod telemetry;
 use actix::Actor;
 use actix_cors::Cors;
 use actix_files::Files;
-use actix_session::{SessionMiddleware, storage::CookieSessionStore};
+use actix_session::{storage::CookieSessionStore, SessionMiddleware};
 use actix_web::{cookie::Key, middleware as actix_middleware, web, App, HttpResponse, HttpServer};
 use std::sync::Arc;
 use tracing_actix_web::TracingLogger;
@@ -54,24 +54,23 @@ struct ApiDoc;
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     // Initialize telemetry and tracing
-    telemetry::init_telemetry("oauth2_server")
-        .unwrap_or_else(|e| {
-            eprintln!("Failed to initialize telemetry: {}", e);
-            // Fall back to basic logging
-            env_logger::init_from_env(env_logger::Env::new().default_filter_or("info"));
-        });
+    telemetry::init_telemetry("oauth2_server").unwrap_or_else(|e| {
+        eprintln!("Failed to initialize telemetry: {}", e);
+        // Fall back to basic logging
+        env_logger::init_from_env(env_logger::Env::new().default_filter_or("info"));
+    });
 
     tracing::info!("Starting OAuth2 Server...");
 
     // Load configuration
     let config = config::Config::default();
-    
+
     // Validate configuration for production
     if let Err(e) = config.validate_for_production() {
         tracing::warn!("Configuration validation warning: {}", e);
         tracing::warn!("This configuration should only be used for testing!");
     }
-    
+
     tracing::info!("Configuration loaded");
 
     // Load social login configuration
@@ -79,15 +78,14 @@ async fn main() -> std::io::Result<()> {
     tracing::info!("Social login configuration loaded");
 
     // Initialize metrics
-    let metrics = metrics::Metrics::new()
-        .expect("Failed to initialize metrics");
+    let metrics = metrics::Metrics::new().expect("Failed to initialize metrics");
     tracing::info!("Metrics initialized");
 
     // Initialize database
     let db = db::Database::new(&config.database.url)
         .await
         .expect("Failed to connect to database");
-    
+
     db.init().await.expect("Failed to initialize database");
     tracing::info!("Database initialized");
 
@@ -100,10 +98,9 @@ async fn main() -> std::io::Result<()> {
         if key_str.len() < 64 {
             panic!("OAUTH2_SESSION_KEY must be at least 64 characters (128 hex digits)");
         }
-        let key_bytes = hex::decode(&key_str)
-            .expect("OAUTH2_SESSION_KEY must be valid hexadecimal");
-        Key::try_from(&key_bytes[..])
-            .expect("OAUTH2_SESSION_KEY must be exactly 64 bytes")
+        let key_bytes =
+            hex::decode(&key_str).expect("OAUTH2_SESSION_KEY must be valid hexadecimal");
+        Key::try_from(&key_bytes[..]).expect("OAUTH2_SESSION_KEY must be exactly 64 bytes")
     } else {
         tracing::warn!("OAUTH2_SESSION_KEY not set. Generating random key. Sessions will not persist across restarts!");
         Key::generate()
@@ -154,11 +151,14 @@ async fn main() -> std::io::Result<()> {
             .app_data(web::Data::new(metrics.clone()))
             .app_data(web::Data::new(social_config.clone()))
             // Root route
-            .route("/", web::get().to(|| async {
-                HttpResponse::Found()
-                    .append_header(("Location", "/auth/login"))
-                    .finish()
-            }))
+            .route(
+                "/",
+                web::get().to(|| async {
+                    HttpResponse::Found()
+                        .append_header(("Location", "/auth/login"))
+                        .finish()
+                }),
+            )
             // Authentication routes
             .service(
                 web::scope("/auth")
@@ -173,14 +173,25 @@ async fn main() -> std::io::Result<()> {
                             .route("/azure", web::get().to(handlers::auth::microsoft_login)) // Azure uses Microsoft endpoint
                             // NOTE: Okta and Auth0 handlers not yet implemented - buttons should be hidden in UI
                             // or implement proper handlers in handlers::auth module
-                            .route("/okta", web::get().to(|| async {
-                                actix_web::HttpResponse::ServiceUnavailable().body("Okta login not yet implemented")
-                            }))
-                            .route("/auth0", web::get().to(|| async {
-                                actix_web::HttpResponse::ServiceUnavailable().body("Auth0 login not yet implemented")
-                            }))
+                            .route(
+                                "/okta",
+                                web::get().to(|| async {
+                                    actix_web::HttpResponse::ServiceUnavailable()
+                                        .body("Okta login not yet implemented")
+                                }),
+                            )
+                            .route(
+                                "/auth0",
+                                web::get().to(|| async {
+                                    actix_web::HttpResponse::ServiceUnavailable()
+                                        .body("Auth0 login not yet implemented")
+                                }),
+                            ),
                     )
-                    .route("/callback/{provider}", web::get().to(handlers::auth::auth_callback))
+                    .route(
+                        "/callback/{provider}",
+                        web::get().to(handlers::auth::auth_callback),
+                    ),
             )
             // OAuth2 endpoints
             .service(
@@ -191,15 +202,15 @@ async fn main() -> std::io::Result<()> {
                     .route("/revoke", web::post().to(handlers::token::revoke)),
             )
             // Client management endpoints
-            .service(
-                web::scope("/clients")
-                    .route("/register", web::post().to(handlers::client::register_client)),
-            )
+            .service(web::scope("/clients").route(
+                "/register",
+                web::post().to(handlers::client::register_client),
+            ))
             // Well-known endpoints
-            .service(
-                web::scope("/.well-known")
-                    .route("/openid-configuration", web::get().to(handlers::wellknown::openid_configuration)),
-            )
+            .service(web::scope("/.well-known").route(
+                "/openid-configuration",
+                web::get().to(handlers::wellknown::openid_configuration),
+            ))
             // Admin endpoints
             .service(
                 web::scope("/admin")
@@ -209,9 +220,15 @@ async fn main() -> std::io::Result<()> {
                             .route("/dashboard", web::get().to(handlers::admin::dashboard))
                             .route("/clients", web::get().to(handlers::admin::list_clients))
                             .route("/tokens", web::get().to(handlers::admin::list_tokens))
-                            .route("/tokens/{id}/revoke", web::post().to(handlers::admin::admin_revoke_token))
-                            .route("/clients/{id}", web::delete().to(handlers::admin::delete_client))
-                    )
+                            .route(
+                                "/tokens/{id}/revoke",
+                                web::post().to(handlers::admin::admin_revoke_token),
+                            )
+                            .route(
+                                "/clients/{id}",
+                                web::delete().to(handlers::admin::delete_client),
+                            ),
+                    ),
             )
             // Error page
             .route("/error", web::get().to(error_page))
@@ -221,8 +238,7 @@ async fn main() -> std::io::Result<()> {
             .route("/metrics", web::get().to(handlers::admin::system_metrics))
             // Swagger UI
             .service(
-                SwaggerUi::new("/swagger-ui/{_:.*}")
-                    .url("/api-docs/openapi.json", openapi.clone()),
+                SwaggerUi::new("/swagger-ui/{_:.*}").url("/api-docs/openapi.json", openapi.clone()),
             )
             // Static files
             .service(Files::new("/static", "./static"))
@@ -256,7 +272,7 @@ async fn admin_dashboard() -> HttpResponse {
             </body>
             </html>
         "#.to_string());
-    
+
     HttpResponse::Ok()
         .content_type("text/html; charset=utf-8")
         .body(html)
@@ -264,8 +280,8 @@ async fn admin_dashboard() -> HttpResponse {
 
 // Error page
 async fn error_page() -> HttpResponse {
-    let html = std::fs::read_to_string("templates/error.html")
-        .unwrap_or_else(|_| r#"
+    let html = std::fs::read_to_string("templates/error.html").unwrap_or_else(|_| {
+        r#"
             <!DOCTYPE html>
             <html>
             <head><title>Error</title></head>
@@ -275,8 +291,10 @@ async fn error_page() -> HttpResponse {
                 <a href="/">Go back</a>
             </body>
             </html>
-        "#.to_string());
-    
+        "#
+        .to_string()
+    });
+
     HttpResponse::Ok()
         .content_type("text/html; charset=utf-8")
         .body(html)

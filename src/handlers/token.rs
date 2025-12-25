@@ -1,8 +1,8 @@
+use crate::actors::{RevokeToken, TokenActor, ValidateToken};
+use crate::models::{Claims, IntrospectionResponse, OAuth2Error};
 use actix::Addr;
 use actix_web::{web, HttpResponse, Result};
 use serde::Deserialize;
-use crate::actors::{TokenActor, ValidateToken, RevokeToken};
-use crate::models::{OAuth2Error, IntrospectionResponse, Claims};
 
 #[derive(Debug, Deserialize)]
 pub struct IntrospectRequest {
@@ -28,8 +28,7 @@ pub async fn introspect(
     match token_result {
         Ok(token) => {
             // Decode JWT to get claims
-            let claims = Claims::decode(&token.access_token, &jwt_secret)
-                .ok();
+            let claims = Claims::decode(&token.access_token, &jwt_secret).ok();
 
             let response = IntrospectionResponse {
                 active: token.is_valid(),
@@ -78,8 +77,7 @@ pub async fn revoke(
             token: form.token.clone(),
         })
         .await
-        .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))?
-        .map_err(|e| e)?;
+        .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))??;
 
     Ok(HttpResponse::Ok().finish())
 }

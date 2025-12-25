@@ -1,8 +1,8 @@
-use actix::prelude::*;
-use crate::models::{Client, ClientRegistration, OAuth2Error};
 use crate::db::Database;
-use std::sync::Arc;
+use crate::models::{Client, ClientRegistration, OAuth2Error};
+use actix::prelude::*;
 use rand::Rng;
+use std::sync::Arc;
 
 pub struct ClientActor {
     db: Arc<Database>,
@@ -29,12 +29,12 @@ impl Handler<RegisterClient> for ClientActor {
 
     fn handle(&mut self, msg: RegisterClient, _: &mut Self::Context) -> Self::Result {
         let db = self.db.clone();
-        
+
         Box::pin(async move {
             // Generate client credentials
             let client_id = format!("client_{}", uuid::Uuid::new_v4());
             let client_secret = generate_secret();
-            
+
             let client = Client::new(
                 client_id,
                 client_secret,
@@ -43,7 +43,7 @@ impl Handler<RegisterClient> for ClientActor {
                 msg.registration.scope,
                 msg.registration.client_name,
             );
-            
+
             db.save_client(&client).await?;
             Ok(client)
         })
@@ -61,9 +61,10 @@ impl Handler<GetClient> for ClientActor {
 
     fn handle(&mut self, msg: GetClient, _: &mut Self::Context) -> Self::Result {
         let db = self.db.clone();
-        
+
         Box::pin(async move {
-            db.get_client(&msg.client_id).await?
+            db.get_client(&msg.client_id)
+                .await?
                 .ok_or_else(|| OAuth2Error::invalid_client("Client not found"))
         })
     }
@@ -81,17 +82,21 @@ impl Handler<ValidateClient> for ClientActor {
 
     fn handle(&mut self, msg: ValidateClient, _: &mut Self::Context) -> Self::Result {
         let db = self.db.clone();
-        
+
         Box::pin(async move {
-            let client = db.get_client(&msg.client_id).await?
+            let client = db
+                .get_client(&msg.client_id)
+                .await?
                 .ok_or_else(|| OAuth2Error::invalid_client("Client not found"))?;
-            
+
             // Use constant-time comparison to prevent timing attacks
             use subtle::ConstantTimeEq;
-            let secret_match = client.client_secret.as_bytes()
+            let secret_match = client
+                .client_secret
+                .as_bytes()
                 .ct_eq(msg.client_secret.as_bytes())
                 .into();
-            
+
             Ok(secret_match)
         })
     }

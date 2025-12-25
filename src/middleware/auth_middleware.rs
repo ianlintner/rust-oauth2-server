@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use actix_web::{
     dev::{forward_ready, Service, ServiceRequest, ServiceResponse, Transform},
     Error, HttpMessage,
@@ -50,8 +52,7 @@ where
             // Extract authorization header if present
             if let Some(auth_header) = req.headers().get("Authorization") {
                 if let Ok(auth_str) = auth_header.to_str() {
-                    if auth_str.starts_with("Bearer ") {
-                        let token = &auth_str[7..];
+                    if let Some(token) = auth_str.strip_prefix("Bearer ") {
                         req.extensions_mut().insert(token.to_string());
                     }
                 }

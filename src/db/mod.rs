@@ -1,4 +1,6 @@
-use crate::models::{AuthorizationCode, Client, Token, User, OAuth2Error};
+#![allow(dead_code)]
+
+use crate::models::{AuthorizationCode, Client, OAuth2Error, Token, User};
 use sqlx::{Pool, Sqlite, SqlitePool};
 
 pub struct Database {
@@ -14,9 +16,7 @@ impl Database {
     pub async fn init(&self) -> Result<(), sqlx::Error> {
         // With Flyway, we don't need to create tables here
         // Just verify the connection works
-        sqlx::query("SELECT 1")
-            .execute(&self.pool)
-            .await?;
+        sqlx::query("SELECT 1").execute(&self.pool).await?;
         Ok(())
     }
 
@@ -35,20 +35,18 @@ impl Database {
         .bind(&client.grant_types)
         .bind(&client.scope)
         .bind(&client.name)
-        .bind(&client.created_at)
-        .bind(&client.updated_at)
+        .bind(client.created_at)
+        .bind(client.updated_at)
         .execute(&self.pool)
         .await?;
         Ok(())
     }
 
     pub async fn get_client(&self, client_id: &str) -> Result<Option<Client>, OAuth2Error> {
-        let client = sqlx::query_as::<_, Client>(
-            "SELECT * FROM clients WHERE client_id = ?"
-        )
-        .bind(client_id)
-        .fetch_optional(&self.pool)
-        .await?;
+        let client = sqlx::query_as::<_, Client>("SELECT * FROM clients WHERE client_id = ?")
+            .bind(client_id)
+            .fetch_optional(&self.pool)
+            .await?;
         Ok(client)
     }
 
@@ -65,20 +63,18 @@ impl Database {
         .bind(&user.password_hash)
         .bind(&user.email)
         .bind(user.enabled)
-        .bind(&user.created_at)
-        .bind(&user.updated_at)
+        .bind(user.created_at)
+        .bind(user.updated_at)
         .execute(&self.pool)
         .await?;
         Ok(())
     }
 
     pub async fn get_user_by_username(&self, username: &str) -> Result<Option<User>, OAuth2Error> {
-        let user = sqlx::query_as::<_, User>(
-            "SELECT * FROM users WHERE username = ?"
-        )
-        .bind(username)
-        .fetch_optional(&self.pool)
-        .await?;
+        let user = sqlx::query_as::<_, User>("SELECT * FROM users WHERE username = ?")
+            .bind(username)
+            .fetch_optional(&self.pool)
+            .await?;
         Ok(user)
     }
 
@@ -98,37 +94,39 @@ impl Database {
         .bind(&token.scope)
         .bind(&token.client_id)
         .bind(&token.user_id)
-        .bind(&token.created_at)
-        .bind(&token.expires_at)
+        .bind(token.created_at)
+        .bind(token.expires_at)
         .bind(token.revoked)
         .execute(&self.pool)
         .await?;
         Ok(())
     }
 
-    pub async fn get_token_by_access_token(&self, access_token: &str) -> Result<Option<Token>, OAuth2Error> {
-        let token = sqlx::query_as::<_, Token>(
-            "SELECT * FROM tokens WHERE access_token = ?"
-        )
-        .bind(access_token)
-        .fetch_optional(&self.pool)
-        .await?;
+    pub async fn get_token_by_access_token(
+        &self,
+        access_token: &str,
+    ) -> Result<Option<Token>, OAuth2Error> {
+        let token = sqlx::query_as::<_, Token>("SELECT * FROM tokens WHERE access_token = ?")
+            .bind(access_token)
+            .fetch_optional(&self.pool)
+            .await?;
         Ok(token)
     }
 
     pub async fn revoke_token(&self, token: &str) -> Result<(), OAuth2Error> {
-        sqlx::query(
-            "UPDATE tokens SET revoked = 1 WHERE access_token = ? OR refresh_token = ?"
-        )
-        .bind(token)
-        .bind(token)
-        .execute(&self.pool)
-        .await?;
+        sqlx::query("UPDATE tokens SET revoked = 1 WHERE access_token = ? OR refresh_token = ?")
+            .bind(token)
+            .bind(token)
+            .execute(&self.pool)
+            .await?;
         Ok(())
     }
 
     // Authorization code operations
-    pub async fn save_authorization_code(&self, auth_code: &AuthorizationCode) -> Result<(), OAuth2Error> {
+    pub async fn save_authorization_code(
+        &self,
+        auth_code: &AuthorizationCode,
+    ) -> Result<(), OAuth2Error> {
         sqlx::query(
             r#"
             INSERT INTO authorization_codes (id, code, client_id, user_id, redirect_uri, scope, created_at, expires_at, used, code_challenge, code_challenge_method)
@@ -141,8 +139,8 @@ impl Database {
         .bind(&auth_code.user_id)
         .bind(&auth_code.redirect_uri)
         .bind(&auth_code.scope)
-        .bind(&auth_code.created_at)
-        .bind(&auth_code.expires_at)
+        .bind(auth_code.created_at)
+        .bind(auth_code.expires_at)
         .bind(auth_code.used)
         .bind(&auth_code.code_challenge)
         .bind(&auth_code.code_challenge_method)
@@ -151,9 +149,12 @@ impl Database {
         Ok(())
     }
 
-    pub async fn get_authorization_code(&self, code: &str) -> Result<Option<AuthorizationCode>, OAuth2Error> {
+    pub async fn get_authorization_code(
+        &self,
+        code: &str,
+    ) -> Result<Option<AuthorizationCode>, OAuth2Error> {
         let auth_code = sqlx::query_as::<_, AuthorizationCode>(
-            "SELECT * FROM authorization_codes WHERE code = ?"
+            "SELECT * FROM authorization_codes WHERE code = ?",
         )
         .bind(code)
         .fetch_optional(&self.pool)
@@ -162,12 +163,10 @@ impl Database {
     }
 
     pub async fn mark_authorization_code_used(&self, code: &str) -> Result<(), OAuth2Error> {
-        sqlx::query(
-            "UPDATE authorization_codes SET used = 1 WHERE code = ?"
-        )
-        .bind(code)
-        .execute(&self.pool)
-        .await?;
+        sqlx::query("UPDATE authorization_codes SET used = 1 WHERE code = ?")
+            .bind(code)
+            .execute(&self.pool)
+            .await?;
         Ok(())
     }
 }

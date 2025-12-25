@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use chrono::{DateTime, Duration, Utc};
 use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation};
 use serde::{Deserialize, Serialize};
@@ -7,27 +9,22 @@ use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct Claims {
-    pub sub: String,        // Subject (user ID)
-    pub iss: String,        // Issuer
-    pub aud: String,        // Audience (client ID)
-    pub exp: i64,           // Expiration time
-    pub iat: i64,           // Issued at
-    pub scope: String,      // Scopes
-    pub jti: String,        // JWT ID
+    pub sub: String,   // Subject (user ID)
+    pub iss: String,   // Issuer
+    pub aud: String,   // Audience (client ID)
+    pub exp: i64,      // Expiration time
+    pub iat: i64,      // Issued at
+    pub scope: String, // Scopes
+    pub jti: String,   // JWT ID
     #[serde(skip_serializing_if = "Option::is_none")]
     pub client_id: Option<String>,
 }
 
 impl Claims {
-    pub fn new(
-        user_id: String,
-        client_id: String,
-        scope: String,
-        duration_seconds: i64,
-    ) -> Self {
+    pub fn new(user_id: String, client_id: String, scope: String, duration_seconds: i64) -> Self {
         let now = Utc::now();
         let exp = now + Duration::seconds(duration_seconds);
-        
+
         Self {
             sub: user_id,
             iss: "rust_oauth2_server".to_string(),
@@ -84,7 +81,7 @@ impl Token {
     ) -> Self {
         let now = Utc::now();
         let expires_at = now + Duration::seconds(expires_in);
-        
+
         Self {
             id: Uuid::new_v4().to_string(),
             access_token,

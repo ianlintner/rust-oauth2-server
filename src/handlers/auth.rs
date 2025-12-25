@@ -1,12 +1,12 @@
-use actix_web::{web, HttpResponse, Result, HttpRequest};
-use actix_session::Session;
-use serde::Deserialize;
 use crate::models::{OAuth2Error, SocialLoginConfig, SocialUserInfo};
 use crate::services::SocialLoginService;
+use actix_session::Session;
+use actix_web::{web, HttpResponse, Result};
 use oauth2::{
-    AuthorizationCode, CsrfToken, PkceCodeChallenge, Scope,
-    TokenResponse as OAuth2TokenResponse, basic::BasicClient, reqwest::async_http_client,
+    reqwest::async_http_client, AuthorizationCode, CsrfToken, PkceCodeChallenge, Scope,
+    TokenResponse as OAuth2TokenResponse,
 };
+use serde::Deserialize;
 use std::sync::Arc;
 
 #[derive(Deserialize)]
@@ -20,13 +20,17 @@ pub async fn google_login(
     config: web::Data<Arc<SocialLoginConfig>>,
     session: Session,
 ) -> Result<HttpResponse, OAuth2Error> {
-    let provider_config = config.google.as_ref()
-        .ok_or_else(|| OAuth2Error::new("provider_not_configured", Some("Google login not configured")))?;
+    let provider_config = config.google.as_ref().ok_or_else(|| {
+        OAuth2Error::new(
+            "provider_not_configured",
+            Some("Google login not configured"),
+        )
+    })?;
 
     let client = SocialLoginService::get_google_client(provider_config)?;
-    
+
     let (pkce_challenge, pkce_verifier) = PkceCodeChallenge::new_random_sha256();
-    
+
     let (auth_url, csrf_token) = client
         .authorize_url(CsrfToken::new_random)
         .add_scope(Scope::new("openid".to_string()))
@@ -36,11 +40,14 @@ pub async fn google_login(
         .url();
 
     // Store CSRF token and PKCE verifier in session
-    session.insert("csrf_token", csrf_token.secret())
+    session
+        .insert("csrf_token", csrf_token.secret())
         .map_err(|e| OAuth2Error::new("session_error", Some(&e.to_string())))?;
-    session.insert("pkce_verifier", pkce_verifier.secret())
+    session
+        .insert("pkce_verifier", pkce_verifier.secret())
         .map_err(|e| OAuth2Error::new("session_error", Some(&e.to_string())))?;
-    session.insert("provider", "google")
+    session
+        .insert("provider", "google")
         .map_err(|e| OAuth2Error::new("session_error", Some(&e.to_string())))?;
 
     Ok(HttpResponse::Found()
@@ -53,11 +60,15 @@ pub async fn microsoft_login(
     config: web::Data<Arc<SocialLoginConfig>>,
     session: Session,
 ) -> Result<HttpResponse, OAuth2Error> {
-    let provider_config = config.microsoft.as_ref()
-        .ok_or_else(|| OAuth2Error::new("provider_not_configured", Some("Microsoft login not configured")))?;
+    let provider_config = config.microsoft.as_ref().ok_or_else(|| {
+        OAuth2Error::new(
+            "provider_not_configured",
+            Some("Microsoft login not configured"),
+        )
+    })?;
 
     let client = SocialLoginService::get_microsoft_client(provider_config)?;
-    
+
     let (auth_url, csrf_token) = client
         .authorize_url(CsrfToken::new_random)
         .add_scope(Scope::new("openid".to_string()))
@@ -65,9 +76,11 @@ pub async fn microsoft_login(
         .add_scope(Scope::new("profile".to_string()))
         .url();
 
-    session.insert("csrf_token", csrf_token.secret())
+    session
+        .insert("csrf_token", csrf_token.secret())
         .map_err(|e| OAuth2Error::new("session_error", Some(&e.to_string())))?;
-    session.insert("provider", "microsoft")
+    session
+        .insert("provider", "microsoft")
         .map_err(|e| OAuth2Error::new("session_error", Some(&e.to_string())))?;
 
     Ok(HttpResponse::Found()
@@ -80,19 +93,25 @@ pub async fn github_login(
     config: web::Data<Arc<SocialLoginConfig>>,
     session: Session,
 ) -> Result<HttpResponse, OAuth2Error> {
-    let provider_config = config.github.as_ref()
-        .ok_or_else(|| OAuth2Error::new("provider_not_configured", Some("GitHub login not configured")))?;
+    let provider_config = config.github.as_ref().ok_or_else(|| {
+        OAuth2Error::new(
+            "provider_not_configured",
+            Some("GitHub login not configured"),
+        )
+    })?;
 
     let client = SocialLoginService::get_github_client(provider_config)?;
-    
+
     let (auth_url, csrf_token) = client
         .authorize_url(CsrfToken::new_random)
         .add_scope(Scope::new("user:email".to_string()))
         .url();
 
-    session.insert("csrf_token", csrf_token.secret())
+    session
+        .insert("csrf_token", csrf_token.secret())
         .map_err(|e| OAuth2Error::new("session_error", Some(&e.to_string())))?;
-    session.insert("provider", "github")
+    session
+        .insert("provider", "github")
         .map_err(|e| OAuth2Error::new("session_error", Some(&e.to_string())))?;
 
     Ok(HttpResponse::Found()
@@ -108,16 +127,18 @@ pub async fn auth_callback(
     session: Session,
 ) -> Result<HttpResponse, OAuth2Error> {
     // Verify CSRF token
-    let stored_csrf: Option<String> = session.get("csrf_token")
+    let stored_csrf: Option<String> = session
+        .get("csrf_token")
         .map_err(|e| OAuth2Error::new("session_error", Some(&e.to_string())))?;
-    
+
     if let Some(state) = &query.state {
         if Some(state.clone()) != stored_csrf {
             return Err(OAuth2Error::access_denied("CSRF token mismatch"));
         }
     }
 
-    let stored_provider: Option<String> = session.get("provider")
+    let stored_provider: Option<String> = session
+        .get("provider")
         .map_err(|e| OAuth2Error::new("session_error", Some(&e.to_string())))?;
 
     if stored_provider.as_deref() != Some(provider.as_str()) {
@@ -133,9 +154,11 @@ pub async fn auth_callback(
     };
 
     // Store user info in session
-    session.insert("user_info", serde_json::to_string(&user_info).unwrap())
+    session
+        .insert("user_info", serde_json::to_string(&user_info).unwrap())
         .map_err(|e| OAuth2Error::new("session_error", Some(&e.to_string())))?;
-    session.insert("authenticated", true)
+    session
+        .insert("authenticated", true)
         .map_err(|e| OAuth2Error::new("session_error", Some(&e.to_string())))?;
 
     // Redirect to success page
@@ -149,11 +172,12 @@ async fn handle_google_callback(
     config: &SocialLoginConfig,
     _session: &Session,
 ) -> Result<SocialUserInfo, OAuth2Error> {
-    let provider_config = config.google.as_ref()
-        .ok_or_else(|| OAuth2Error::new("provider_not_configured", Some("Google not configured")))?;
+    let provider_config = config.google.as_ref().ok_or_else(|| {
+        OAuth2Error::new("provider_not_configured", Some("Google not configured"))
+    })?;
 
     let client = SocialLoginService::get_google_client(provider_config)?;
-    
+
     let token_result = client
         .exchange_code(AuthorizationCode::new(code.to_string()))
         .request_async(async_http_client)
@@ -169,11 +193,12 @@ async fn handle_microsoft_callback(
     config: &SocialLoginConfig,
     _session: &Session,
 ) -> Result<SocialUserInfo, OAuth2Error> {
-    let provider_config = config.microsoft.as_ref()
-        .ok_or_else(|| OAuth2Error::new("provider_not_configured", Some("Microsoft not configured")))?;
+    let provider_config = config.microsoft.as_ref().ok_or_else(|| {
+        OAuth2Error::new("provider_not_configured", Some("Microsoft not configured"))
+    })?;
 
     let client = SocialLoginService::get_microsoft_client(provider_config)?;
-    
+
     let token_result = client
         .exchange_code(AuthorizationCode::new(code.to_string()))
         .request_async(async_http_client)
@@ -189,11 +214,12 @@ async fn handle_github_callback(
     config: &SocialLoginConfig,
     _session: &Session,
 ) -> Result<SocialUserInfo, OAuth2Error> {
-    let provider_config = config.github.as_ref()
-        .ok_or_else(|| OAuth2Error::new("provider_not_configured", Some("GitHub not configured")))?;
+    let provider_config = config.github.as_ref().ok_or_else(|| {
+        OAuth2Error::new("provider_not_configured", Some("GitHub not configured"))
+    })?;
 
     let client = SocialLoginService::get_github_client(provider_config)?;
-    
+
     let token_result = client
         .exchange_code(AuthorizationCode::new(code.to_string()))
         .request_async(async_http_client)
@@ -208,7 +234,7 @@ async fn handle_github_callback(
 pub async fn login_page() -> Result<HttpResponse> {
     let html = std::fs::read_to_string("templates/login.html")
         .unwrap_or_else(|_| include_str!("../../templates/login.html").to_string());
-    
+
     Ok(HttpResponse::Ok()
         .content_type("text/html; charset=utf-8")
         .body(html))
@@ -216,8 +242,7 @@ pub async fn login_page() -> Result<HttpResponse> {
 
 /// Authentication success page
 pub async fn auth_success(session: Session) -> Result<HttpResponse> {
-    let authenticated: Option<bool> = session.get("authenticated")
-        .unwrap_or(None);
+    let authenticated: Option<bool> = session.get("authenticated").unwrap_or(None);
 
     if !authenticated.unwrap_or(false) {
         return Ok(HttpResponse::Found()
@@ -225,8 +250,7 @@ pub async fn auth_success(session: Session) -> Result<HttpResponse> {
             .finish());
     }
 
-    let user_info: Option<String> = session.get("user_info")
-        .unwrap_or(None);
+    let user_info: Option<String> = session.get("user_info").unwrap_or(None);
 
     let html = format!(
         r#"
@@ -257,7 +281,7 @@ pub async fn auth_success(session: Session) -> Result<HttpResponse> {
 /// Logout handler
 pub async fn logout(session: Session) -> Result<HttpResponse> {
     session.purge();
-    
+
     Ok(HttpResponse::Found()
         .append_header(("Location", "/auth/login"))
         .finish())

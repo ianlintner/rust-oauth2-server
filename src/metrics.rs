@@ -1,26 +1,24 @@
-use prometheus::{
-    Counter, Histogram, HistogramOpts, IntCounter, IntGauge, Opts, Registry,
-};
+use prometheus::{Counter, Histogram, HistogramOpts, IntCounter, IntGauge, Opts, Registry};
 use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct Metrics {
     pub registry: Arc<Registry>,
-    
+
     // Request metrics
     pub http_requests_total: Counter,
     pub http_request_duration_seconds: Histogram,
-    
+
     // OAuth2 metrics
     pub oauth_token_issued_total: IntCounter,
     pub oauth_token_revoked_total: IntCounter,
     pub oauth_authorization_codes_issued: IntCounter,
     pub oauth_failed_authentications: IntCounter,
-    
+
     // Client metrics
     pub oauth_clients_total: IntGauge,
     pub oauth_active_tokens: IntGauge,
-    
+
     // Database metrics
     pub db_queries_total: Counter,
     pub db_query_duration_seconds: Histogram,
@@ -52,8 +50,11 @@ impl Metrics {
         registry.register(Box::new(oauth_token_issued_total.clone()))?;
 
         let oauth_token_revoked_total = IntCounter::with_opts(
-            Opts::new("oauth_token_revoked_total", "Total number of tokens revoked")
-                .namespace("oauth2_server"),
+            Opts::new(
+                "oauth_token_revoked_total",
+                "Total number of tokens revoked",
+            )
+            .namespace("oauth2_server"),
         )?;
         registry.register(Box::new(oauth_token_revoked_total.clone()))?;
 
@@ -82,8 +83,7 @@ impl Metrics {
         registry.register(Box::new(oauth_clients_total.clone()))?;
 
         let oauth_active_tokens = IntGauge::with_opts(
-            Opts::new("oauth_active_tokens", "Number of active tokens")
-                .namespace("oauth2_server"),
+            Opts::new("oauth_active_tokens", "Number of active tokens").namespace("oauth2_server"),
         )?;
         registry.register(Box::new(oauth_active_tokens.clone()))?;
 

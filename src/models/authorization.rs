@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
@@ -32,7 +34,7 @@ impl AuthorizationCode {
     ) -> Self {
         let now = Utc::now();
         let expires_at = now + Duration::minutes(10); // Authorization codes expire in 10 minutes
-        
+
         Self {
             id: Uuid::new_v4().to_string(),
             code,

@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Deserialize)]
@@ -11,6 +13,7 @@ pub struct SocialLoginConfig {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[allow(dead_code)]
 pub struct ProviderConfig {
     pub client_id: String,
     pub client_secret: String,
@@ -45,9 +48,14 @@ impl SocialLoginConfig {
     fn provider_from_env(prefix: &str) -> Option<ProviderConfig> {
         let client_id = std::env::var(format!("OAUTH2_{}_CLIENT_ID", prefix)).ok()?;
         let client_secret = std::env::var(format!("OAUTH2_{}_CLIENT_SECRET", prefix)).ok()?;
-        let redirect_uri = std::env::var(format!("OAUTH2_{}_REDIRECT_URI", prefix))
-            .unwrap_or_else(|_| format!("http://localhost:8080/auth/callback/{}", prefix.to_lowercase()));
-        
+        let redirect_uri =
+            std::env::var(format!("OAUTH2_{}_REDIRECT_URI", prefix)).unwrap_or_else(|_| {
+                format!(
+                    "http://localhost:8080/auth/callback/{}",
+                    prefix.to_lowercase()
+                )
+            });
+
         Some(ProviderConfig {
             client_id,
             client_secret,

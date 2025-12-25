@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
@@ -32,7 +34,8 @@ impl Client {
             id: Uuid::new_v4().to_string(),
             client_id,
             client_secret,
-            redirect_uris: serde_json::to_string(&redirect_uris).unwrap_or_else(|_| "[]".to_string()),
+            redirect_uris: serde_json::to_string(&redirect_uris)
+                .unwrap_or_else(|_| "[]".to_string()),
             grant_types: serde_json::to_string(&grant_types).unwrap_or_else(|_| "[]".to_string()),
             scope,
             name,

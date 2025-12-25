@@ -1,9 +1,8 @@
+#![allow(dead_code)]
+
 use crate::models::{OAuth2Error, ProviderConfig, SocialUserInfo};
-use oauth2::{
-    AuthUrl, AuthorizationCode, ClientId, ClientSecret, CsrfToken, RedirectUrl, TokenUrl,
-    TokenResponse as OAuth2TokenResponse, basic::BasicClient, reqwest::async_http_client,
-};
-use serde::{Deserialize, Serialize};
+use oauth2::{basic::BasicClient, AuthUrl, ClientId, ClientSecret, RedirectUrl, TokenUrl};
+use serde::Deserialize;
 
 pub struct SocialLoginService;
 
@@ -67,10 +66,9 @@ impl SocialLoginService {
     }
 
     pub fn get_okta_client(config: &ProviderConfig) -> Result<BasicClient, OAuth2Error> {
-        let domain = config
-            .domain
-            .as_ref()
-            .ok_or_else(|| OAuth2Error::new("invalid_configuration", Some("Okta domain is required")))?;
+        let domain = config.domain.as_ref().ok_or_else(|| {
+            OAuth2Error::new("invalid_configuration", Some("Okta domain is required"))
+        })?;
 
         Ok(BasicClient::new(
             ClientId::new(config.client_id.clone()),
@@ -89,10 +87,9 @@ impl SocialLoginService {
     }
 
     pub fn get_auth0_client(config: &ProviderConfig) -> Result<BasicClient, OAuth2Error> {
-        let domain = config
-            .domain
-            .as_ref()
-            .ok_or_else(|| OAuth2Error::new("invalid_configuration", Some("Auth0 domain is required")))?;
+        let domain = config.domain.as_ref().ok_or_else(|| {
+            OAuth2Error::new("invalid_configuration", Some("Auth0 domain is required"))
+        })?;
 
         Ok(BasicClient::new(
             ClientId::new(config.client_id.clone()),
@@ -141,7 +138,9 @@ impl SocialLoginService {
         })
     }
 
-    pub async fn fetch_microsoft_user_info(access_token: &str) -> Result<SocialUserInfo, OAuth2Error> {
+    pub async fn fetch_microsoft_user_info(
+        access_token: &str,
+    ) -> Result<SocialUserInfo, OAuth2Error> {
         let client = reqwest::Client::new();
         let response = client
             .get("https://graph.microsoft.com/v1.0/me")

@@ -61,9 +61,9 @@ where
 
         Box::pin(async move {
             metrics.http_requests_total.inc();
-            
+
             let res = svc.call(req).await?;
-            
+
             let duration = start.elapsed();
             metrics
                 .http_request_duration_seconds

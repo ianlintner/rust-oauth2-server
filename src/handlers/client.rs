@@ -1,7 +1,7 @@
+use crate::actors::{ClientActor, RegisterClient};
+use crate::models::{ClientCredentials, ClientRegistration, OAuth2Error};
 use actix::Addr;
 use actix_web::{web, HttpResponse, Result};
-use crate::actors::{ClientActor, RegisterClient};
-use crate::models::{ClientRegistration, OAuth2Error, ClientCredentials};
 
 /// Register a new OAuth2 client
 pub async fn register_client(
@@ -13,8 +13,7 @@ pub async fn register_client(
             registration: registration.into_inner(),
         })
         .await
-        .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))?
-        .map_err(|e| e)?;
+        .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))??;
 
     let credentials = ClientCredentials {
         client_id: client.client_id,

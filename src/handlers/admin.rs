@@ -1,6 +1,6 @@
-use actix_web::{web, HttpResponse, Result};
 use crate::db::Database;
 use crate::metrics::Metrics;
+use actix_web::{web, HttpResponse, Result};
 use serde::Serialize;
 use std::sync::Arc;
 
@@ -30,9 +30,7 @@ pub struct TokenInfo {
 }
 
 /// Admin dashboard - shows overview statistics
-pub async fn dashboard(
-    _db: web::Data<Arc<Database>>,
-) -> Result<HttpResponse> {
+pub async fn dashboard(_db: web::Data<Arc<Database>>) -> Result<HttpResponse> {
     // In a real implementation, fetch actual stats from database
     let data = DashboardData {
         total_clients: 0,
@@ -45,18 +43,14 @@ pub async fn dashboard(
 }
 
 /// List all registered clients
-pub async fn list_clients(
-    _db: web::Data<Arc<Database>>,
-) -> Result<HttpResponse> {
+pub async fn list_clients(_db: web::Data<Arc<Database>>) -> Result<HttpResponse> {
     // In a real implementation, fetch from database
     let clients: Vec<ClientInfo> = vec![];
     Ok(HttpResponse::Ok().json(clients))
 }
 
 /// List all active tokens
-pub async fn list_tokens(
-    _db: web::Data<Arc<Database>>,
-) -> Result<HttpResponse> {
+pub async fn list_tokens(_db: web::Data<Arc<Database>>) -> Result<HttpResponse> {
     // In a real implementation, fetch from database
     let tokens: Vec<TokenInfo> = vec![];
     Ok(HttpResponse::Ok().json(tokens))
@@ -68,9 +62,10 @@ pub async fn admin_revoke_token(
     db: web::Data<Arc<Database>>,
 ) -> Result<HttpResponse> {
     // Revoke token
-    db.revoke_token(&token_id).await
-        .map_err(|e| actix_web::error::ErrorInternalServerError(e))?;
-    
+    db.revoke_token(&token_id)
+        .await
+        .map_err(actix_web::error::ErrorInternalServerError)?;
+
     Ok(HttpResponse::Ok().json(serde_json::json!({
         "message": "Token revoked successfully"
     })))
@@ -88,15 +83,13 @@ pub async fn delete_client(
 }
 
 /// Get system metrics
-pub async fn system_metrics(
-    metrics: web::Data<Metrics>,
-) -> Result<HttpResponse> {
+pub async fn system_metrics(metrics: web::Data<Metrics>) -> Result<HttpResponse> {
     use prometheus::Encoder;
     let encoder = prometheus::TextEncoder::new();
     let metric_families = metrics.registry.gather();
     let mut buffer = vec![];
     encoder.encode(&metric_families, &mut buffer).unwrap();
-    
+
     Ok(HttpResponse::Ok()
         .content_type("text/plain; version=0.0.4")
         .body(buffer))
@@ -112,12 +105,10 @@ pub async fn health() -> Result<HttpResponse> {
 }
 
 /// Readiness check endpoint
-pub async fn readiness(
-    _db: web::Data<Arc<Database>>,
-) -> Result<HttpResponse> {
+pub async fn readiness(_db: web::Data<Arc<Database>>) -> Result<HttpResponse> {
     // Check database connectivity
     // In a real implementation, execute a simple query
-    
+
     Ok(HttpResponse::Ok().json(serde_json::json!({
         "status": "ready",
         "checks": {

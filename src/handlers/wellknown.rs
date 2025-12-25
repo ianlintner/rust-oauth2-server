@@ -1,4 +1,4 @@
-use actix_web::{web, HttpResponse, Result};
+use actix_web::{HttpResponse, Result};
 use serde_json::json;
 
 /// OAuth2 discovery endpoint
