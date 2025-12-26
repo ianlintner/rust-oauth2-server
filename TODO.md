@@ -5,6 +5,7 @@ This document tracks planned enhancements for the OAuth2 server.
 ## High Priority
 
 ### Testing & Quality
+
 - [ ] **Complete BDD test scenarios**
   - Add Cucumber scenarios for all OAuth2 flows
   - Test authorization code flow with PKCE
@@ -22,6 +23,7 @@ This document tracks planned enhancements for the OAuth2 server.
   - Service layer tests
 
 ### Security & Compliance
+
 - [ ] **Add rate limiting middleware**
   - Per-IP rate limiting
   - Per-client rate limiting
@@ -51,6 +53,7 @@ This document tracks planned enhancements for the OAuth2 server.
 ## Medium Priority
 
 ### User Interface & Management
+
 - [ ] **Implement user consent management UI**
   - Consent screen for authorization
   - List of authorized applications
@@ -75,6 +78,7 @@ This document tracks planned enhancements for the OAuth2 server.
   - Compliance reporting
 
 ### OAuth2 Features
+
 - [ ] **OAuth2 device flow**
   - Device authorization grant
   - User code input UI
@@ -82,6 +86,7 @@ This document tracks planned enhancements for the OAuth2 server.
   - Device registration
 
 ### Storage & Performance
+
 - [ ] **Redis session store option**
   - Redis-backed sessions
   - Distributed session support
@@ -97,6 +102,7 @@ This document tracks planned enhancements for the OAuth2 server.
 ## Low Priority
 
 ### Monitoring & Observability
+
 - [ ] **Enhanced metrics**
   - Business metrics (MAU, DAU)
   - Token lifecycle metrics
@@ -110,6 +116,7 @@ This document tracks planned enhancements for the OAuth2 server.
   - SLA monitoring
 
 ### Advanced Features
+
 - [ ] **Multi-tenancy support**
   - Tenant isolation
   - Per-tenant configuration
@@ -138,6 +145,7 @@ This document tracks planned enhancements for the OAuth2 server.
   - Encrypted request objects
 
 ### Integration & Extensibility
+
 - [ ] **Plugin system**
   - Custom authentication plugins
   - Custom authorization plugins
@@ -155,6 +163,7 @@ This document tracks planned enhancements for the OAuth2 server.
   - Identity Provider role
 
 ### Documentation & Developer Experience
+
 - [ ] **Interactive API playground**
   - Try API endpoints directly
   - Example requests/responses
@@ -172,6 +181,7 @@ This document tracks planned enhancements for the OAuth2 server.
   - From Okta
 
 ### Performance & Scalability
+
 - [ ] **Caching layer**
   - Client metadata caching
   - User profile caching
@@ -185,6 +195,7 @@ This document tracks planned enhancements for the OAuth2 server.
   - CQRS pattern
 
 ## Completed ✅
+
 - [x] Core OAuth2 flows (Authorization Code, Client Credentials, Password, Refresh Token)
 - [x] PKCE support
 - [x] JWT tokens
@@ -203,12 +214,15 @@ This document tracks planned enhancements for the OAuth2 server.
 ## Notes
 
 ### Priority Definitions
+
 - **High Priority**: Security-critical or essential for production readiness
 - **Medium Priority**: Improves usability and management capabilities
 - **Low Priority**: Nice-to-have features for advanced use cases
 
 ### Contributing
+
 When implementing items from this TODO list:
+
 1. Create a feature branch
 2. Add tests for new functionality
 3. Update documentation
@@ -216,7 +230,9 @@ When implementing items from this TODO list:
 5. Link to the relevant TODO item
 
 ### Versioning
+
 Track which version each feature is planned for:
+
 - v0.2.0: BDD tests, rate limiting, user consent UI
 - v0.3.0: 2FA/MFA, WebAuthn, JWT key rotation
 - v0.4.0: Device flow, Redis sessions, admin user management

@@ -110,6 +110,7 @@ graph TB
 The foundation of the application is built on **Actix-Web**, a powerful, pragmatic, and extremely fast web framework for Rust.
 
 **Key Features:**
+
 - Asynchronous request handling
 - HTTP/1.x and HTTP/2 support
 - WebSocket support
@@ -118,6 +119,7 @@ The foundation of the application is built on **Actix-Web**, a powerful, pragmat
 - Middleware support
 
 **Configuration:**
+
 ```rust
 HttpServer::new(move || {
     App::new()
@@ -165,6 +167,7 @@ graph LR
 ```
 
 **Benefits:**
+
 - Isolation: Each actor manages its own state
 - Concurrency: Actors process messages concurrently
 - Fault Tolerance: Actor failures don't cascade
@@ -177,10 +180,12 @@ See [Actor Model Documentation](actors.md) for detailed implementation.
 The server uses **SQLx** for database interactions, providing compile-time verified SQL queries.
 
 **Supported Databases:**
+
 - SQLite (development/testing)
 - PostgreSQL (production)
 
 **Features:**
+
 - Async database operations
 - Connection pooling
 - Compile-time query verification
@@ -376,6 +381,7 @@ App::new()
 Handlers process HTTP requests and coordinate with actors:
 
 **Handler Responsibilities:**
+
 - Request validation
 - Parameter extraction
 - Actor coordination
@@ -383,6 +389,7 @@ Handlers process HTTP requests and coordinate with actors:
 - Error handling
 
 **Example Handler Flow:**
+
 ```rust
 async fn token_handler(
     req: TokenRequest,
@@ -425,6 +432,7 @@ The server issues JWT tokens with the following structure:
 ```
 
 **Token Claims:**
+
 - `sub`: Subject (user ID)
 - `client_id`: OAuth2 client identifier
 - `scope`: Granted scopes
@@ -544,6 +552,7 @@ graph LR
 ```
 
 **Performance Benefits:**
+
 - **Async I/O**: Non-blocking operations
 - **Worker Threads**: CPU core utilization
 - **Connection Pooling**: Database efficiency
@@ -553,12 +562,14 @@ graph LR
 ### Scalability
 
 **Horizontal Scaling:**
+
 - Stateless server design
 - Session stored in database/Redis
 - Load balancer compatible
 - No inter-server communication required
 
 **Vertical Scaling:**
+
 - Multi-threaded workers
 - Efficient memory usage
 - Fast request processing
@@ -602,6 +613,7 @@ graph LR
 ### 1. Type Safety
 
 Rust's type system prevents entire classes of bugs:
+
 - No null pointer exceptions
 - No data races
 - Memory safety without garbage collection
@@ -610,6 +622,7 @@ Rust's type system prevents entire classes of bugs:
 ### 2. Actor Model
 
 Benefits of actor-based concurrency:
+
 - Isolated state management
 - Message-passing communication
 - Fault tolerance
@@ -618,6 +631,7 @@ Benefits of actor-based concurrency:
 ### 3. Asynchronous I/O
 
 Non-blocking operations for efficiency:
+
 - Efficient resource utilization
 - High concurrency support
 - Responsive under load
@@ -626,6 +640,7 @@ Non-blocking operations for efficiency:
 ### 4. Security First
 
 Security built into every layer:
+
 - Secure by default configuration
 - Principle of least privilege
 - Defense in depth
@@ -634,6 +649,7 @@ Security built into every layer:
 ### 5. Observability
 
 Comprehensive monitoring and debugging:
+
 - Structured logging
 - Distributed tracing
 - Prometheus metrics
@@ -642,6 +658,7 @@ Comprehensive monitoring and debugging:
 ## Configuration Architecture
 
 Configuration is loaded in this order:
+
 1. Default values (code)
 2. Configuration file
 3. Environment variables (override)

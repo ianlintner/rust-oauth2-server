@@ -1,0 +1,31 @@
+{
+  "name": "@rust-oauth2-server/mcp-server",
+  "version": "1.0.0",
+  "description": "Model Context Protocol server for Rust OAuth2 Server API",
+  "type": "module",
+  "main": "src/index.js",
+  "bin": {
+    "oauth2-mcp-server": "./src/index.js"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js"
+  },
+  "keywords": [
+    "mcp",
+    "oauth2",
+    "model-context-protocol",
+    "ai",
+    "llm"
+  ],
+  "author": "Ian Lintner",
+  "license": "MIT OR Apache-2.0",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.25.1",
+    "axios": "^1.13.2",
+    "dotenv": "^17.2.3"
+  }
+}

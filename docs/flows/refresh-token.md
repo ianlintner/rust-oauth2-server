@@ -5,11 +5,13 @@ The Refresh Token Flow allows clients to obtain new access tokens without requir
 ## Overview
 
 Refresh tokens are used when:
+
 - Access tokens expire
 - User sessions need to be extended
 - Applications need long-term access without user interaction
 
 **Key Characteristics:**
+
 - Refresh tokens are long-lived (days/weeks/months)
 - Access tokens are short-lived (minutes/hours)
 - Refresh tokens can be revoked
@@ -68,6 +70,7 @@ stateDiagram-v2
 ### Request New Access Token
 
 **HTTP Request:**
+
 ```http
 POST /oauth/token HTTP/1.1
 Host: oauth2-server.example.com

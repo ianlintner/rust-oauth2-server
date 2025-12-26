@@ -5,12 +5,14 @@ This document provides comprehensive documentation of the database schema, migra
 ## Database Overview
 
 The server supports two database backends:
+
 - **SQLite**: For development and testing
 - **PostgreSQL**: For production deployments
 
 ### Technology: SQLx
 
 The server uses **SQLx**, a Rust SQL toolkit featuring:
+
 - **Compile-time verification**: SQL queries checked at compile time
 - **Async/await support**: Non-blocking database operations
 - **Connection pooling**: Efficient resource management
@@ -116,6 +118,7 @@ CREATE INDEX idx_clients_client_id ON clients(client_id);
 | `updated_at` | TEXT (ISO 8601) | Last update timestamp |
 
 **Example Data:**
+
 ```json
 {
   "id": "123e4567-e89b-12d3-a456-426614174000",
@@ -162,6 +165,7 @@ CREATE INDEX idx_users_email ON users(email);
 | `updated_at` | TEXT (ISO 8601) | Last update timestamp |
 
 **Example Data:**
+
 ```json
 {
   "id": "987fcdeb-51a2-43f7-9c8d-7b6e5a4f3c2b",
@@ -218,6 +222,7 @@ CREATE INDEX idx_tokens_user_id ON tokens(user_id);
 | `revoked` | INTEGER | Revocation status (1=revoked, 0=active) |
 
 **Example Data:**
+
 ```json
 {
   "id": "456f789a-bc12-34de-56fg-789012hij345",
@@ -277,6 +282,7 @@ CREATE INDEX idx_authorization_codes_user_id ON authorization_codes(user_id);
 | `code_challenge_method` | TEXT | PKCE method (S256 or plain) |
 
 **Example Data:**
+
 ```json
 {
   "id": "789a012b-cd34-56ef-78gh-901234567ijk",
@@ -298,19 +304,23 @@ CREATE INDEX idx_authorization_codes_user_id ON authorization_codes(user_id);
 Indexes are created to optimize common query patterns:
 
 ### Clients Table
+
 - `idx_clients_client_id`: Fast client lookup by client_id
 
 ### Users Table
+
 - `idx_users_username`: Fast user lookup by username
 - `idx_users_email`: Fast user lookup by email
 
 ### Tokens Table
+
 - `idx_tokens_access_token`: Fast token validation
 - `idx_tokens_refresh_token`: Fast refresh token lookup
 - `idx_tokens_client_id`: Query tokens by client
 - `idx_tokens_user_id`: Query tokens by user
 
 ### Authorization Codes Table
+
 - `idx_authorization_codes_code`: Fast code validation
 - `idx_authorization_codes_client_id`: Query codes by client
 - `idx_authorization_codes_user_id`: Query codes by user

@@ -192,44 +192,52 @@ curl -X POST http://localhost:8080/oauth/token \
 ## Documentation Structure
 
 ### Getting Started
+
 - **[Installation](getting-started/installation.md)** - Set up the OAuth2 server
 - **[Quick Start](getting-started/quickstart.md)** - Your first OAuth2 flow
 - **[Configuration](getting-started/configuration.md)** - Complete configuration guide
 - **[Social Login Setup](getting-started/social-login-setup.md)** - Configure social providers
 
 ### Architecture
+
 - **[Overview](architecture/overview.md)** - System architecture and design
 - **[Actor Model](architecture/actors.md)** - Actor-based concurrency
 - **[Database](architecture/database.md)** - Schema and data access patterns
 
 ### OAuth2 Flows
+
 - **[Authorization Code](flows/authorization-code.md)** - Standard authorization flow
 - **[Client Credentials](flows/client-credentials.md)** - Service-to-service auth
 - **[Refresh Token](flows/refresh-token.md)** - Token refresh mechanism
 - **[Password Grant](flows/password.md)** - Resource owner password credentials
 
 ### API Reference
+
 - **[Endpoints](api/endpoints.md)** - Complete API documentation
 - **[Authentication](api/authentication.md)** - Token usage and scopes
 - **[Error Handling](api/errors.md)** - Error responses and codes
 
 ### Observability
+
 - **[Metrics](observability/metrics.md)** - Prometheus metrics
 - **[Tracing](observability/tracing.md)** - OpenTelemetry tracing
 - **[Logging](observability/logging.md)** - Structured logging
 - **[Health Checks](observability/health.md)** - Health and readiness endpoints
 
 ### Admin Panel
+
 - **[Dashboard](admin/dashboard.md)** - Admin web interface
 - **[Client Management](admin/clients.md)** - Managing OAuth2 clients
 - **[Token Management](admin/tokens.md)** - Token administration
 
 ### Deployment
+
 - **[Docker](deployment/docker.md)** - Container deployment
 - **[Kubernetes](deployment/kubernetes.md)** - K8s manifests
 - **[Production](deployment/production.md)** - Best practices and security
 
 ### Development
+
 - **[Contributing](development/contributing.md)** - How to contribute
 - **[Testing](development/testing.md)** - Testing guide
 - **[CI/CD](development/cicd.md)** - Continuous integration
@@ -237,6 +245,7 @@ curl -X POST http://localhost:8080/oauth/token \
 ## Key Features
 
 ### 🔒 Security First
+
 - PKCE support for public clients
 - Secure token storage with hashing
 - Scope-based authorization
@@ -245,6 +254,7 @@ curl -X POST http://localhost:8080/oauth/token \
 - Rate limiting (planned)
 
 ### ⚡ High Performance
+
 - Async I/O with Tokio
 - Actor-based concurrency
 - Connection pooling
@@ -252,6 +262,7 @@ curl -X POST http://localhost:8080/oauth/token \
 - Minimal memory footprint
 
 ### 📊 Observable
+
 - Prometheus metrics
 - OpenTelemetry tracing
 - Structured JSON logging
@@ -259,6 +270,7 @@ curl -X POST http://localhost:8080/oauth/token \
 - Admin dashboard
 
 ### 🌐 Cloud Native
+
 - Stateless design
 - Docker container support
 - Kubernetes ready

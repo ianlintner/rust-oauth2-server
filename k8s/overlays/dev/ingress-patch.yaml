@@ -1,0 +1,20 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: oauth2-server
+spec:
+  tls:
+    - hosts:
+        - oauth-dev.example.com
+      secretName: oauth2-server-dev-tls
+  rules:
+    - host: oauth-dev.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: oauth2-server
+                port:
+                  number: 80

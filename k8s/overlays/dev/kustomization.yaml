@@ -1,0 +1,24 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: oauth2-server-dev
+
+bases:
+  - ../../base
+
+namePrefix: dev-
+
+commonLabels:
+  environment: development
+
+patchesStrategicMerge:
+  - deployment-patch.yaml
+  - ingress-patch.yaml
+
+replicas:
+  - name: oauth2-server
+    count: 1
+
+images:
+  - name: ghcr.io/ianlintner/rust_oauth2_server
+    newTag: dev

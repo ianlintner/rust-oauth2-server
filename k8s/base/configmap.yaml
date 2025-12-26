@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: oauth2-server-config
+  namespace: oauth2-server
+data:
+  OAUTH2_SERVER_HOST: "0.0.0.0"
+  OAUTH2_SERVER_PORT: "8080"
+  OAUTH2_DATABASE_URL: "postgresql://oauth2_user:oauth2_password@postgres:5432/oauth2"
+  RUST_LOG: "info"
+  RUST_BACKTRACE: "1"

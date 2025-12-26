@@ -23,6 +23,7 @@ All configuration options can be set via environment variables with the `OAUTH2_
 | `OAUTH2_SERVER_WORKERS` | Integer | CPU cores | Number of worker threads |
 
 **Example:**
+
 ```bash
 export OAUTH2_SERVER_HOST=0.0.0.0
 export OAUTH2_SERVER_PORT=8080
@@ -70,6 +71,7 @@ export OAUTH2_SERVER_WORKERS=4
     - Rotated periodically in production
 
 **Generating a secure JWT secret:**
+
 ```bash
 # Using openssl
 openssl rand -hex 32
@@ -79,6 +81,7 @@ cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w 64 | head -n 1
 ```
 
 **Example:**
+
 ```bash
 export OAUTH2_JWT_SECRET="a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0u1v2w3x4y5z6"
 ```
@@ -92,6 +95,7 @@ export OAUTH2_JWT_SECRET="a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0u1v2w3x4y5z6"
 | `OAUTH2_AUTHORIZATION_CODE_EXPIRATION` | Integer | `600` | Authorization code lifetime (seconds, 10 minutes) |
 
 **Example:**
+
 ```bash
 # Access token valid for 1 hour
 export OAUTH2_ACCESS_TOKEN_EXPIRATION=3600
@@ -115,6 +119,7 @@ export OAUTH2_AUTHORIZATION_CODE_EXPIRATION=600
     In production, `OAUTH2_SESSION_KEY` must be set to a persistent value. Auto-generated keys will invalidate all sessions on server restart.
 
 **Example:**
+
 ```bash
 export OAUTH2_SESSION_KEY="your-persistent-session-key-at-least-64-characters-long-abc123"
 export OAUTH2_SESSION_TIMEOUT=7200
@@ -167,6 +172,7 @@ export OAUTH2_SESSION_SECURE=true
 | `OAUTH2_AUTH0_DOMAIN` | String | Yes | Auth0 domain (e.g., tenant.auth0.com) |
 
 **Complete Social Login Example:**
+
 ```bash
 # Google
 export OAUTH2_GOOGLE_CLIENT_ID="123456-abc.apps.googleusercontent.com"
@@ -197,6 +203,7 @@ See [Social Login Setup Guide](social-login-setup.md) for detailed provider conf
 | `OAUTH2_OTLP_METRICS_ENABLED` | Boolean | `true` | Enable metrics export |
 
 **Example:**
+
 ```bash
 export OAUTH2_OTLP_ENDPOINT=http://jaeger:4317
 export OAUTH2_OTLP_PROTOCOL=grpc
@@ -211,6 +218,7 @@ export OAUTH2_OTLP_TRACES_ENABLED=true
 | `OAUTH2_LOG_FORMAT` | String | `json` | Log format (json or pretty) |
 
 **Log Levels:**
+
 - `error` - Error messages only
 - `warn` - Warnings and errors
 - `info` - Informational messages (recommended)
@@ -218,6 +226,7 @@ export OAUTH2_OTLP_TRACES_ENABLED=true
 - `trace` - Very verbose logging
 
 **Example:**
+
 ```bash
 # Production: JSON formatted info logs
 export RUST_LOG=info
@@ -238,6 +247,7 @@ export OAUTH2_LOG_FORMAT=pretty
 | `OAUTH2_CORS_MAX_AGE` | Integer | `3600` | Preflight cache duration (seconds) |
 
 **Example:**
+
 ```bash
 export OAUTH2_CORS_ALLOWED_ORIGINS="https://app.example.com,https://admin.example.com"
 export OAUTH2_CORS_ALLOWED_METHODS="GET,POST,OPTIONS"
@@ -439,6 +449,7 @@ The server warns if production requirements aren't met:
 - ✅ Secure cookie settings are enabled
 
 **View validation results:**
+
 ```bash
 # Start server and check logs
 cargo run 2>&1 | grep -i "configuration\|warning"

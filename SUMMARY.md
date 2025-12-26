@@ -3,6 +3,7 @@
 ## Overview
 
 A production-ready OAuth2 authorization server built with Rust and Actix-web, featuring:
+
 - Complete OAuth2 2.0 specification implementation
 - Social login integration with 6 major providers
 - Modern web UI with Material Tailwind
@@ -14,6 +15,7 @@ A production-ready OAuth2 authorization server built with Rust and Actix-web, fe
 ## Architecture
 
 ### Technology Stack
+
 - **Framework**: Actix-web 4.4 (Rust web framework)
 - **Concurrency**: Actor model with Actix
 - **Database**: SQLx with SQLite/PostgreSQL support
@@ -25,6 +27,7 @@ A production-ready OAuth2 authorization server built with Rust and Actix-web, fe
 - **UI**: Material Tailwind CSS
 
 ### Project Structure
+
 ```
 rust_oauth2/
 ├── src/
@@ -86,6 +89,7 @@ rust_oauth2/
 ## Features Implemented
 
 ### OAuth2 Compliance ✅
+
 - Authorization Code Flow with PKCE (RFC 7636)
 - Client Credentials Flow
 - Resource Owner Password Credentials Flow
@@ -95,6 +99,7 @@ rust_oauth2/
 - OAuth2 Discovery Endpoint (RFC 8414)
 
 ### Social Login Integration ✅
+
 - Google OAuth2
 - Microsoft/Azure AD
 - GitHub
@@ -103,6 +108,7 @@ rust_oauth2/
 - Auth0 (structure ready)
 
 ### Security Features ✅
+
 - PKCE (Proof Key for Code Exchange)
 - JWT tokens with configurable expiration
 - Secure client secret generation
@@ -112,6 +118,7 @@ rust_oauth2/
 - Secure cookie session management
 
 ### Observability ✅
+
 - Prometheus metrics (10+ custom metrics)
 - Structured JSON logging
 - Health check endpoint
@@ -120,6 +127,7 @@ rust_oauth2/
 - Metrics middleware
 
 ### User Interface ✅
+
 - Modern login page with social login buttons
 - Error page with detailed error display
 - Admin dashboard with real-time metrics
@@ -127,6 +135,7 @@ rust_oauth2/
 - Material Design components
 
 ### Database ✅
+
 - Type-safe database access with SQLx
 - SQLite support (default)
 - PostgreSQL support
@@ -134,6 +143,7 @@ rust_oauth2/
 - Database health checks
 
 ### Documentation ✅
+
 - OpenAPI 3.0 specification
 - Swagger UI at `/swagger-ui`
 - MkDocs documentation with Material theme
@@ -143,6 +153,7 @@ rust_oauth2/
 - Comprehensive README
 
 ### CI/CD Pipeline ✅
+
 - GitHub Actions workflow
 - Multi-platform builds (Linux, macOS, Windows)
 - Code quality checks (rustfmt, clippy)
@@ -155,29 +166,35 @@ rust_oauth2/
 ## Endpoints
 
 ### User Interface
+
 - `GET /` - Redirects to login
 - `GET /auth/login` - Login page
 - `GET /error` - Error page
 - `GET /admin` - Admin dashboard
 
 ### Social Login
+
 - `GET /auth/login/{provider}` - Initiate social login
 - `GET /auth/callback/{provider}` - OAuth callback
 - `POST /auth/logout` - Logout
 
 ### OAuth2
+
 - `GET /oauth/authorize` - Authorization endpoint
 - `POST /oauth/token` - Token endpoint
 - `POST /oauth/introspect` - Token introspection
 - `POST /oauth/revoke` - Token revocation
 
 ### Client Management
+
 - `POST /clients/register` - Register new client
 
 ### Discovery
+
 - `GET /.well-known/openid-configuration` - Server metadata
 
 ### Admin & Monitoring
+
 - `GET /health` - Health check
 - `GET /ready` - Readiness check
 - `GET /metrics` - Prometheus metrics
@@ -186,11 +203,13 @@ rust_oauth2/
 - `GET /admin/api/tokens` - List tokens
 
 ### Documentation
+
 - `GET /swagger-ui` - Interactive API docs
 
 ## Configuration
 
 ### Environment Variables
+
 ```bash
 # Server
 OAUTH2_SERVER_HOST=127.0.0.1
@@ -225,18 +244,21 @@ OAUTH2_AUTH0_DOMAIN=...
 ## Deployment
 
 ### Local Development
+
 ```bash
 ./scripts/migrate.sh
 cargo run
 ```
 
 ### Docker
+
 ```bash
 docker build -t oauth2_server .
 docker run -p 8080:8080 oauth2_server
 ```
 
 ### Docker Compose
+
 ```bash
 docker-compose up
 ```
@@ -244,6 +266,7 @@ docker-compose up
 ## Metrics
 
 Available at `/metrics`:
+
 - `oauth2_server_http_requests_total`
 - `oauth2_server_http_request_duration_seconds`
 - `oauth2_server_oauth_token_issued_total`
@@ -269,6 +292,7 @@ cargo test --test bdd
 ## Future Enhancements
 
 See `TODO.md` for detailed list. High priority items:
+
 - Complete BDD test scenarios
 - Rate limiting middleware
 - User consent management UI
@@ -306,6 +330,7 @@ MIT OR Apache-2.0
 ## Credits
 
 Inspired by:
+
 - [Keycloak](https://www.keycloak.org/) - Feature set reference
 - [RFC 6749](https://tools.ietf.org/html/rfc6749) - OAuth 2.0 Authorization Framework
 - [RFC 7636](https://tools.ietf.org/html/rfc7636) - PKCE
@@ -315,8 +340,8 @@ Inspired by:
 
 ## Support
 
-- Repository: https://github.com/ianlintner/rust_oauth2
-- Issues: https://github.com/ianlintner/rust_oauth2/issues
+- Repository: <https://github.com/ianlintner/rust_oauth2>
+- Issues: <https://github.com/ianlintner/rust_oauth2/issues>
 - Documentation: See `/docs` directory
 
 ---

@@ -5,6 +5,7 @@ The Authorization Code Flow is the most secure and commonly used OAuth2 flow. It
 ## Overview
 
 The Authorization Code Flow is a two-step process:
+
 1. **Authorization Step**: User grants permission, receives authorization code
 2. **Token Exchange Step**: Application exchanges code for access token
 
@@ -53,6 +54,7 @@ sequenceDiagram
 The client application redirects the user to the authorization endpoint.
 
 **Request:**
+
 ```http
 GET /oauth/authorize?
     response_type=code&
@@ -75,6 +77,7 @@ Host: oauth2-server.example.com
 | `state` | Recommended | Random string for CSRF protection |
 
 **Example cURL:**
+
 ```bash
 # Build authorization URL
 AUTH_URL="http://localhost:8080/oauth/authorize?\
@@ -88,6 +91,7 @@ echo "Navigate to: $AUTH_URL"
 ```
 
 **Example in JavaScript:**
+
 ```javascript
 function initiateOAuth() {
   const params = new URLSearchParams({
@@ -114,6 +118,7 @@ function generateRandomState() {
 The authorization server presents a login page (if not authenticated) and consent screen.
 
 **Login Page:**
+
 ```
 ┌─────────────────────────────────────┐
 │  OAuth2 Server                      │
@@ -131,6 +136,7 @@ The authorization server presents a login page (if not authenticated) and consen
 ```
 
 **Consent Screen:**
+
 ```
 ┌─────────────────────────────────────┐
 │  OAuth2 Server                      │
@@ -152,6 +158,7 @@ The authorization server presents a login page (if not authenticated) and consen
 After user approval, the authorization server redirects back to the application.
 
 **Redirect:**
+
 ```http
 HTTP/1.1 302 Found
 Location: https://yourapp.com/callback?
@@ -167,6 +174,7 @@ Location: https://yourapp.com/callback?
 | `state` | The state parameter from the request (must match) |
 
 **Error Response:**
+
 ```http
 HTTP/1.1 302 Found
 Location: https://yourapp.com/callback?
@@ -192,6 +200,7 @@ Location: https://yourapp.com/callback?
 The application receives the authorization code and validates the state parameter.
 
 **Node.js Example:**
+
 ```javascript
 app.get('/callback', async (req, res) => {
   const { code, state, error } = req.query;
@@ -219,6 +228,7 @@ app.get('/callback', async (req, res) => {
 ```
 
 **Python (Flask) Example:**
+
 ```python
 @app.route('/callback')
 def callback():
@@ -249,6 +259,7 @@ def callback():
 The application makes a back-channel request to exchange the authorization code for an access token.
 
 **Request:**
+
 ```http
 POST /oauth/token HTTP/1.1
 Host: oauth2-server.example.com
@@ -272,6 +283,7 @@ client_secret=YOUR_CLIENT_SECRET
 | `client_secret` | Yes | The client secret |
 
 **cURL Example:**
+
 ```bash
 curl -X POST http://localhost:8080/oauth/token \
   -H "Content-Type: application/x-www-form-urlencoded" \
@@ -283,6 +295,7 @@ curl -X POST http://localhost:8080/oauth/token \
 ```
 
 **Success Response:**
+
 ```json
 {
   "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
@@ -304,6 +317,7 @@ curl -X POST http://localhost:8080/oauth/token \
 | `scope` | Granted scopes (may differ from requested) |
 
 **Error Response:**
+
 ```json
 {
   "error": "invalid_grant",
@@ -316,6 +330,7 @@ curl -X POST http://localhost:8080/oauth/token \
 Use the access token to make authenticated API requests.
 
 **Request:**
+
 ```http
 GET /api/resource HTTP/1.1
 Host: api.example.com
@@ -323,12 +338,14 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 ```
 
 **cURL Example:**
+
 ```bash
 curl -H "Authorization: Bearer YOUR_ACCESS_TOKEN" \
      http://api.example.com/api/resource
 ```
 
 **JavaScript Example:**
+
 ```javascript
 async function fetchProtectedResource() {
   const response = await fetch('https://api.example.com/api/resource', {
@@ -370,6 +387,7 @@ sequenceDiagram
 ### Step 1: Generate Code Verifier and Challenge
 
 **Generate Code Verifier:**
+
 ```javascript
 // Generate random code verifier (43-128 characters)
 function generateCodeVerifier() {
@@ -387,6 +405,7 @@ function base64URLEncode(buffer) {
 ```
 
 **Generate Code Challenge:**
+
 ```javascript
 async function generateCodeChallenge(verifier) {
   const encoder = new TextEncoder();
@@ -397,6 +416,7 @@ async function generateCodeChallenge(verifier) {
 ```
 
 **Python Example:**
+
 ```python
 import hashlib
 import base64
@@ -471,6 +491,7 @@ if (returnedState !== expectedState) {
 ### 2. Authorization Code Lifetime
 
 Authorization codes should:
+
 - Be single-use only
 - Expire quickly (typically 10 minutes)
 - Be securely random
@@ -478,6 +499,7 @@ Authorization codes should:
 ### 3. Redirect URI Validation
 
 The authorization server must:
+
 - Validate redirect_uri against registered URIs
 - Use exact string matching (no wildcards)
 - Prevent open redirects
@@ -485,6 +507,7 @@ The authorization server must:
 ### 4. Client Authentication
 
 For confidential clients:
+
 - Always require client_secret
 - Store client_secret securely
 - Use HTTPS for token exchange
@@ -493,6 +516,7 @@ For confidential clients:
 ### 5. PKCE for Public Clients
 
 Mobile apps and SPAs should:
+
 - Always use PKCE
 - Use S256 code challenge method
 - Never use plain method in production
@@ -504,6 +528,7 @@ Mobile apps and SPAs should:
 **Cause:** Code already used or expired
 
 **Solution:**
+
 ```javascript
 try {
   const tokens = await exchangeCodeForToken(code);
@@ -520,6 +545,7 @@ try {
 **Cause:** redirect_uri in token request doesn't match authorization request
 
 **Solution:**
+
 - Ensure exact match of redirect_uri in both requests
 - Check for trailing slashes
 - Verify protocol (http vs https)
@@ -529,6 +555,7 @@ try {
 **Cause:** Invalid client_id or client_secret
 
 **Solution:**
+
 - Verify credentials
 - Check if client is registered
 - Ensure client_secret hasn't expired

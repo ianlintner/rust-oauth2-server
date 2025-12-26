@@ -1,0 +1,88 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: oauth2-server
+  namespace: oauth2-server
+  labels:
+    app: oauth2-server
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: oauth2-server
+  template:
+    metadata:
+      labels:
+        app: oauth2-server
+    spec:
+      containers:
+        - name: oauth2-server
+          image: ghcr.io/ianlintner/rust_oauth2_server:latest
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: OAUTH2_SERVER_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: oauth2-server-config
+                  key: OAUTH2_SERVER_HOST
+            - name: OAUTH2_SERVER_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: oauth2-server-config
+                  key: OAUTH2_SERVER_PORT
+            - name: OAUTH2_DATABASE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: oauth2-server-config
+                  key: OAUTH2_DATABASE_URL
+            - name: OAUTH2_JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: oauth2-server-secret
+                  key: OAUTH2_JWT_SECRET
+            - name: RUST_LOG
+              valueFrom:
+                configMapKeyRef:
+                  name: oauth2-server-config
+                  key: RUST_LOG
+            - name: RUST_BACKTRACE
+              valueFrom:
+                configMapKeyRef:
+                  name: oauth2-server-config
+                  key: RUST_BACKTRACE
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+      initContainers:
+        - name: wait-for-migrations
+          image: busybox:latest
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for database migrations to complete..."
+              sleep 30

@@ -1,0 +1,52 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: flyway-migration
+  namespace: oauth2-server
+spec:
+  template:
+    spec:
+      restartPolicy: OnFailure
+      initContainers:
+        - name: wait-for-postgres
+          image: postgres:15-alpine
+          command:
+            - sh
+            - -c
+            - |
+              until pg_isready -h postgres -U oauth2_user; do
+                echo "Waiting for postgres..."
+                sleep 2
+              done
+          env:
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: oauth2-server-secret
+                  key: POSTGRES_PASSWORD
+      containers:
+        - name: flyway
+          image: flyway/flyway:10-alpine
+          command: ["flyway", "migrate"]
+          env:
+            - name: FLYWAY_URL
+              value: "jdbc:postgresql://postgres:5432/oauth2"
+            - name: FLYWAY_USER
+              valueFrom:
+                secretKeyRef:
+                  name: oauth2-server-secret
+                  key: POSTGRES_USER
+            - name: FLYWAY_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: oauth2-server-secret
+                  key: POSTGRES_PASSWORD
+            - name: FLYWAY_SCHEMAS
+              value: "public"
+          volumeMounts:
+            - name: migrations
+              mountPath: /flyway/sql
+      volumes:
+        - name: migrations
+          configMap:
+            name: flyway-migrations

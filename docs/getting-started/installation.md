@@ -9,11 +9,13 @@ Before installing the OAuth2 server, ensure you have the following prerequisites
 ### Required
 
 - **Rust** (1.70 or higher)
+
   ```bash
   curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
   ```
   
 - **SQLite** (for development) or **PostgreSQL** (for production)
+
   ```bash
   # Ubuntu/Debian
   sudo apt-get install sqlite3 libsqlite3-dev
@@ -28,6 +30,7 @@ Before installing the OAuth2 server, ensure you have the following prerequisites
 ### Optional
 
 - **Docker** (for containerized deployment)
+
   ```bash
   # Install Docker
   curl -fsSL https://get.docker.com -o get-docker.sh
@@ -35,11 +38,13 @@ Before installing the OAuth2 server, ensure you have the following prerequisites
   ```
 
 - **Docker Compose** (for multi-container setup)
+
   ```bash
   sudo apt-get install docker-compose
   ```
 
 - **Flyway** (for manual database migrations)
+
   ```bash
   # Download from https://flywaydb.org/download/
   # Or use Docker version (recommended)
@@ -193,11 +198,11 @@ You should see output similar to:
 
 Open your browser and navigate to:
 
-- **Server Root**: http://localhost:8080
-- **Health Check**: http://localhost:8080/health
-- **API Documentation**: http://localhost:8080/swagger-ui
-- **Admin Dashboard**: http://localhost:8080/admin
-- **Metrics**: http://localhost:8080/metrics
+- **Server Root**: <http://localhost:8080>
+- **Health Check**: <http://localhost:8080/health>
+- **API Documentation**: <http://localhost:8080/swagger-ui>
+- **Admin Dashboard**: <http://localhost:8080/admin>
+- **Metrics**: <http://localhost:8080/metrics>
 
 ## Docker Installation
 
@@ -210,6 +215,7 @@ docker-compose up -d
 ```
 
 This will:
+
 - Build the OAuth2 server image
 - Run database migrations
 - Start the server on port 8080
@@ -233,6 +239,7 @@ docker-compose down
 **Problem**: "Failed to connect to database"
 
 **Solution**:
+
 ```bash
 # Check database URL format
 # SQLite: sqlite:path/to/database.db
@@ -250,6 +257,7 @@ sudo systemctl status postgresql
 **Problem**: "Migration failed"
 
 **Solution**:
+
 ```bash
 # Check migration files exist
 ls -la migrations/sql/
@@ -266,6 +274,7 @@ cat flyway.conf
 **Problem**: "Address already in use"
 
 **Solution**:
+
 ```bash
 # Find process using port 8080
 lsof -i :8080
@@ -281,6 +290,7 @@ export OAUTH2_SERVER_PORT=8081
 **Problem**: "Could not compile..."
 
 **Solution**:
+
 ```bash
 # Update Rust to latest stable
 rustup update stable

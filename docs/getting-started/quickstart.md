@@ -41,6 +41,7 @@ curl -X POST http://localhost:8080/clients/register \
 ```
 
 **Response:**
+
 ```json
 {
   "client_id": "8f9a7b6c-5d4e-3f2a-1b0c-9d8e7f6a5b4c",
@@ -88,6 +89,7 @@ http://localhost:8080/oauth/authorize?response_type=code&client_id=YOUR_CLIENT_I
 ```
 
 **Query Parameters:**
+
 - `response_type`: Must be `code` for authorization code flow
 - `client_id`: Your client ID from Step 1
 - `redirect_uri`: Must match one of your registered URIs
@@ -115,6 +117,7 @@ curl -X POST http://localhost:8080/oauth/token \
 ```
 
 **Response:**
+
 ```json
 {
   "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
@@ -204,6 +207,7 @@ curl -X POST http://localhost:8080/oauth/introspect \
 ```
 
 **Response:**
+
 ```json
 {
   "active": true,
@@ -251,6 +255,7 @@ export OAUTH2_GOOGLE_REDIRECT_URI=http://localhost:8080/auth/callback/google
 ### Step 3: Handle Callback
 
 After successful authentication, users are redirected to:
+
 ```
 http://localhost:8080/auth/success
 ```
@@ -264,6 +269,7 @@ curl http://localhost:8080/health
 ```
 
 **Expected Response:**
+
 ```json
 {
   "status": "healthy",
@@ -275,6 +281,7 @@ curl http://localhost:8080/health
 ### 2. View OpenAPI Documentation
 
 Open in your browser:
+
 ```
 http://localhost:8080/swagger-ui
 ```
@@ -297,7 +304,7 @@ curl http://localhost:8080/metrics
 
 The admin dashboard provides a web interface for managing clients and tokens.
 
-1. Open http://localhost:8080/admin in your browser
+1. Open <http://localhost:8080/admin> in your browser
 2. View active clients and tokens
 3. Monitor server metrics
 4. View recent activity

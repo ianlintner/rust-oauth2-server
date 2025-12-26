@@ -14,6 +14,7 @@ export OAUTH2_JWT_SECRET=$(openssl rand -hex 32)
 ```
 
 **Important:**
+
 - The server uses a fail-safe default for testing: `insecure-default-for-testing-only-change-in-production`
 - This default triggers a validation warning on startup
 - **NEVER use the default in production!**
@@ -21,6 +22,7 @@ export OAUTH2_JWT_SECRET=$(openssl rand -hex 32)
 - Set `OAUTH2_JWT_SECRET` environment variable before running the server
 
 **Why this is required:**
+
 - JWT tokens are signed with this secret
 - Weak or default secrets compromise the entire authentication system
 - The server validates the configuration and logs warnings if defaults are detected
@@ -35,6 +37,7 @@ export OAUTH2_SESSION_KEY=$(openssl rand -hex 64)
 ```
 
 **Why this is important:**
+
 - Without this, a random key is generated on each startup
 - Users will be logged out when the server restarts
 - Sessions won't work properly in multi-instance deployments
@@ -50,6 +53,7 @@ openssl rand -hex 32  # For client secrets
 ```
 
 **Action items:**
+
 1. Remove or regenerate the default client credentials in the migration
 2. Generate proper Argon2 password hashes for test users
 3. Consider removing V5__insert_default_data.sql entirely in production
@@ -70,6 +74,7 @@ let secret_match = client.client_secret.as_bytes()
 ### 2. Token Storage
 
 **DO NOT** store access tokens in localStorage (XSS vulnerability). The application uses:
+
 - httpOnly cookies for session management
 - Server-side token storage
 - Secure cookie flags in production
@@ -77,6 +82,7 @@ let secret_match = client.client_secret.as_bytes()
 ### 3. PKCE for Authorization Code Flow
 
 PKCE (RFC 7636) is implemented using S256 challenge method:
+
 - Prevents authorization code interception attacks
 - Required for public clients
 - Recommended for all clients
@@ -90,6 +96,7 @@ FLYWAY_IMAGE="flyway/flyway:10-alpine@sha256:..."
 ```
 
 **Update process:**
+
 1. Review Flyway release notes
 2. Test migrations in staging
 3. Update the digest in scripts/migrate.sh
@@ -124,6 +131,7 @@ oauth2_server_http_requests_total           # Request patterns
 ### Log Analysis
 
 Watch for:
+
 - Multiple failed authentication attempts from same IP
 - Unusual token issuance patterns
 - Invalid client credential attempts
@@ -168,6 +176,7 @@ If credentials are compromised:
 **Last Updated:** 2025-12-26
 
 **Mitigation:**
+
 - This is a transitive dependency from sqlx-mysql via sqlx-macros
 - The server primarily uses SQLite and PostgreSQL, not MySQL
 - The mysql feature is pulled in by sqlx's "macros" feature which requires "any" database support

@@ -235,6 +235,7 @@ pub async fn validate_authorization_request(
 #### README and Docs
 
 When adding new features, update:
+
 - `README.md` - If it affects usage
 - `docs/` - Relevant documentation files
 - API documentation comments
@@ -266,6 +267,7 @@ git commit -m "test(auth): add integration tests for auth flow"
 ### Pull Request Process
 
 1. **Update your branch**
+
    ```bash
    git checkout main
    git pull upstream main
@@ -274,6 +276,7 @@ git commit -m "test(auth): add integration tests for auth flow"
    ```
 
 2. **Run checks**
+
    ```bash
    cargo fmt --check
    cargo clippy -- -D warnings
@@ -282,6 +285,7 @@ git commit -m "test(auth): add integration tests for auth flow"
    ```
 
 3. **Push changes**
+
    ```bash
    git push origin your-branch
    ```
@@ -293,6 +297,7 @@ git commit -m "test(auth): add integration tests for auth flow"
    - Request reviews
 
 5. **PR Title Format**
+
    ```
    feat: Add support for custom token claims
    fix: Resolve token expiration edge case
@@ -300,6 +305,7 @@ git commit -m "test(auth): add integration tests for auth flow"
    ```
 
 6. **PR Description Template**
+
    ```markdown
    ## Description
    Brief description of changes
@@ -330,6 +336,7 @@ git commit -m "test(auth): add integration tests for auth flow"
 ### Bug Reports
 
 Create an issue with:
+
 - Clear title
 - Steps to reproduce
 - Expected behavior
@@ -338,6 +345,7 @@ Create an issue with:
 - Relevant logs
 
 **Template:**
+
 ```markdown
 **Describe the bug**
 A clear description of what the bug is.
@@ -365,6 +373,7 @@ Any other relevant information.
 ### Feature Requests
 
 Create an issue with:
+
 - Clear description
 - Use case
 - Proposed solution
@@ -465,6 +474,7 @@ When making significant changes:
 ## Recognition
 
 Contributors will be:
+
 - Listed in CONTRIBUTORS.md
 - Credited in release notes
 - Acknowledged in project README

@@ -15,6 +15,7 @@ This guide walks you through setting up social login providers for the OAuth2 se
    - Add your production URL when deploying
 8. Copy the Client ID and Client Secret
 9. Set environment variables:
+
    ```bash
    export OAUTH2_GOOGLE_CLIENT_ID=your-client-id
    export OAUTH2_GOOGLE_CLIENT_SECRET=your-client-secret
@@ -31,6 +32,7 @@ This guide walks you through setting up social login providers for the OAuth2 se
 7. Go to "Certificates & secrets" > "New client secret"
 8. Copy the secret value immediately (it won't be shown again)
 9. Set environment variables:
+
    ```bash
    export OAUTH2_MICROSOFT_CLIENT_ID=your-client-id
    export OAUTH2_MICROSOFT_CLIENT_SECRET=your-client-secret
@@ -49,6 +51,7 @@ This guide walks you through setting up social login providers for the OAuth2 se
 5. Generate a new client secret
 6. Copy the Client ID and Client Secret
 7. Set environment variables:
+
    ```bash
    export OAUTH2_GITHUB_CLIENT_ID=your-client-id
    export OAUTH2_GITHUB_CLIENT_SECRET=your-client-secret
@@ -66,6 +69,7 @@ This guide walks you through setting up social login providers for the OAuth2 se
 6. Save and note the Client ID and Client Secret
 7. Note your Okta domain (e.g., `dev-12345.okta.com`)
 8. Set environment variables:
+
    ```bash
    export OAUTH2_OKTA_CLIENT_ID=your-client-id
    export OAUTH2_OKTA_CLIENT_SECRET=your-client-secret
@@ -83,6 +87,7 @@ This guide walks you through setting up social login providers for the OAuth2 se
    - Allowed Logout URLs: `http://localhost:8080`
 6. Copy the Domain, Client ID, and Client Secret
 7. Set environment variables:
+
    ```bash
    export OAUTH2_AUTH0_CLIENT_ID=your-client-id
    export OAUTH2_AUTH0_CLIENT_SECRET=your-client-secret
@@ -92,11 +97,13 @@ This guide walks you through setting up social login providers for the OAuth2 se
 ## Testing Social Login
 
 1. Start the OAuth2 server:
+
    ```bash
    cargo run
    ```
 
 2. Navigate to the login page:
+
    ```
    http://localhost:8080/auth/login
    ```
@@ -194,6 +201,7 @@ cargo run
 ## Support
 
 For issues or questions:
+
 - Check the [documentation](https://github.com/ianlintner/rust_oauth2)
 - Open an issue on GitHub
 - Review provider-specific documentation

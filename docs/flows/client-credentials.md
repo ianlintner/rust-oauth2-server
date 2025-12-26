@@ -5,6 +5,7 @@ The Client Credentials Flow is designed for machine-to-machine (M2M) authenticat
 ## Overview
 
 Unlike flows that involve user authorization, the Client Credentials Flow:
+
 - **No user interaction**: Server-to-server authentication only
 - **Client acts as resource owner**: The client is granted access on its own behalf
 - **Simple and fast**: Single request to obtain access token
@@ -104,6 +105,7 @@ class APIClient {
 ### Step 1: Request Access Token
 
 **HTTP Request:**
+
 ```http
 POST /oauth/token HTTP/1.1
 Host: oauth2-server.example.com
@@ -127,6 +129,7 @@ scope=read write
 ### Step 2: Receive Access Token
 
 **Success Response:**
+
 ```json
 {
   "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
@@ -148,6 +151,7 @@ scope=read write
 **Note:** No `refresh_token` is returned because the client can request a new access token at any time using its credentials.
 
 **Error Response:**
+
 ```json
 {
   "error": "invalid_client",

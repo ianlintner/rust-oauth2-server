@@ -1,6 +1,6 @@
 # Resource Owner Password Credentials Flow
 
-The Resource Owner Password Credentials (ROPC) Flow allows applications to directly exchange user credentials (username and password) for access tokens. 
+The Resource Owner Password Credentials (ROPC) Flow allows applications to directly exchange user credentials (username and password) for access tokens.
 
 !!! danger "Not Recommended"
     This flow should only be used when other flows are not viable. It requires users to share their passwords directly with the client application, which reduces security.
@@ -8,12 +8,14 @@ The Resource Owner Password Credentials (ROPC) Flow allows applications to direc
 ## When to Use (Rarely)
 
 Use this flow **only** when:
+
 - The client is highly trusted (first-party application)
 - Other OAuth2 flows are not practical
 - Migrating legacy username/password authentication
 - Command-line interfaces or desktop apps where browser redirect is impossible
 
 **Prefer instead:**
+
 - [Authorization Code Flow](authorization-code.md) for web/mobile apps
 - [Client Credentials Flow](client-credentials.md) for service accounts
 
@@ -43,6 +45,7 @@ sequenceDiagram
 ### Request Access Token
 
 **HTTP Request:**
+
 ```http
 POST /oauth/token HTTP/1.1
 Host: oauth2-server.example.com
@@ -257,12 +260,14 @@ async function auditLoginAttempt(username, success, clientId, ipAddress) {
 If using password flow, plan migration to more secure flows:
 
 ### Phase 1: Current State (Password Flow)
+
 ```javascript
 // Legacy authentication
 const tokens = await loginWithPassword(username, password);
 ```
 
 ### Phase 2: Add Authorization Code Support
+
 ```javascript
 // Support both methods
 if (canUseAuthCode()) {
@@ -273,6 +278,7 @@ if (canUseAuthCode()) {
 ```
 
 ### Phase 3: Migrate Users
+
 ```javascript
 // Encourage users to switch
 if (user.usingPasswordFlow) {
@@ -281,6 +287,7 @@ if (user.usingPasswordFlow) {
 ```
 
 ### Phase 4: Deprecate Password Flow
+
 ```javascript
 // Eventually disable password flow
 if (grantType === 'password') {
@@ -346,14 +353,18 @@ async function loginWithErrorHandling(username, password) {
 ## Alternatives to Consider
 
 ### 1. Authorization Code Flow with PKCE
+
 Best for web and mobile apps:
+
 ```javascript
 // More secure - no password exposure
 initiateAuthCodeFlowWithPKCE();
 ```
 
 ### 2. Device Code Flow
+
 For CLI tools and devices:
+
 ```bash
 $ my-cli login
 Visit: https://oauth.example.com/device
@@ -364,7 +375,9 @@ Enter code: ABCD-1234
 ```
 
 ### 3. Client Credentials Flow
+
 For service accounts:
+
 ```javascript
 // No user credentials needed
 const tokens = await getClientCredentialsToken();

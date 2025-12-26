@@ -1,0 +1,213 @@
+name: E2E Tests with KIND
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  e2e-kind:
+    name: E2E Tests on KIND
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Create KIND cluster
+        uses: helm/kind-action@v1.10.0
+        with:
+          cluster_name: oauth2-test
+          config: |
+            kind: Cluster
+            apiVersion: kind.x-k8s.io/v1alpha4
+            nodes:
+              - role: control-plane
+                extraPortMappings:
+                  - containerPort: 30080
+                    hostPort: 8080
+                    protocol: TCP
+
+      - name: Build Docker image
+        run: |
+          docker build -t ghcr.io/ianlintner/rust_oauth2_server:test .
+          kind load docker-image ghcr.io/ianlintner/rust_oauth2_server:test --name oauth2-test
+
+      - name: Install kustomize
+        run: |
+          curl -s "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
+          sudo mv kustomize /usr/local/bin/
+
+      - name: Create ConfigMap for migrations
+        run: |
+          kubectl create namespace oauth2-server || true
+          kubectl create configmap flyway-migrations \
+            --from-file=migrations/sql/ \
+            -n oauth2-server
+
+      - name: Update Kustomization for test
+        run: |
+          cd k8s/base
+          cat > kustomization-test.yaml << EOF
+          apiVersion: kustomize.config.k8s.io/v1beta1
+          kind: Kustomization
+          
+          namespace: oauth2-server
+          
+          resources:
+            - namespace.yaml
+            - configmap.yaml
+            - secret.yaml
+            - postgres-pvc.yaml
+            - postgres-statefulset.yaml
+            - postgres-service.yaml
+            - flyway-migration-job.yaml
+            - deployment.yaml
+            - service-nodeport.yaml
+          
+          images:
+            - name: ghcr.io/ianlintner/rust_oauth2_server
+              newTag: test
+          
+          commonLabels:
+            app.kubernetes.io/name: oauth2-server
+            app.kubernetes.io/instance: test
+          EOF
+
+      - name: Create NodePort Service for testing
+        run: |
+          cat > k8s/base/service-nodeport.yaml << EOF
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: oauth2-server
+            namespace: oauth2-server
+          spec:
+            type: NodePort
+            ports:
+              - port: 80
+                targetPort: 8080
+                nodePort: 30080
+                protocol: TCP
+                name: http
+            selector:
+              app: oauth2-server
+          EOF
+
+      - name: Deploy to KIND
+        run: |
+          kubectl apply -k k8s/base -f k8s/base/kustomization-test.yaml
+
+      - name: Wait for PostgreSQL
+        run: |
+          kubectl wait --for=condition=ready pod -l app=postgres -n oauth2-server --timeout=300s
+
+      - name: Wait for migrations
+        run: |
+          kubectl wait --for=condition=complete job/flyway-migration -n oauth2-server --timeout=300s || true
+          kubectl logs job/flyway-migration -n oauth2-server
+
+      - name: Wait for OAuth2 server
+        run: |
+          kubectl wait --for=condition=ready pod -l app=oauth2-server -n oauth2-server --timeout=300s
+
+      - name: Check deployment status
+        run: |
+          kubectl get all -n oauth2-server
+          kubectl describe deployment oauth2-server -n oauth2-server
+
+      - name: Check server logs
+        if: always()
+        run: |
+          kubectl logs -l app=oauth2-server -n oauth2-server --tail=100
+
+      - name: Test health endpoint
+        run: |
+          sleep 10
+          curl -f http://localhost:8080/health || (kubectl logs -l app=oauth2-server -n oauth2-server && exit 1)
+
+      - name: Test readiness endpoint
+        run: |
+          curl -f http://localhost:8080/ready
+
+      - name: Test OpenID configuration
+        run: |
+          curl -f http://localhost:8080/.well-known/openid-configuration
+
+      - name: Register test client
+        run: |
+          response=$(curl -X POST http://localhost:8080/clients/register \
+            -H "Content-Type: application/json" \
+            -d '{
+              "client_name": "Test Client",
+              "redirect_uris": ["http://localhost:3000/callback"],
+              "grant_types": ["client_credentials"],
+              "scope": "read write"
+            }')
+          echo "Client registration response: $response"
+          echo "$response" > /tmp/client.json
+
+      - name: Get access token
+        run: |
+          client_id=$(cat /tmp/client.json | jq -r '.client_id')
+          client_secret=$(cat /tmp/client.json | jq -r '.client_secret')
+          
+          token_response=$(curl -X POST http://localhost:8080/oauth/token \
+            -H "Content-Type: application/x-www-form-urlencoded" \
+            -d "grant_type=client_credentials&client_id=$client_id&client_secret=$client_secret&scope=read")
+          
+          echo "Token response: $token_response"
+          echo "$token_response" | jq -r '.access_token' > /tmp/token.txt
+
+      - name: Introspect token
+        run: |
+          client_id=$(cat /tmp/client.json | jq -r '.client_id')
+          client_secret=$(cat /tmp/client.json | jq -r '.client_secret')
+          token=$(cat /tmp/token.txt)
+          
+          introspect_response=$(curl -X POST http://localhost:8080/oauth/introspect \
+            -H "Content-Type: application/x-www-form-urlencoded" \
+            -d "token=$token&client_id=$client_id&client_secret=$client_secret")
+          
+          echo "Introspection response: $introspect_response"
+          
+          # Verify token is active
+          active=$(echo "$introspect_response" | jq -r '.active')
+          if [ "$active" != "true" ]; then
+            echo "Token is not active!"
+            exit 1
+          fi
+
+      - name: Test metrics endpoint
+        run: |
+          curl -f http://localhost:8080/metrics | head -20
+
+      - name: Export cluster logs
+        if: failure()
+        run: |
+          kubectl logs -n oauth2-server -l app=oauth2-server --tail=200 > oauth2-server.log
+          kubectl logs -n oauth2-server -l app=postgres --tail=200 > postgres.log
+          kubectl describe pods -n oauth2-server > pods-describe.log
+
+      - name: Upload logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kind-cluster-logs
+          path: |
+            oauth2-server.log
+            postgres.log
+            pods-describe.log
+          retention-days: 7
+
+      - name: Cleanup
+        if: always()
+        run: |
+          kubectl delete namespace oauth2-server || true

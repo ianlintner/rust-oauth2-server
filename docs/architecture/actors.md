@@ -7,6 +7,7 @@ The Rust OAuth2 Server uses the Actor Model for concurrent state management, lev
 The Actor Model is a mathematical model of concurrent computation that treats "actors" as the universal primitives of concurrent computation.
 
 **Key Concepts:**
+
 - **Actors**: Independent computational entities
 - **Messages**: Actors communicate via message passing
 - **Mailbox**: Each actor has a message queue
@@ -85,6 +86,7 @@ graph TD
 Manages all token-related operations.
 
 **Responsibilities:**
+
 - Create access and refresh tokens
 - Validate tokens
 - Token introspection
@@ -190,6 +192,7 @@ sequenceDiagram
 Manages OAuth2 client registrations and operations.
 
 **Responsibilities:**
+
 - Register new clients
 - Validate client credentials
 - Update client information
@@ -261,6 +264,7 @@ impl Handler<RegisterClientMessage> for ClientActor {
 Handles authorization requests and code management.
 
 **Responsibilities:**
+
 - Validate authorization requests
 - Create authorization codes
 - Validate and consume authorization codes
@@ -355,6 +359,7 @@ sequenceDiagram
 ```
 
 **Implementation:**
+
 ```rust
 // Handler sends message and waits for response
 let result = token_actor
@@ -382,6 +387,7 @@ sequenceDiagram
 ```
 
 **Implementation:**
+
 ```rust
 // Handler sends message without waiting
 token_actor.do_send(LogEventMessage { /* ... */ });
@@ -487,6 +493,7 @@ graph TD
 ```
 
 **Implementation:**
+
 ```rust
 impl Supervised for TokenActor {}
 

@@ -1,0 +1,17 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: oauth2-server
+spec:
+  replicas: 1
+  template:
+    spec:
+      containers:
+        - name: oauth2-server
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+              cpu: "250m"

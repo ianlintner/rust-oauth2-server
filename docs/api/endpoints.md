@@ -9,6 +9,7 @@ http://localhost:8080
 ```
 
 For production, use your deployed server URL with HTTPS:
+
 ```
 https://oauth.your-domain.com
 ```
@@ -51,11 +52,13 @@ Initiate the authorization code flow.
 | `code_challenge_method` | string | No | `S256` or `plain` |
 
 **Example:**
+
 ```http
 GET /oauth/authorize?response_type=code&client_id=abc123&redirect_uri=http://localhost:3000/callback&scope=read%20write&state=xyz789 HTTP/1.1
 ```
 
 **Response:**
+
 ```http
 HTTP/1.1 302 Found
 Location: http://localhost:3000/callback?code=AUTH_CODE&state=xyz789
@@ -120,6 +123,7 @@ client_secret=secret123
 ```
 
 **Success Response:**
+
 ```json
 {
   "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
@@ -131,6 +135,7 @@ client_secret=secret123
 ```
 
 **Error Response:**
+
 ```json
 {
   "error": "invalid_grant",
@@ -153,6 +158,7 @@ Validate and get metadata about an access token.
 | `client_secret` | string | No | Client secret |
 
 **Example:**
+
 ```bash
 curl -X POST http://localhost:8080/oauth/introspect \
   -d "token=ACCESS_TOKEN" \
@@ -161,6 +167,7 @@ curl -X POST http://localhost:8080/oauth/introspect \
 ```
 
 **Response (Active Token):**
+
 ```json
 {
   "active": true,
@@ -174,6 +181,7 @@ curl -X POST http://localhost:8080/oauth/introspect \
 ```
 
 **Response (Inactive Token):**
+
 ```json
 {
   "active": false
@@ -196,6 +204,7 @@ Revoke an access or refresh token.
 | `client_secret` | string | Yes | Client secret |
 
 **Example:**
+
 ```bash
 curl -X POST http://localhost:8080/oauth/revoke \
   -d "token=ACCESS_TOKEN" \
@@ -204,6 +213,7 @@ curl -X POST http://localhost:8080/oauth/revoke \
 ```
 
 **Response:**
+
 ```http
 HTTP/1.1 200 OK
 ```
@@ -217,6 +227,7 @@ Register a new OAuth2 client.
 **Endpoint:** `POST /clients/register`
 
 **Request Body:**
+
 ```json
 {
   "client_name": "My Application",
@@ -233,6 +244,7 @@ Register a new OAuth2 client.
 ```
 
 **Response:**
+
 ```json
 {
   "client_id": "abc123def456",
@@ -260,6 +272,7 @@ Get OAuth2 server metadata.
 **Endpoint:** `GET /.well-known/openid-configuration`
 
 **Response:**
+
 ```json
 {
   "issuer": "http://localhost:8080",
@@ -317,6 +330,7 @@ Check if the server is healthy.
 **Endpoint:** `GET /health`
 
 **Response:**
+
 ```json
 {
   "status": "healthy",
@@ -333,6 +347,7 @@ Check if the server is ready to accept requests.
 **Endpoint:** `GET /ready`
 
 **Response:**
+
 ```json
 {
   "ready": true,
@@ -388,6 +403,7 @@ End user session.
 **Endpoint:** `POST /auth/logout`
 
 **Response:**
+
 ```http
 HTTP/1.1 302 Found
 Location: /auth/login
@@ -411,6 +427,7 @@ All endpoints are subject to rate limiting:
 - **Other endpoints**: 100 requests per minute per IP
 
 **Rate Limit Response:**
+
 ```json
 {
   "error": "rate_limit_exceeded",

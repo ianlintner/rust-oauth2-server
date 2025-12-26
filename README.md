@@ -21,6 +21,7 @@ graph LR
 ## 🚀 Features
 
 ### OAuth2 Compliance
+
 - ✅ **Authorization Code Flow** with PKCE support
 - ✅ **Client Credentials Flow** for service-to-service
 - ✅ **Resource Owner Password Credentials Flow**
@@ -30,6 +31,7 @@ graph LR
 - ✅ **Discovery Endpoint** (RFC 8414)
 
 ### Architecture
+
 - 🎭 **Actor Model** using Actix for concurrent request handling
 - 🔒 **Type-Safe** Rust implementation
 - 🔐 **JWT Tokens** with configurable expiration
@@ -37,6 +39,7 @@ graph LR
 - 🗄️ **Flyway Migrations** for database schema management
 
 ### Observability & Monitoring
+
 - 📊 **Prometheus Metrics** - Request rates, token metrics, database performance
 - 🔍 **OpenTelemetry Tracing** - Distributed tracing with OTLP export
 - 📝 **Structured Logging** - JSON logs with correlation IDs
@@ -44,11 +47,13 @@ graph LR
 - 📈 **Admin Dashboard** - Web-based monitoring and management
 
 ### Documentation
+
 - 📚 **OpenAPI 3.0 Specification** - Auto-generated from code
 - 🎨 **Swagger UI** - Interactive API documentation
 - 📖 **Admin Control Panel** - Web-based administration interface
 
 ### Security
+
 - 🔐 **PKCE Support** (Proof Key for Code Exchange)
 - 🔑 **Secure Client Credentials** generation
 - 🛡️ **Scope-based Authorization**
@@ -288,11 +293,13 @@ curl -X POST http://localhost:8080/clients/register \
 ### Authorization Code Flow
 
 1. **Get Authorization Code**:
+
 ```
 http://localhost:8080/oauth/authorize?response_type=code&client_id=CLIENT_ID&redirect_uri=http://localhost:3000/callback&scope=read
 ```
 
-2. **Exchange Code for Token**:
+1. **Exchange Code for Token**:
+
 ```bash
 curl -X POST http://localhost:8080/oauth/token \
   -H "Content-Type: application/x-www-form-urlencoded" \
