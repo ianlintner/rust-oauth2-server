@@ -106,7 +106,7 @@ kubectl delete namespace oauth2-server
 1. **Update image tag**
    ```bash
    cd k8s/overlays/production
-   kustomize edit set image ghcr.io/ianlintner/rust_oauth2_server:v1.1.0
+   kustomize edit set image gabby.azurecr.io/oauth2-server:v1.1.0
    ```
 
 2. **Apply update**

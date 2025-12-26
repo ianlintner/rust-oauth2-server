@@ -130,8 +130,8 @@ Configure your AI assistant (e.g., Claude Desktop) to use the MCP server for OAu
 
 3. **Build and Load Image**
    ```bash
-   docker build -t ghcr.io/ianlintner/rust_oauth2_server:test .
-   kind load docker-image ghcr.io/ianlintner/rust_oauth2_server:test --name oauth2-test
+   docker build -t gabby.azurecr.io/oauth2-server:test .
+   kind load docker-image gabby.azurecr.io/oauth2-server:test --name oauth2-test
    ```
 
 4. **Deploy**

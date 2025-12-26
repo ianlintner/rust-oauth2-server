@@ -61,12 +61,12 @@ kubectl wait --for=condition=ready pod -l app=oauth2-server -n oauth2-server --t
 ```bash
 # Method 1: Update image tag
 kubectl set image deployment/oauth2-server \
-  oauth2-server=ghcr.io/ianlintner/rust_oauth2_server:v1.1.0 \
+  oauth2-server=gabby.azurecr.io/oauth2-server:v1.1.0 \
   -n oauth2-server
 
 # Method 2: Apply updated manifests
 cd k8s/overlays/production
-kustomize edit set image ghcr.io/ianlintner/rust_oauth2_server:v1.1.0
+kustomize edit set image gabby.azurecr.io/oauth2-server:v1.1.0
 kubectl apply -k .
 
 # Monitor rollout

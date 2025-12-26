@@ -17,7 +17,6 @@ jobs:
     permissions:
       contents: read
       id-token: write
-    environment: dev
     env:
       ACR_NAME: gabby
       ACR_LOGIN_SERVER: gabby.azurecr.io
