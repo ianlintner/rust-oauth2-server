@@ -52,6 +52,34 @@ use utoipa_swagger_ui::SwaggerUi;
 )]
 struct ApiDoc;
 
+// Helper function to parse event types from configuration strings
+fn parse_event_types(event_type_strings: &[String]) -> Vec<events::EventType> {
+    use events::EventType;
+    
+    event_type_strings
+        .iter()
+        .filter_map(|s| match s.as_str() {
+            "authorization_code_created" => Some(EventType::AuthorizationCodeCreated),
+            "authorization_code_validated" => Some(EventType::AuthorizationCodeValidated),
+            "authorization_code_expired" => Some(EventType::AuthorizationCodeExpired),
+            "token_created" => Some(EventType::TokenCreated),
+            "token_validated" => Some(EventType::TokenValidated),
+            "token_revoked" => Some(EventType::TokenRevoked),
+            "token_expired" => Some(EventType::TokenExpired),
+            "client_registered" => Some(EventType::ClientRegistered),
+            "client_validated" => Some(EventType::ClientValidated),
+            "client_deleted" => Some(EventType::ClientDeleted),
+            "user_authenticated" => Some(EventType::UserAuthenticated),
+            "user_authentication_failed" => Some(EventType::UserAuthenticationFailed),
+            "user_logout" => Some(EventType::UserLogout),
+            _ => {
+                tracing::warn!("Unknown event type in config: {}", s);
+                None
+            }
+        })
+        .collect()
+}
+
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     // Initialize telemetry and tracing
@@ -109,55 +137,17 @@ async fn main() -> std::io::Result<()> {
 
     // Initialize event system first
     let event_actor = if config.events.enabled {
-        use events::{EventFilter, EventType, InMemoryEventLogger, ConsoleEventLogger};
+        use events::{EventFilter, InMemoryEventLogger, ConsoleEventLogger};
         use std::sync::Arc;
         
         // Parse event filter from config
         let filter = match config.events.filter_mode.as_str() {
             "include" => {
-                let event_types: Vec<EventType> = config.events.event_types
-                    .iter()
-                    .filter_map(|s| match s.as_str() {
-                        "authorization_code_created" => Some(EventType::AuthorizationCodeCreated),
-                        "authorization_code_validated" => Some(EventType::AuthorizationCodeValidated),
-                        "token_created" => Some(EventType::TokenCreated),
-                        "token_validated" => Some(EventType::TokenValidated),
-                        "token_revoked" => Some(EventType::TokenRevoked),
-                        "client_registered" => Some(EventType::ClientRegistered),
-                        "client_validated" => Some(EventType::ClientValidated),
-                        "client_deleted" => Some(EventType::ClientDeleted),
-                        "user_authenticated" => Some(EventType::UserAuthenticated),
-                        "user_authentication_failed" => Some(EventType::UserAuthenticationFailed),
-                        "user_logout" => Some(EventType::UserLogout),
-                        _ => {
-                            tracing::warn!("Unknown event type in config: {}", s);
-                            None
-                        }
-                    })
-                    .collect();
+                let event_types = parse_event_types(&config.events.event_types);
                 EventFilter::include_only(event_types)
             }
             "exclude" => {
-                let event_types: Vec<EventType> = config.events.event_types
-                    .iter()
-                    .filter_map(|s| match s.as_str() {
-                        "authorization_code_created" => Some(EventType::AuthorizationCodeCreated),
-                        "authorization_code_validated" => Some(EventType::AuthorizationCodeValidated),
-                        "token_created" => Some(EventType::TokenCreated),
-                        "token_validated" => Some(EventType::TokenValidated),
-                        "token_revoked" => Some(EventType::TokenRevoked),
-                        "client_registered" => Some(EventType::ClientRegistered),
-                        "client_validated" => Some(EventType::ClientValidated),
-                        "client_deleted" => Some(EventType::ClientDeleted),
-                        "user_authenticated" => Some(EventType::UserAuthenticated),
-                        "user_authentication_failed" => Some(EventType::UserAuthenticationFailed),
-                        "user_logout" => Some(EventType::UserLogout),
-                        _ => {
-                            tracing::warn!("Unknown event type in config: {}", s);
-                            None
-                        }
-                    })
-                    .collect();
+                let event_types = parse_event_types(&config.events.event_types);
                 EventFilter::exclude_events(event_types)
             }
             _ => EventFilter::allow_all(),
