@@ -21,6 +21,19 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      - name: Cache Rust dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
       - name: Create KIND cluster config
         run: |
           cat <<EOF > kind-config.yaml
@@ -41,8 +54,9 @@ jobs:
           config: kind-config.yaml
 
       - name: Build Docker image
+        timeout-minutes: 20
         run: |
-          docker build -t ghcr.io/ianlintner/rust_oauth2_server:test .
+          docker build -t ghcr.io/ianlintner/rust_oauth2_server:test . --progress=plain
           kind load docker-image ghcr.io/ianlintner/rust_oauth2_server:test --name oauth2-test
 
       - name: Install kustomize
