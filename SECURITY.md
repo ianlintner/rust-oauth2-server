@@ -156,3 +156,38 @@ If credentials are compromised:
 - [RFC 7636 - PKCE](https://tools.ietf.org/html/rfc7636)
 - [OWASP Authentication Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html)
 - [NIST Password Guidelines](https://pages.nist.gov/800-63-3/sp800-63b.html)
+
+## Known Dependency Vulnerabilities
+
+### RSA Timing Attack (RUSTSEC-2023-0071)
+
+**Status:** No fix available  
+**Severity:** Medium (5.9)  
+**Affected:** rsa 0.9.9 (transitive dependency via sqlx-mysql)  
+**Description:** Marvin Attack - potential key recovery through timing sidechannels
+
+**Mitigation:**
+- This is a transitive dependency from sqlx-mysql
+- The server primarily uses SQLite and PostgreSQL, not MySQL
+- If MySQL support is not needed, consider removing the mysql feature from sqlx
+- The vulnerability affects RSA PKCS#1 v1.5 decryption operations
+- Monitor for updates to sqlx that include a patched version of rsa
+
+### Unmaintained Dependencies (Warnings)
+
+The following transitive dependencies are unmaintained but have low risk:
+
+1. **proc-macro-error** (via utoipa-gen)
+   - Only used at compile time
+   - No runtime security impact
+
+2. **rustls-pemfile 1.0.4** (via reqwest)
+   - Superseded by rustls-pemfile 2.x
+   - Waiting for reqwest to update
+
+3. **yaml-rust** (via config crate)
+   - Only used for configuration parsing
+   - Limited exposure
+   - Consider migrating to alternative config format (TOML/JSON)
+
+**Action:** Run `cargo audit` regularly and update dependencies when patches become available.
