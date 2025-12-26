@@ -34,6 +34,14 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-
 
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build Rust binary
+        run: |
+          cargo build --release
+          ls -lh target/release/
+
       - name: Create KIND cluster config
         run: |
           cat <<EOF > kind-config.yaml
@@ -54,9 +62,9 @@ jobs:
           config: kind-config.yaml
 
       - name: Build Docker image
-        timeout-minutes: 20
+        timeout-minutes: 5
         run: |
-          docker build -t ghcr.io/ianlintner/rust_oauth2_server:test . --progress=plain
+          docker build -f Dockerfile.ci -t ghcr.io/ianlintner/rust_oauth2_server:test .
           kind load docker-image ghcr.io/ianlintner/rust_oauth2_server:test --name oauth2-test
 
       - name: Install kustomize
