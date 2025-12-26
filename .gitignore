@@ -44,3 +44,10 @@ Thumbs.db
 # Added by cargo
 
 /target
+
+# Node.js dependencies
+node_modules/
+package-lock.json
+
+# MCP server environment
+mcp-server/.env
