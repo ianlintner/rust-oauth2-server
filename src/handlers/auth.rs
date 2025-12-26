@@ -178,6 +178,8 @@ async fn handle_google_callback(
 
     let client = SocialLoginService::get_google_client(provider_config)?;
 
+    // TODO: Reuse a shared reqwest::Client instance for better performance
+    // HTTP clients maintain connection pools and should be created once and reused
     let http_client = reqwest::Client::new();
     let token_result = client
         .exchange_code(AuthorizationCode::new(code.to_string()))
@@ -200,6 +202,7 @@ async fn handle_microsoft_callback(
 
     let client = SocialLoginService::get_microsoft_client(provider_config)?;
 
+    // TODO: Reuse a shared reqwest::Client instance for better performance
     let http_client = reqwest::Client::new();
     let token_result = client
         .exchange_code(AuthorizationCode::new(code.to_string()))
@@ -222,6 +225,7 @@ async fn handle_github_callback(
 
     let client = SocialLoginService::get_github_client(provider_config)?;
 
+    // TODO: Reuse a shared reqwest::Client instance for better performance
     let http_client = reqwest::Client::new();
     let token_result = client
         .exchange_code(AuthorizationCode::new(code.to_string()))

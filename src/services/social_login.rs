@@ -4,7 +4,12 @@ use crate::models::{OAuth2Error, ProviderConfig, SocialUserInfo};
 use oauth2::{basic::BasicClient, AuthUrl, ClientId, ClientSecret, RedirectUrl, TokenUrl, EndpointSet, EndpointNotSet};
 use serde::Deserialize;
 
-// Type alias for a fully configured OAuth2 client
+// Type alias for a fully configured OAuth2 client with all required endpoints set.
+// This is necessary due to oauth2 5.0's typestate pattern which tracks endpoint
+// configuration at compile time. The generic parameters represent:
+// - Error types for standard responses and revocation
+// - Token response and introspection types
+// - Endpoint states: auth URL (Set), token URL (Set), device/introspection/revocation (NotSet)
 type ConfiguredClient = oauth2::Client<
     oauth2::StandardErrorResponse<oauth2::basic::BasicErrorResponseType>,
     oauth2::StandardTokenResponse<
