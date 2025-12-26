@@ -1,14 +1,30 @@
-# rust_oauth2
+# Rust OAuth2 Server
 
 A complete, production-ready OAuth2 authorization server built with Rust and Actix-web, featuring the actor model for concurrency, type safety, and comprehensive observability.
+
+## 🌟 Overview
+
+The Rust OAuth2 Server is a high-performance, secure, and scalable OAuth2 implementation designed for modern cloud-native applications. Built with Rust's safety guarantees and Actix's actor model, it provides enterprise-grade authentication and authorization services.
+
+```mermaid
+graph LR
+    A[Web Apps] -->|OAuth2| S[OAuth2 Server]
+    B[Mobile Apps] -->|OAuth2| S
+    C[Services] -->|OAuth2| S
+    S -->|Issues| T[JWT Tokens]
+    T -->|Authorize| API[Protected APIs]
+    
+    style S fill:#ff9800,color:#fff
+    style T fill:#4caf50,color:#fff
+```
 
 ## 🚀 Features
 
 ### OAuth2 Compliance
 - ✅ **Authorization Code Flow** with PKCE support
-- ✅ **Client Credentials Flow**
+- ✅ **Client Credentials Flow** for service-to-service
 - ✅ **Resource Owner Password Credentials Flow**
-- ✅ **Refresh Token Flow**
+- ✅ **Refresh Token Flow** with rotation
 - ✅ **Token Introspection** (RFC 7662)
 - ✅ **Token Revocation** (RFC 7009)
 - ✅ **Discovery Endpoint** (RFC 8414)
@@ -301,33 +317,109 @@ curl -X POST http://localhost:8080/oauth/introspect \
 
 ## 🏗️ Architecture
 
-The server uses the Actor model for handling concurrent requests:
+The server uses the Actor model for concurrent, fault-tolerant request handling:
 
+```mermaid
+graph TB
+    subgraph "Client Layer"
+        Client1[Web Apps]
+        Client2[Mobile Apps]
+        Client3[Services]
+    end
+    
+    subgraph "OAuth2 Server"
+        LB[Load Balancer]
+        MW[Middleware Stack]
+        
+        subgraph "Handlers"
+            OAuth[OAuth Handler]
+            Token[Token Handler]
+            ClientH[Client Handler]
+        end
+        
+        subgraph "Actor System"
+            TokenA[Token Actor]
+            ClientA[Client Actor]
+            AuthA[Auth Actor]
+        end
+    end
+    
+    subgraph "Data & Observability"
+        DB[(Database)]
+        Metrics[Prometheus]
+        Traces[Jaeger]
+    end
+    
+    Client1 --> LB
+    Client2 --> LB
+    Client3 --> LB
+    
+    LB --> MW
+    MW --> OAuth & Token & ClientH
+    
+    OAuth --> AuthA
+    Token --> TokenA
+    ClientH --> ClientA
+    
+    TokenA & ClientA & AuthA --> DB
+    MW --> Metrics & Traces
+    
+    style LB fill:#ff9800,color:#fff
+    style TokenA fill:#4caf50,color:#fff
+    style ClientA fill:#2196f3,color:#fff
+    style AuthA fill:#9c27b0,color:#fff
+    style DB fill:#f3e5f5
 ```
-┌─────────────────┐
-│   HTTP Server   │
-└────────┬────────┘
-         │
-    ┌────┴────┐
-    │ Handlers │
-    └────┬────┘
-         │
-    ┌────┴────────────────────┐
-    │                         │
-┌───▼────────┐   ┌────────────▼───┐   ┌──────────────┐
-│TokenActor  │   │ ClientActor    │   │  AuthActor   │
-└───┬────────┘   └────────────┬───┘   └──────┬───────┘
-    │                         │               │
-    └─────────────┬───────────┴───────────────┘
-                  │
-            ┌─────▼──────┐
-            │  Database  │
-            └────────────┘
+
+### Key Components
+
+- **Actix-Web Server**: High-performance async HTTP server
+- **Actor Model**: Isolated, concurrent request processing  
+- **SQLx Database**: Compile-time verified queries
+- **JWT Tokens**: Stateless authentication
+- **Middleware Stack**: Metrics, tracing, CORS, authentication
+- **OpenTelemetry**: Distributed tracing and observability
+
+### OAuth2 Flows
+
+```mermaid
+graph LR
+    subgraph "Authorization Code Flow"
+        User1[User] -->|Login| Auth1[/oauth/authorize]
+        Auth1 -->|Code| Client1[Client]
+        Client1 -->|Exchange| Token1[/oauth/token]
+        Token1 -->|Access Token| Client1
+    end
+    
+    subgraph "Client Credentials Flow"
+        Service[Service] -->|Credentials| Token2[/oauth/token]
+        Token2 -->|Access Token| Service
+    end
+    
+    style Auth1 fill:#4caf50,color:#fff
+    style Token1 fill:#2196f3,color:#fff
+    style Token2 fill:#2196f3,color:#fff
 ```
+
+For detailed architecture documentation, see [Architecture Overview](docs/architecture/overview.md).
 
 ## 🤝 Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
+
+For development guidelines, see [Contributing Guide](docs/development/contributing.md).
+
+## 📚 Documentation
+
+Comprehensive documentation is available in the `/docs` directory:
+
+- **[Getting Started](docs/getting-started/installation.md)** - Installation and quick start
+- **[Configuration](docs/getting-started/configuration.md)** - Complete configuration guide
+- **[Architecture](docs/architecture/overview.md)** - System design and components
+- **[OAuth2 Flows](docs/flows/authorization-code.md)** - Detailed flow documentation
+- **[API Reference](docs/api/endpoints.md)** - Endpoint documentation
+- **[Deployment](docs/deployment/docker.md)** - Production deployment guides
+- **[Observability](docs/observability/metrics.md)** - Monitoring and troubleshooting
 
 ## 📄 License
 
