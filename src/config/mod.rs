@@ -5,6 +5,7 @@ pub struct Config {
     pub server: ServerConfig,
     pub database: DatabaseConfig,
     pub jwt: JwtConfig,
+    pub events: EventConfig,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -21,6 +22,14 @@ pub struct DatabaseConfig {
 #[derive(Debug, Clone, Deserialize)]
 pub struct JwtConfig {
     pub secret: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct EventConfig {
+    pub enabled: bool,
+    pub backend: String,
+    pub filter_mode: String,
+    pub event_types: Vec<String>,
 }
 
 impl Default for Config {
@@ -45,6 +54,22 @@ impl Default for Config {
                         eprintln!("NEVER use this in production! Set OAUTH2_JWT_SECRET environment variable.");
                         "insecure-default-for-testing-only-change-in-production".to_string()
                     }),
+            },
+            events: EventConfig {
+                enabled: std::env::var("OAUTH2_EVENTS_ENABLED")
+                    .ok()
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(true),
+                backend: std::env::var("OAUTH2_EVENTS_BACKEND")
+                    .unwrap_or_else(|_| "in_memory".to_string()),
+                filter_mode: std::env::var("OAUTH2_EVENTS_FILTER_MODE")
+                    .unwrap_or_else(|_| "allow_all".to_string()),
+                event_types: std::env::var("OAUTH2_EVENTS_TYPES")
+                    .unwrap_or_default()
+                    .split(',')
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect(),
             },
         }
     }

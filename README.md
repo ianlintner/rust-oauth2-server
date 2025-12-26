@@ -40,6 +40,15 @@ graph LR
 - 💾 **Database Support** (SQLite, PostgreSQL via SQLx)
 - 🗄️ **Flyway Migrations** for database schema management
 
+### Authentication Eventing (NEW! ✨)
+- 📡 **Comprehensive Event System** - Emit events for all auth operations
+- 🔧 **Configurable Filtering** - Include/exclude specific event types
+- 🔌 **Pluggable Backends** - In-memory, console, and extensible for Redis/Kafka/RabbitMQ
+- 🎯 **Actor-Based** - Non-blocking, concurrent event processing
+- 📊 **Rich Metadata** - Events include user/client IDs, timestamps, and custom data
+- 🛡️ **Audit-Ready** - Perfect for compliance and security monitoring
+- See [Eventing Documentation](docs/eventing.md) for details
+
 ### Observability & Monitoring
 - 📊 **Prometheus Metrics** - Request rates, token metrics, database performance
 - 🔍 **OpenTelemetry Tracing** - Distributed tracing with OTLP export
@@ -132,6 +141,26 @@ export OAUTH2_SERVER_PORT=8080
 export OAUTH2_DATABASE_URL=sqlite:oauth2.db
 export OAUTH2_JWT_SECRET=your-secret-key-change-in-production
 ```
+
+### Event System Configuration
+
+Configure the authentication eventing system:
+
+```bash
+# Enable/disable events (default: true)
+export OAUTH2_EVENTS_ENABLED=true
+
+# Backend: in_memory, console, or both (default: in_memory)
+export OAUTH2_EVENTS_BACKEND=console
+
+# Filter mode: allow_all, include, or exclude (default: allow_all)
+export OAUTH2_EVENTS_FILTER_MODE=include
+
+# Event types (comma-separated, used with include/exclude modes)
+export OAUTH2_EVENTS_TYPES=token_created,token_revoked,client_registered
+```
+
+See [Eventing Documentation](docs/eventing.md) and [Examples](docs/examples/eventing.md) for more details.
 
 ### Social Login Configuration
 

@@ -1,4 +1,8 @@
 use crate::db::Database;
+use crate::events::{
+    event_actor::{EmitEvent, EventActor},
+    AuthEvent, EventSeverity, EventType,
+};
 use crate::models::{AuthorizationCode, OAuth2Error};
 use actix::prelude::*;
 use rand::Rng;
@@ -6,11 +10,22 @@ use std::sync::Arc;
 
 pub struct AuthActor {
     db: Arc<Database>,
+    event_actor: Option<Addr<EventActor>>,
 }
 
 impl AuthActor {
     pub fn new(db: Arc<Database>) -> Self {
-        Self { db }
+        Self {
+            db,
+            event_actor: None,
+        }
+    }
+
+    pub fn with_events(db: Arc<Database>, event_actor: Addr<EventActor>) -> Self {
+        Self {
+            db,
+            event_actor: Some(event_actor),
+        }
     }
 }
 
@@ -34,20 +49,36 @@ impl Handler<CreateAuthorizationCode> for AuthActor {
 
     fn handle(&mut self, msg: CreateAuthorizationCode, _: &mut Self::Context) -> Self::Result {
         let db = self.db.clone();
+        let event_actor = self.event_actor.clone();
 
         Box::pin(async move {
             let code = generate_code();
             let auth_code = AuthorizationCode::new(
                 code,
-                msg.client_id,
-                msg.user_id,
-                msg.redirect_uri,
-                msg.scope,
+                msg.client_id.clone(),
+                msg.user_id.clone(),
+                msg.redirect_uri.clone(),
+                msg.scope.clone(),
                 msg.code_challenge,
                 msg.code_challenge_method,
             );
 
             db.save_authorization_code(&auth_code).await?;
+
+            // Emit event
+            if let Some(event_actor) = event_actor {
+                let event = AuthEvent::new(
+                    EventType::AuthorizationCodeCreated,
+                    EventSeverity::Info,
+                    Some(msg.user_id.clone()),
+                    Some(msg.client_id.clone()),
+                )
+                .with_metadata("scope", msg.scope)
+                .with_metadata("redirect_uri", msg.redirect_uri);
+
+                event_actor.do_send(EmitEvent { event });
+            }
+
             Ok(auth_code)
         })
     }
@@ -67,6 +98,7 @@ impl Handler<ValidateAuthorizationCode> for AuthActor {
 
     fn handle(&mut self, msg: ValidateAuthorizationCode, _: &mut Self::Context) -> Self::Result {
         let db = self.db.clone();
+        let event_actor = self.event_actor.clone();
 
         Box::pin(async move {
             let auth_code = db
@@ -75,6 +107,17 @@ impl Handler<ValidateAuthorizationCode> for AuthActor {
                 .ok_or_else(|| OAuth2Error::invalid_grant("Authorization code not found"))?;
 
             if !auth_code.is_valid() {
+                // Emit expired event
+                if let Some(event_actor) = &event_actor {
+                    let event = AuthEvent::new(
+                        EventType::AuthorizationCodeExpired,
+                        EventSeverity::Warning,
+                        Some(auth_code.user_id.clone()),
+                        Some(auth_code.client_id.clone()),
+                    );
+                    event_actor.do_send(EmitEvent { event });
+                }
+
                 return Err(OAuth2Error::invalid_grant(
                     "Authorization code is expired or used",
                 ));
@@ -105,6 +148,17 @@ impl Handler<ValidateAuthorizationCode> for AuthActor {
 
             // Mark as used
             db.mark_authorization_code_used(&msg.code).await?;
+
+            // Emit validated event
+            if let Some(event_actor) = event_actor {
+                let event = AuthEvent::new(
+                    EventType::AuthorizationCodeValidated,
+                    EventSeverity::Info,
+                    Some(auth_code.user_id.clone()),
+                    Some(auth_code.client_id.clone()),
+                );
+                event_actor.do_send(EmitEvent { event });
+            }
 
             Ok(auth_code)
         })

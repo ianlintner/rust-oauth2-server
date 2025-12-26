@@ -1,6 +1,7 @@
 mod actors;
 mod config;
 mod db;
+mod events;
 mod handlers;
 mod metrics;
 mod middleware;
@@ -50,6 +51,34 @@ use utoipa_swagger_ui::SwaggerUi;
     )
 )]
 struct ApiDoc;
+
+// Helper function to parse event types from configuration strings
+fn parse_event_types(event_type_strings: &[String]) -> Vec<events::EventType> {
+    use events::EventType;
+
+    event_type_strings
+        .iter()
+        .filter_map(|s| match s.as_str() {
+            "authorization_code_created" => Some(EventType::AuthorizationCodeCreated),
+            "authorization_code_validated" => Some(EventType::AuthorizationCodeValidated),
+            "authorization_code_expired" => Some(EventType::AuthorizationCodeExpired),
+            "token_created" => Some(EventType::TokenCreated),
+            "token_validated" => Some(EventType::TokenValidated),
+            "token_revoked" => Some(EventType::TokenRevoked),
+            "token_expired" => Some(EventType::TokenExpired),
+            "client_registered" => Some(EventType::ClientRegistered),
+            "client_validated" => Some(EventType::ClientValidated),
+            "client_deleted" => Some(EventType::ClientDeleted),
+            "user_authenticated" => Some(EventType::UserAuthenticated),
+            "user_authentication_failed" => Some(EventType::UserAuthenticationFailed),
+            "user_logout" => Some(EventType::UserLogout),
+            _ => {
+                tracing::warn!("Unknown event type in config: {}", s);
+                None
+            }
+        })
+        .collect()
+}
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
@@ -106,10 +135,67 @@ async fn main() -> std::io::Result<()> {
         Key::generate()
     };
 
-    // Start actors
-    let token_actor = actors::TokenActor::new(db.clone(), jwt_secret.clone()).start();
-    let client_actor = actors::ClientActor::new(db.clone()).start();
-    let auth_actor = actors::AuthActor::new(db.clone()).start();
+    // Initialize event system first
+    let event_actor = if config.events.enabled {
+        use events::{ConsoleEventLogger, EventFilter, InMemoryEventLogger};
+        use std::sync::Arc;
+
+        // Parse event filter from config
+        let filter = match config.events.filter_mode.as_str() {
+            "include" => {
+                let event_types = parse_event_types(&config.events.event_types);
+                EventFilter::include_only(event_types)
+            }
+            "exclude" => {
+                let event_types = parse_event_types(&config.events.event_types);
+                EventFilter::exclude_events(event_types)
+            }
+            _ => EventFilter::allow_all(),
+        };
+
+        // Create plugins based on backend config
+        let plugins: Vec<Arc<dyn events::EventPlugin>> = match config.events.backend.as_str() {
+            "console" => vec![Arc::new(ConsoleEventLogger::new())],
+            "in_memory" => vec![Arc::new(InMemoryEventLogger::new(1000))],
+            "both" => vec![
+                Arc::new(InMemoryEventLogger::new(1000)),
+                Arc::new(ConsoleEventLogger::new()),
+            ],
+            _ => {
+                tracing::warn!(
+                    "Unknown event backend: {}, using in_memory",
+                    config.events.backend
+                );
+                vec![Arc::new(InMemoryEventLogger::new(1000))]
+            }
+        };
+
+        let actor = events::event_actor::EventActor::new(plugins, filter).start();
+        tracing::info!("Event system initialized");
+        Some(actor)
+    } else {
+        tracing::info!("Event system disabled");
+        None
+    };
+
+    // Start actors with event system
+    let token_actor = if let Some(ref event_actor) = event_actor {
+        actors::TokenActor::with_events(db.clone(), jwt_secret.clone(), event_actor.clone()).start()
+    } else {
+        actors::TokenActor::new(db.clone(), jwt_secret.clone()).start()
+    };
+
+    let client_actor = if let Some(ref event_actor) = event_actor {
+        actors::ClientActor::with_events(db.clone(), event_actor.clone()).start()
+    } else {
+        actors::ClientActor::new(db.clone()).start()
+    };
+
+    let auth_actor = if let Some(ref event_actor) = event_actor {
+        actors::AuthActor::with_events(db.clone(), event_actor.clone()).start()
+    } else {
+        actors::AuthActor::new(db.clone()).start()
+    };
 
     tracing::info!("Actors started");
 
@@ -131,7 +217,7 @@ async fn main() -> std::io::Result<()> {
             .allow_any_header()
             .max_age(3600);
 
-        App::new()
+        let mut app = App::new()
             // Middleware
             .wrap(SessionMiddleware::new(
                 CookieSessionStore::default(),
@@ -149,7 +235,14 @@ async fn main() -> std::io::Result<()> {
             .app_data(web::Data::new(jwt_secret.clone()))
             .app_data(web::Data::new(db.clone()))
             .app_data(web::Data::new(metrics.clone()))
-            .app_data(web::Data::new(social_config.clone()))
+            .app_data(web::Data::new(social_config.clone()));
+
+        // Add event actor if enabled
+        if let Some(ref event_actor) = event_actor {
+            app = app.app_data(web::Data::new(event_actor.clone()));
+        }
+
+        app
             // Root route
             .route(
                 "/",
