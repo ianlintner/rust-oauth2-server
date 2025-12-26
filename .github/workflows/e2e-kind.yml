@@ -14,6 +14,13 @@ jobs:
   e2e-kind:
     name: E2E Tests on KIND
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    environment: dev
+    env:
+      ACR_NAME: gabby
+      ACR_LOGIN_SERVER: gabby.azurecr.io
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -61,11 +68,26 @@ jobs:
           cluster_name: oauth2-test
           config: kind-config.yaml
 
+      - name: Azure login (OIDC)
+        if: github.event_name == 'push'
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
       - name: Build Docker image
         timeout-minutes: 5
         run: |
-          docker build -f Dockerfile.ci -t ghcr.io/ianlintner/rust_oauth2_server:test .
-          kind load docker-image ghcr.io/ianlintner/rust_oauth2_server:test --name oauth2-test
+          docker build -f Dockerfile.ci -t ${ACR_LOGIN_SERVER}/oauth2-server:test .
+          kind load docker-image ${ACR_LOGIN_SERVER}/oauth2-server:test --name oauth2-test
+
+      - name: Push image to ACR (optional)
+        if: github.event_name == 'push'
+        run: |
+          az acr login --name ${ACR_NAME}
+          docker tag ${ACR_LOGIN_SERVER}/oauth2-server:test ${ACR_LOGIN_SERVER}/oauth2-server:${{ github.sha }}
+          docker push ${ACR_LOGIN_SERVER}/oauth2-server:${{ github.sha }}
 
       - name: Install kustomize
         run: |
@@ -102,7 +124,7 @@ jobs:
             - service-nodeport.yaml
           
           images:
-            - name: ghcr.io/ianlintner/rust_oauth2_server
+            - name: gabby.azurecr.io/oauth2-server
               newTag: test
           
           commonLabels:

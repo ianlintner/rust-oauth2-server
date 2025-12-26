@@ -20,5 +20,5 @@ replicas:
     count: 1
 
 images:
-  - name: ghcr.io/ianlintner/rust_oauth2_server
+  - name: gabby.azurecr.io/oauth2-server
     newTag: dev

@@ -34,7 +34,7 @@ spec:
                   fieldPath: metadata.namespace
       containers:
         - name: oauth2-server
-          image: ghcr.io/ianlintner/rust_oauth2_server:latest
+          image: gabby.azurecr.io/oauth2-server:latest
           imagePullPolicy: IfNotPresent
           command: ["/bin/sh", "-c"]
           args:
