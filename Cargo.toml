@@ -38,7 +38,7 @@ uuid = { version = "1.6", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 
 # Configuration
-config = "0.13"
+config = "0.15"
 
 # Logging
 env_logger = "0.11"
@@ -48,11 +48,11 @@ log = "0.4"
 validator = { version = "0.19", features = ["derive"] }
 
 # Database (SQLite for simplicity, can be extended)
-sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "sqlite", "postgres", "chrono", "uuid"] }
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio-rustls", "sqlite", "postgres", "chrono", "uuid", "macros", "migrate"] }
 
 # OpenAPI
-utoipa = { version = "4.1", features = ["actix_extras", "chrono", "uuid"] }
-utoipa-swagger-ui = { version = "5.0", features = ["actix-web"] }
+utoipa = { version = "5.4", features = ["actix_extras", "chrono", "uuid"] }
+utoipa-swagger-ui = { version = "8.0", features = ["actix-web"] }
 
 # CORS
 actix-cors = "0.7"
@@ -80,8 +80,8 @@ actix-files = "0.6"
 actix-session = { version = "0.9", features = ["cookie-session"] }
 
 # OAuth2 client for social logins
-oauth2 = "4.4"
-reqwest = { version = "0.11", features = ["json"] }
+oauth2 = "5.0"
+reqwest = { version = "0.12", features = ["json"] }
 
 # Additional serialization
 serde_urlencoded = "0.7"

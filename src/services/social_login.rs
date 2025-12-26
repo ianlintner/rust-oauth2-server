@@ -1,110 +1,130 @@
 #![allow(dead_code)]
 
 use crate::models::{OAuth2Error, ProviderConfig, SocialUserInfo};
-use oauth2::{basic::BasicClient, AuthUrl, ClientId, ClientSecret, RedirectUrl, TokenUrl};
+use oauth2::{basic::BasicClient, AuthUrl, ClientId, ClientSecret, RedirectUrl, TokenUrl, EndpointSet, EndpointNotSet};
 use serde::Deserialize;
+
+// Type alias for a fully configured OAuth2 client
+type ConfiguredClient = oauth2::Client<
+    oauth2::StandardErrorResponse<oauth2::basic::BasicErrorResponseType>,
+    oauth2::StandardTokenResponse<
+        oauth2::EmptyExtraTokenFields,
+        oauth2::basic::BasicTokenType,
+    >,
+    oauth2::StandardTokenIntrospectionResponse<
+        oauth2::EmptyExtraTokenFields,
+        oauth2::basic::BasicTokenType,
+    >,
+    oauth2::StandardRevocableToken,
+    oauth2::StandardErrorResponse<oauth2::RevocationErrorResponseType>,
+    EndpointSet,
+    EndpointNotSet,
+    EndpointNotSet,
+    EndpointNotSet,
+    EndpointSet,
+>;
 
 pub struct SocialLoginService;
 
 impl SocialLoginService {
-    pub fn get_google_client(config: &ProviderConfig) -> Result<BasicClient, OAuth2Error> {
-        Ok(BasicClient::new(
-            ClientId::new(config.client_id.clone()),
-            Some(ClientSecret::new(config.client_secret.clone())),
-            AuthUrl::new("https://accounts.google.com/o/oauth2/v2/auth".to_string())
-                .map_err(|e| OAuth2Error::new("invalid_configuration", Some(&e.to_string())))?,
-            Some(
+    pub fn get_google_client(config: &ProviderConfig) -> Result<ConfiguredClient, OAuth2Error> {
+        Ok(BasicClient::new(ClientId::new(config.client_id.clone()))
+            .set_client_secret(ClientSecret::new(config.client_secret.clone()))
+            .set_auth_uri(
+                AuthUrl::new("https://accounts.google.com/o/oauth2/v2/auth".to_string())
+                    .map_err(|e| OAuth2Error::new("invalid_configuration", Some(&e.to_string())))?,
+            )
+            .set_token_uri(
                 TokenUrl::new("https://oauth2.googleapis.com/token".to_string())
                     .map_err(|e| OAuth2Error::new("invalid_configuration", Some(&e.to_string())))?,
-            ),
-        )
-        .set_redirect_uri(
-            RedirectUrl::new(config.redirect_uri.clone())
-                .map_err(|e| OAuth2Error::new("invalid_configuration", Some(&e.to_string())))?,
-        ))
+            )
+            .set_redirect_uri(
+                RedirectUrl::new(config.redirect_uri.clone())
+                    .map_err(|e| OAuth2Error::new("invalid_configuration", Some(&e.to_string())))?,
+            ))
     }
 
-    pub fn get_microsoft_client(config: &ProviderConfig) -> Result<BasicClient, OAuth2Error> {
+    pub fn get_microsoft_client(config: &ProviderConfig) -> Result<ConfiguredClient, OAuth2Error> {
         let tenant = config.tenant_id.as_deref().unwrap_or("common");
-        Ok(BasicClient::new(
-            ClientId::new(config.client_id.clone()),
-            Some(ClientSecret::new(config.client_secret.clone())),
-            AuthUrl::new(format!(
-                "https://login.microsoftonline.com/{}/oauth2/v2.0/authorize",
-                tenant
-            ))
-            .map_err(|e| OAuth2Error::new("invalid_configuration", Some(&e.to_string())))?,
-            Some(
+        Ok(BasicClient::new(ClientId::new(config.client_id.clone()))
+            .set_client_secret(ClientSecret::new(config.client_secret.clone()))
+            .set_auth_uri(
+                AuthUrl::new(format!(
+                    "https://login.microsoftonline.com/{}/oauth2/v2.0/authorize",
+                    tenant
+                ))
+                .map_err(|e| OAuth2Error::new("invalid_configuration", Some(&e.to_string())))?,
+            )
+            .set_token_uri(
                 TokenUrl::new(format!(
                     "https://login.microsoftonline.com/{}/oauth2/v2.0/token",
                     tenant
                 ))
                 .map_err(|e| OAuth2Error::new("invalid_configuration", Some(&e.to_string())))?,
-            ),
-        )
-        .set_redirect_uri(
-            RedirectUrl::new(config.redirect_uri.clone())
-                .map_err(|e| OAuth2Error::new("invalid_configuration", Some(&e.to_string())))?,
-        ))
+            )
+            .set_redirect_uri(
+                RedirectUrl::new(config.redirect_uri.clone())
+                    .map_err(|e| OAuth2Error::new("invalid_configuration", Some(&e.to_string())))?,
+            ))
     }
 
-    pub fn get_github_client(config: &ProviderConfig) -> Result<BasicClient, OAuth2Error> {
-        Ok(BasicClient::new(
-            ClientId::new(config.client_id.clone()),
-            Some(ClientSecret::new(config.client_secret.clone())),
-            AuthUrl::new("https://github.com/login/oauth/authorize".to_string())
-                .map_err(|e| OAuth2Error::new("invalid_configuration", Some(&e.to_string())))?,
-            Some(
+    pub fn get_github_client(config: &ProviderConfig) -> Result<ConfiguredClient, OAuth2Error> {
+        Ok(BasicClient::new(ClientId::new(config.client_id.clone()))
+            .set_client_secret(ClientSecret::new(config.client_secret.clone()))
+            .set_auth_uri(
+                AuthUrl::new("https://github.com/login/oauth/authorize".to_string())
+                    .map_err(|e| OAuth2Error::new("invalid_configuration", Some(&e.to_string())))?,
+            )
+            .set_token_uri(
                 TokenUrl::new("https://github.com/login/oauth/access_token".to_string())
                     .map_err(|e| OAuth2Error::new("invalid_configuration", Some(&e.to_string())))?,
-            ),
-        )
-        .set_redirect_uri(
-            RedirectUrl::new(config.redirect_uri.clone())
-                .map_err(|e| OAuth2Error::new("invalid_configuration", Some(&e.to_string())))?,
-        ))
+            )
+            .set_redirect_uri(
+                RedirectUrl::new(config.redirect_uri.clone())
+                    .map_err(|e| OAuth2Error::new("invalid_configuration", Some(&e.to_string())))?,
+            ))
     }
 
-    pub fn get_okta_client(config: &ProviderConfig) -> Result<BasicClient, OAuth2Error> {
+    pub fn get_okta_client(config: &ProviderConfig) -> Result<ConfiguredClient, OAuth2Error> {
         let domain = config.domain.as_ref().ok_or_else(|| {
             OAuth2Error::new("invalid_configuration", Some("Okta domain is required"))
         })?;
 
-        Ok(BasicClient::new(
-            ClientId::new(config.client_id.clone()),
-            Some(ClientSecret::new(config.client_secret.clone())),
-            AuthUrl::new(format!("https://{}/oauth2/default/v1/authorize", domain))
-                .map_err(|e| OAuth2Error::new("invalid_configuration", Some(&e.to_string())))?,
-            Some(
+        Ok(BasicClient::new(ClientId::new(config.client_id.clone()))
+            .set_client_secret(ClientSecret::new(config.client_secret.clone()))
+            .set_auth_uri(
+                AuthUrl::new(format!("https://{}/oauth2/default/v1/authorize", domain))
+                    .map_err(|e| OAuth2Error::new("invalid_configuration", Some(&e.to_string())))?,
+            )
+            .set_token_uri(
                 TokenUrl::new(format!("https://{}/oauth2/default/v1/token", domain))
                     .map_err(|e| OAuth2Error::new("invalid_configuration", Some(&e.to_string())))?,
-            ),
-        )
-        .set_redirect_uri(
-            RedirectUrl::new(config.redirect_uri.clone())
-                .map_err(|e| OAuth2Error::new("invalid_configuration", Some(&e.to_string())))?,
-        ))
+            )
+            .set_redirect_uri(
+                RedirectUrl::new(config.redirect_uri.clone())
+                    .map_err(|e| OAuth2Error::new("invalid_configuration", Some(&e.to_string())))?,
+            ))
     }
 
-    pub fn get_auth0_client(config: &ProviderConfig) -> Result<BasicClient, OAuth2Error> {
+    pub fn get_auth0_client(config: &ProviderConfig) -> Result<ConfiguredClient, OAuth2Error> {
         let domain = config.domain.as_ref().ok_or_else(|| {
             OAuth2Error::new("invalid_configuration", Some("Auth0 domain is required"))
         })?;
 
-        Ok(BasicClient::new(
-            ClientId::new(config.client_id.clone()),
-            Some(ClientSecret::new(config.client_secret.clone())),
-            AuthUrl::new(format!("https://{}/authorize", domain))
-                .map_err(|e| OAuth2Error::new("invalid_configuration", Some(&e.to_string())))?,
-            Some(
+        Ok(BasicClient::new(ClientId::new(config.client_id.clone()))
+            .set_client_secret(ClientSecret::new(config.client_secret.clone()))
+            .set_auth_uri(
+                AuthUrl::new(format!("https://{}/authorize", domain))
+                    .map_err(|e| OAuth2Error::new("invalid_configuration", Some(&e.to_string())))?,
+            )
+            .set_token_uri(
                 TokenUrl::new(format!("https://{}/oauth/token", domain))
                     .map_err(|e| OAuth2Error::new("invalid_configuration", Some(&e.to_string())))?,
-            ),
-        )
-        .set_redirect_uri(
-            RedirectUrl::new(config.redirect_uri.clone())
-                .map_err(|e| OAuth2Error::new("invalid_configuration", Some(&e.to_string())))?,
-        ))
+            )
+            .set_redirect_uri(
+                RedirectUrl::new(config.redirect_uri.clone())
+                    .map_err(|e| OAuth2Error::new("invalid_configuration", Some(&e.to_string())))?,
+            ))
     }
 
     pub async fn fetch_google_user_info(access_token: &str) -> Result<SocialUserInfo, OAuth2Error> {
