@@ -87,6 +87,10 @@ reqwest = { version = "0.12", features = ["json"] }
 # Additional serialization
 serde_urlencoded = "0.7"
 
+[lib]
+name = "rust_oauth2_server"
+path = "src/lib.rs"
+
 [dev-dependencies]
 # Testing
 actix-rt = "2.9"
