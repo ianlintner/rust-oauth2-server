@@ -1,5 +1,7 @@
 # Rust
 /target
+!/target/release/
+!/target/release/rust_oauth2_server
 **/*.rs.bk
 
 # Git / CI

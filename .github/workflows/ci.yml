@@ -71,6 +71,7 @@ jobs:
 
       - name: Security Audit (cargo-audit)
         continue-on-error: true
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
         uses: rustsec/audit-check@v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
