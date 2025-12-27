@@ -201,13 +201,14 @@ fn sqlite_parent_dir(database_url: &str) -> Option<&Path> {
 
     let mut rest = &database_url["sqlite:".len()..];
 
-    // Normalize URL-ish forms into a filesystem-ish path.
+    // Normalize URL-ish forms into a filesystem-ish path by reducing multiple
+    // leading slashes to a single leading slash.
     // - "///app/data/x.db" -> "/app/data/x.db"
-    // - "//app/data/x.db"  -> "app/data/x.db" (rare, but keep consistent)
+    // - "//app/data/x.db"  -> "/app/data/x.db" (rare, but keep consistent)
     if rest.starts_with("///") {
         rest = &rest[2..];
     } else if rest.starts_with("//") {
-        rest = &rest[2..];
+        rest = &rest[1..];
     }
 
     // Drop any query string.
