@@ -32,6 +32,17 @@ jobs:
           cache-key: e2e-kind
           install-system-deps: 'true'
 
+      - name: Install KIND
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Pin a recent stable KIND release (bump as needed)
+          KIND_VERSION="v0.24.0"
+          curl -fsSL -o kind "https://kind.sigs.k8s.io/dl/${KIND_VERSION}/kind-linux-amd64"
+          chmod +x kind
+          sudo mv kind /usr/local/bin/kind
+          kind version
+
       - name: Create KIND cluster config
         run: |
           cat <<EOF > kind-config.yaml
@@ -45,18 +56,23 @@ jobs:
                   protocol: TCP
           EOF
 
-      - name: Create KIND cluster
-        uses: helm/kind-action@v1.10.0
-        with:
-          cluster_name: oauth2-test
-          config: kind-config.yaml
-
-      - name: Enable config debug logging
-        run: echo "OAUTH2_DEBUG_CONFIG=1" >> $GITHUB_ENV
-
-      - name: Build release binary (cached)
+      - name: Build Rust + create KIND cluster (overlapped)
+        shell: bash
         run: |
-          cargo build --release --locked
+          set -euo pipefail
+
+          echo "Starting Rust release build in background..."
+          cargo build --release --locked &
+          build_pid=$!
+
+          echo "Creating KIND cluster..."
+          kind create cluster --name oauth2-test --config kind-config.yaml
+
+          echo "Enabling config debug logging..."
+          echo "OAUTH2_DEBUG_CONFIG=1" >> "$GITHUB_ENV"
+
+          echo "Waiting for Rust build to finish..."
+          wait "$build_pid"
           test -f target/release/rust_oauth2_server
 
       - name: Build Docker image
