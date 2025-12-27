@@ -474,14 +474,19 @@ graph TB
     Client3 --> LB
     
     LB --> MW
-    MW --> OAuth & Token & ClientH
+    MW --> OAuth
+    MW --> Token
+    MW --> ClientH
     
     OAuth --> AuthA
     Token --> TokenA
     ClientH --> ClientA
     
-    TokenA & ClientA & AuthA --> DB
-    MW --> Metrics & Traces
+    TokenA --> DB
+    ClientA --> DB
+    AuthA --> DB
+    MW --> Metrics
+    MW --> Traces
     
     style LB fill:#ff9800,color:#fff
     style TokenA fill:#4caf50,color:#fff
