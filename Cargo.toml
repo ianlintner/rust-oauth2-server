@@ -48,7 +48,7 @@ log = "0.4"
 validator = { version = "0.19", features = ["derive"] }
 
 # Database (SQLite for simplicity, can be extended)
-sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio-rustls", "sqlite", "postgres", "chrono", "uuid", "macros", "migrate"] }
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio-rustls", "sqlite", "postgres", "any", "chrono", "uuid", "macros", "migrate"] }
 
 # OpenAPI
 utoipa = { version = "5.4", features = ["actix_extras", "chrono", "uuid"] }
