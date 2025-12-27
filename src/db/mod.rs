@@ -72,11 +72,9 @@ impl Database {
         .execute(pool)
         .await?;
 
-        sqlx::query(
-            r#"CREATE INDEX IF NOT EXISTS idx_clients_client_id ON clients(client_id);"#,
-        )
-        .execute(pool)
-        .await?;
+        sqlx::query(r#"CREATE INDEX IF NOT EXISTS idx_clients_client_id ON clients(client_id);"#)
+            .execute(pool)
+            .await?;
 
         // Users
         sqlx::query(
@@ -125,12 +123,16 @@ impl Database {
         .execute(pool)
         .await?;
 
-        sqlx::query(r#"CREATE INDEX IF NOT EXISTS idx_tokens_access_token ON tokens(access_token);"#)
-            .execute(pool)
-            .await?;
-        sqlx::query(r#"CREATE INDEX IF NOT EXISTS idx_tokens_refresh_token ON tokens(refresh_token);"#)
-            .execute(pool)
-            .await?;
+        sqlx::query(
+            r#"CREATE INDEX IF NOT EXISTS idx_tokens_access_token ON tokens(access_token);"#,
+        )
+        .execute(pool)
+        .await?;
+        sqlx::query(
+            r#"CREATE INDEX IF NOT EXISTS idx_tokens_refresh_token ON tokens(refresh_token);"#,
+        )
+        .execute(pool)
+        .await?;
         sqlx::query(r#"CREATE INDEX IF NOT EXISTS idx_tokens_client_id ON tokens(client_id);"#)
             .execute(pool)
             .await?;
