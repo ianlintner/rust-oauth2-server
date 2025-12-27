@@ -44,7 +44,10 @@ graph TB
     OAuth2 --> Jaeger
     Prometheus --> OAuth2
     
-    AppNet -.-> OAuth2 & DB & Jaeger & Prometheus
+    AppNet -.-> OAuth2
+    AppNet -.-> DB
+    AppNet -.-> Jaeger
+    AppNet -.-> Prometheus
     
     style OAuth2 fill:#ff9800,color:#fff
     style DB fill:#f3e5f5
