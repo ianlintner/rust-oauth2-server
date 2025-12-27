@@ -61,7 +61,7 @@ pub struct Token {
     pub access_token: String,
     pub refresh_token: Option<String>,
     pub token_type: String,
-    pub expires_in: i64,
+    pub expires_in: i32,
     pub scope: String,
     pub client_id: String,
     pub user_id: Option<String>,
@@ -77,10 +77,10 @@ impl Token {
         client_id: String,
         user_id: Option<String>,
         scope: String,
-        expires_in: i64,
+        expires_in: i32,
     ) -> Self {
         let now = Utc::now();
-        let expires_at = now + Duration::seconds(expires_in);
+        let expires_at = now + Duration::seconds(i64::from(expires_in));
 
         Self {
             id: Uuid::new_v4().to_string(),
@@ -112,7 +112,7 @@ pub struct TokenResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub refresh_token: Option<String>,
     pub token_type: String,
-    pub expires_in: i64,
+    pub expires_in: i32,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub scope: Option<String>,
 }
