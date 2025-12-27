@@ -25,7 +25,7 @@ VALUES (
     'testuser',
     '$argon2id$v=19$m=524288,t=2,p=1$c29tZXNhbHQxMjM0NTY3ODkwMTIzNDU$wA1qkO0rATEtNnS/xPbbgQ1234567890123456789012',
     'test@example.com',
-    1,
+    TRUE,
     NOW(),
     NOW()
 )
