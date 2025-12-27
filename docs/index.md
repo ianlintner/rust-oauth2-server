@@ -27,11 +27,16 @@ graph TB
         Resources[(Protected Data)]
     end
     
-    WebApp & MobileApp & Services & CLI --> Auth
+    WebApp --> Auth
+    MobileApp --> Auth
+    Services --> Auth
+    CLI --> Auth
     Auth --> Authz
     Authz --> Tokens
-    Tokens --> API1 & API2
-    API1 & API2 --> Resources
+    Tokens --> API1
+    Tokens --> API2
+    API1 --> Resources
+    API2 --> Resources
     
     style Auth fill:#ff9800,color:#fff
     style Authz fill:#4caf50,color:#fff
