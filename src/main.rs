@@ -111,6 +111,7 @@ async fn main() -> std::io::Result<()> {
     tracing::info!("Metrics initialized");
 
     // Initialize database
+    tracing::info!(database_url = %config.database.url, "Connecting to database");
     let db = db::Database::new(&config.database.url)
         .await
         .expect("Failed to connect to database");

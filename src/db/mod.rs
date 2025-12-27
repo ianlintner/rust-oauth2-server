@@ -1,7 +1,10 @@
 #![allow(dead_code)]
 
 use crate::models::{AuthorizationCode, Client, OAuth2Error, Token, User};
+use sqlx::sqlite::SqliteConnectOptions;
 use sqlx::{Pool, Sqlite, SqlitePool};
+use std::path::Path;
+use std::str::FromStr;
 
 pub struct Database {
     pool: Pool<Sqlite>,
@@ -9,7 +12,18 @@ pub struct Database {
 
 impl Database {
     pub async fn new(database_url: &str) -> Result<Self, sqlx::Error> {
-        let pool = SqlitePool::connect(database_url).await?;
+        // In containerized environments (KIND/Kubernetes), a common failure mode is that the
+        // directory for the sqlite DB file doesn't exist or isn't writable yet.
+        // This proactively creates the parent directory (when we can infer one) and tells sqlx
+        // to create the database file if missing.
+        if let Some(parent_dir) = sqlite_parent_dir(database_url) {
+            // Best-effort: if we can't create it (permissions, etc.), sqlx will surface the
+            // underlying error on connect.
+            let _ = std::fs::create_dir_all(parent_dir);
+        }
+
+        let options = SqliteConnectOptions::from_str(database_url)?.create_if_missing(true);
+        let pool = SqlitePool::connect_with(options).await?;
         Ok(Self { pool })
     }
 
@@ -169,4 +183,38 @@ impl Database {
             .await?;
         Ok(())
     }
+}
+
+fn sqlite_parent_dir(database_url: &str) -> Option<&Path> {
+    // sqlx accepts connection strings like:
+    // - sqlite::memory:
+    // - sqlite:oauth2.db
+    // - sqlite:/app/data/oauth2.db
+    // - sqlite:///app/data/oauth2.db
+    // Potentially with query params appended.
+    if !database_url.starts_with("sqlite:") {
+        return None;
+    }
+    if database_url.starts_with("sqlite::memory:") {
+        return None;
+    }
+
+    let mut rest = &database_url["sqlite:".len()..];
+
+    // Normalize URL-ish forms into a filesystem-ish path.
+    // - "///app/data/x.db" -> "/app/data/x.db"
+    // - "//app/data/x.db"  -> "app/data/x.db" (rare, but keep consistent)
+    if rest.starts_with("///") {
+        rest = &rest[2..];
+    } else if rest.starts_with("//") {
+        rest = &rest[2..];
+    }
+
+    // Drop any query string.
+    let path_part = rest.split('?').next().unwrap_or(rest);
+    if path_part.is_empty() {
+        return None;
+    }
+
+    Path::new(path_part).parent()
 }

@@ -89,7 +89,11 @@ jobs:
             {"op":"remove","path":"/spec/template/spec/initContainers"},
             {"op":"remove","path":"/spec/template/spec/containers/0/command"},
             {"op":"remove","path":"/spec/template/spec/containers/0/args"},
-            {"op":"add","path":"/spec/template/spec/containers/0/env/-","value":{"name":"OAUTH2_DATABASE_URL","value":"sqlite:/app/data/oauth2.db"}}
+            {"op":"add","path":"/spec/template/spec/containers/0/env/-","value":{"name":"OAUTH2_DATABASE_URL","value":"sqlite:///app/data/oauth2.db"}},
+            {"op":"add","path":"/spec/template/spec/volumes","value":[]},
+            {"op":"add","path":"/spec/template/spec/volumes/-","value":{"name":"data","emptyDir":{}}},
+            {"op":"add","path":"/spec/template/spec/containers/0/volumeMounts","value":[]},
+            {"op":"add","path":"/spec/template/spec/containers/0/volumeMounts/-","value":{"name":"data","mountPath":"/app/data"}}
           ]
           EOF
           cat > kustomization.yaml << EOF
@@ -145,7 +149,17 @@ jobs:
 
       - name: Deploy to KIND
         run: |
-          kubectl apply -k k8s/base
+          # Use the kustomize binary we installed above (kubectl's embedded kustomize can lag)
+          kustomize build k8s/base > /tmp/kustomize-rendered.yaml
+
+          echo "Rendered Deployment excerpt (sanity check):"
+          awk '
+            $0 ~ /^kind: Deployment$/ {in_dep=1}
+            in_dep {print}
+            in_dep && $0 ~ /^---$/ {exit}
+          ' /tmp/kustomize-rendered.yaml | grep -E "kind: Deployment|name: oauth2-server|replicas:|initContainers:|OAUTH2_DATABASE_URL|volumeMounts:|mountPath: /app/data|volumes:|emptyDir" || true
+
+          kubectl apply -f /tmp/kustomize-rendered.yaml
 
       - name: Wait for OAuth2 server
         run: |
@@ -160,7 +174,7 @@ jobs:
       - name: Check server logs
         if: always()
         run: |
-          kubectl logs deployment/oauth2-server -n oauth2-server --tail=100 || echo "No logs available yet"
+          kubectl logs deployment/oauth2-server -n oauth2-server -c oauth2-server --tail=100 || echo "No logs available yet"
 
       - name: Test health endpoint
         run: |
