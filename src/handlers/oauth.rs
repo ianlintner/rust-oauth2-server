@@ -115,7 +115,7 @@ async fn handle_authorization_code_grant(
     // Create token
     let token = token_actor
         .send(CreateToken {
-            user_id: auth_code.user_id,
+            user_id: Some(auth_code.user_id),
             client_id: auth_code.client_id,
             scope: auth_code.scope,
             include_refresh: true,
@@ -140,7 +140,7 @@ async fn handle_client_credentials_grant(
     // Create token (no user, client-only)
     let token = token_actor
         .send(CreateToken {
-            user_id: req.client_id.clone(), // Use client_id as user_id
+            user_id: None,
             client_id: req.client_id,
             scope,
             include_refresh: false,
@@ -167,7 +167,7 @@ async fn handle_password_grant(
 
     let token = token_actor
         .send(CreateToken {
-            user_id: username,
+            user_id: Some(username),
             client_id: req.client_id,
             scope,
             include_refresh: true,

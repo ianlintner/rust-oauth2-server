@@ -42,7 +42,7 @@ impl Actor for TokenActor {
 #[derive(Message)]
 #[rtype(result = "Result<Token, OAuth2Error>")]
 pub struct CreateToken {
-    pub user_id: String,
+    pub user_id: Option<String>,
     pub client_id: String,
     pub scope: String,
     pub include_refresh: bool,
@@ -57,9 +57,14 @@ impl Handler<CreateToken> for TokenActor {
         let event_actor = self.event_actor.clone();
 
         Box::pin(async move {
+            let subject = msg
+                .user_id
+                .clone()
+                .unwrap_or_else(|| msg.client_id.clone());
+
             // Create access token
             let access_claims = Claims::new(
-                msg.user_id.clone(),
+                subject.clone(),
                 msg.client_id.clone(),
                 msg.scope.clone(),
                 3600, // 1 hour
@@ -71,7 +76,7 @@ impl Handler<CreateToken> for TokenActor {
             // Create refresh token if requested
             let refresh_token = if msg.include_refresh {
                 let refresh_claims = Claims::new(
-                    msg.user_id.clone(),
+                    subject,
                     msg.client_id.clone(),
                     msg.scope.clone(),
                     2592000, // 30 days
@@ -101,7 +106,7 @@ impl Handler<CreateToken> for TokenActor {
                 let event = AuthEvent::new(
                     EventType::TokenCreated,
                     EventSeverity::Info,
-                    Some(msg.user_id),
+                    msg.user_id,
                     Some(msg.client_id),
                 )
                 .with_metadata("scope", msg.scope)
@@ -140,7 +145,7 @@ impl Handler<ValidateToken> for TokenActor {
                     let event = AuthEvent::new(
                         EventType::TokenExpired,
                         EventSeverity::Warning,
-                        Some(token.user_id.clone()),
+                        token.user_id.clone(),
                         Some(token.client_id.clone()),
                     );
                     event_actor.do_send(EmitEvent { event });
@@ -154,7 +159,7 @@ impl Handler<ValidateToken> for TokenActor {
                 let event = AuthEvent::new(
                     EventType::TokenValidated,
                     EventSeverity::Info,
-                    Some(token.user_id.clone()),
+                    token.user_id.clone(),
                     Some(token.client_id.clone()),
                 );
                 event_actor.do_send(EmitEvent { event });
@@ -190,7 +195,7 @@ impl Handler<RevokeToken> for TokenActor {
                     let event = AuthEvent::new(
                         EventType::TokenRevoked,
                         EventSeverity::Info,
-                        Some(token.user_id),
+                        token.user_id,
                         Some(token.client_id),
                     );
                     event_actor.do_send(EmitEvent { event });

@@ -111,7 +111,7 @@ impl Database {
                 expires_in INTEGER NOT NULL,
                 scope TEXT NOT NULL,
                 client_id TEXT NOT NULL,
-                user_id TEXT NOT NULL,
+                user_id TEXT,
                 created_at TEXT NOT NULL,
                 expires_at TEXT NOT NULL,
                 revoked INTEGER NOT NULL DEFAULT 0,

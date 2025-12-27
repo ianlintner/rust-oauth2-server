@@ -21,12 +21,12 @@ pub struct Claims {
 }
 
 impl Claims {
-    pub fn new(user_id: String, client_id: String, scope: String, duration_seconds: i64) -> Self {
+    pub fn new(subject: String, client_id: String, scope: String, duration_seconds: i64) -> Self {
         let now = Utc::now();
         let exp = now + Duration::seconds(duration_seconds);
 
         Self {
-            sub: user_id,
+            sub: subject,
             iss: "rust_oauth2_server".to_string(),
             aud: client_id.clone(),
             exp: exp.timestamp(),
@@ -64,7 +64,7 @@ pub struct Token {
     pub expires_in: i64,
     pub scope: String,
     pub client_id: String,
-    pub user_id: String,
+    pub user_id: Option<String>,
     pub created_at: DateTime<Utc>,
     pub expires_at: DateTime<Utc>,
     pub revoked: bool,
@@ -75,7 +75,7 @@ impl Token {
         access_token: String,
         refresh_token: Option<String>,
         client_id: String,
-        user_id: String,
+        user_id: Option<String>,
         scope: String,
         expires_in: i64,
     ) -> Self {

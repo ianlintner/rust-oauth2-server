@@ -31,15 +31,21 @@ pub async fn introspect(
             // Decode JWT to get claims
             let claims = Claims::decode(&token.access_token, &jwt_secret).ok();
 
+            let active = token.is_valid();
+            let user_id = token.user_id.clone();
+            let scope = token.scope;
+            let client_id = token.client_id;
+            let token_type = token.token_type;
+
             let response = IntrospectionResponse {
-                active: token.is_valid(),
-                scope: Some(token.scope),
-                client_id: Some(token.client_id),
-                username: Some(token.user_id.clone()),
-                token_type: Some(token.token_type),
+                active,
+                scope: Some(scope),
+                client_id: Some(client_id),
+                username: user_id.clone(),
+                token_type: Some(token_type),
                 exp: claims.as_ref().map(|c| c.exp),
                 iat: claims.as_ref().map(|c| c.iat),
-                sub: Some(token.user_id),
+                sub: claims.as_ref().map(|c| c.sub.clone()).or(user_id),
             };
 
             Ok(HttpResponse::Ok().json(response))
