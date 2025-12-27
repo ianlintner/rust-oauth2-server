@@ -19,6 +19,7 @@ patches:
   # Ingress/HPA are production concerns and can fail/noise on KIND.
   - path: patches/delete-ingress.yaml
   - path: patches/delete-hpa.yaml
+  - path: patches/delete-postgres-pvc.yaml
 
   - target:
       group: apps
