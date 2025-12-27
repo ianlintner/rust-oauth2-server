@@ -1,0 +1,24 @@
+# Rust
+/target
+**/*.rs.bk
+
+# Git / CI
+/.git
+/.github
+
+# Local tooling
+/.vscode
+/.idea
+
+# Docs build outputs
+/site
+/coverage
+
+# OS / editor junk
+.DS_Store
+
+# Node (repo has an mcp-server)
+/mcp-server/node_modules
+
+# Misc
+/tmp

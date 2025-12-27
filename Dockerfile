@@ -1,32 +1,45 @@
-# Multi-stage build for Rust OAuth2 Server
+### Multi-stage build for Rust OAuth2 Server (with cargo-chef)
+###
+### This layout maximizes Docker layer cache reuse:
+### - dependencies are compiled in an early cached layer
+### - application code changes only rebuild the final binary
 
-# Stage 1: Builder
-FROM rust:1.75-slim AS builder
+FROM rust:slim AS chef
 
 WORKDIR /app
 
-# Install dependencies
+# Build dependencies for popular crates (openssl, etc.)
 RUN apt-get update && apt-get install -y \
     pkg-config \
     libssl-dev \
+    curl \
+    unzip \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy manifests
+# Install cargo-chef (cached as a layer)
+RUN cargo install cargo-chef --locked
+
+FROM chef AS planner
+
+# Only copy the manifests first so changes to app source don't bust the dependency cache.
 COPY Cargo.toml Cargo.lock ./
+COPY tests ./tests
+RUN cargo chef prepare --recipe-path recipe.json
 
-# Create dummy source to cache dependencies
-RUN mkdir src && \
-    echo "fn main() {}" > src/main.rs && \
-    cargo build --release && \
-    rm -rf src
+FROM chef AS cacher
 
-# Copy actual source code
-COPY src ./src
-COPY templates ./templates
-COPY static ./static
+COPY --from=planner /app/recipe.json recipe.json
+RUN cargo chef cook --release --locked --recipe-path recipe.json
 
-# Build the application
-RUN touch src/main.rs && cargo build --release
+FROM chef AS builder
+
+# Reuse the dependency build artifacts from the cacher stage
+COPY --from=cacher /app/target /app/target
+COPY --from=cacher /usr/local/cargo /usr/local/cargo
+
+# Copy full source tree and build the application
+COPY . .
+RUN cargo build --release --locked
 
 # Stage 2: Runtime
 FROM debian:bookworm-slim

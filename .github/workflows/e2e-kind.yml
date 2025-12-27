@@ -83,6 +83,15 @@ jobs:
         run: |
           cd k8s/base
           cp kustomization.yaml kustomization.yaml.bak
+          cat > deployment-e2e-kind-patch.json << 'EOF'
+          [
+            {"op":"replace","path":"/spec/replicas","value":1},
+            {"op":"remove","path":"/spec/template/spec/initContainers"},
+            {"op":"remove","path":"/spec/template/spec/containers/0/command"},
+            {"op":"remove","path":"/spec/template/spec/containers/0/args"},
+            {"op":"add","path":"/spec/template/spec/containers/0/env/-","value":{"name":"OAUTH2_DATABASE_URL","value":"sqlite:/app/data/oauth2.db"}}
+          ]
+          EOF
           cat > kustomization.yaml << EOF
           apiVersion: kustomize.config.k8s.io/v1beta1
           kind: Kustomization
@@ -94,12 +103,16 @@ jobs:
             - rbac.yaml
             - configmap.yaml
             - secret.yaml
-            - postgres-pvc.yaml
-            - postgres-statefulset.yaml
-            - postgres-service.yaml
-            - flyway-migration-job.yaml
             - deployment.yaml
             - service-nodeport.yaml
+
+          patchesJson6902:
+            - target:
+                group: apps
+                version: v1
+                kind: Deployment
+                name: oauth2-server
+              path: deployment-e2e-kind-patch.json
           
           images:
             - name: docker.io/ianlintner068/oauth2-server
@@ -134,20 +147,10 @@ jobs:
         run: |
           kubectl apply -k k8s/base
 
-      - name: Wait for PostgreSQL
-        run: |
-          echo "Waiting for PostgreSQL StatefulSet to be ready..."
-          kubectl rollout status statefulset/postgres -n oauth2-server --timeout=300s
-
-      - name: Wait for migrations
-        run: |
-          kubectl wait --for=condition=complete job/flyway-migration -n oauth2-server --timeout=300s || true
-          kubectl logs job/flyway-migration -n oauth2-server
-
       - name: Wait for OAuth2 server
         run: |
           echo "Waiting for deployment to be ready..."
-          kubectl rollout status deployment/oauth2-server -n oauth2-server --timeout=300s
+          kubectl rollout status deployment/oauth2-server -n oauth2-server --timeout=90s
 
       - name: Check deployment status
         run: |
@@ -224,7 +227,6 @@ jobs:
         if: failure()
         run: |
           kubectl logs deployment/oauth2-server -n oauth2-server --tail=200 > oauth2-server.log || echo "No oauth2-server logs"
-          kubectl logs statefulset/postgres -n oauth2-server --tail=200 > postgres.log || echo "No postgres logs"
           kubectl describe pods -n oauth2-server > pods-describe.log
 
       - name: Upload logs
@@ -234,7 +236,6 @@ jobs:
           name: kind-cluster-logs
           path: |
             oauth2-server.log
-            postgres.log
             pods-describe.log
           retention-days: 7
 
