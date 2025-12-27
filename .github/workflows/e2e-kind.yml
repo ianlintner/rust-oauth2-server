@@ -52,8 +52,8 @@ jobs:
           cluster_name: oauth2-test
           config: kind-config.yaml
 
-        - name: Enable config debug logging
-          run: echo "OAUTH2_DEBUG_CONFIG=1" >> $GITHUB_ENV
+      - name: Enable config debug logging
+        run: echo "OAUTH2_DEBUG_CONFIG=1" >> $GITHUB_ENV
       - name: Build Docker image
         # Cold builds (especially first-time cargo-chef cache population) can exceed 5 minutes.
         # Keep this generous to avoid flaky CI failures.
