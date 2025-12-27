@@ -160,13 +160,21 @@ jobs:
           ' /tmp/kustomize-rendered.yaml | grep -E "kind: Deployment|name: oauth2-server|replicas:|initContainers:|OAUTH2_DATABASE_URL|volumeMounts:|mountPath: /app/data|volumes:|emptyDir" || true
 
           kubectl apply -f /tmp/kustomize-rendered.yaml
-            # Ensure migration job is created/applied before rollout checks
-            kubectl apply -f k8s/base/flyway-migration-job.yaml
+
+          # Ensure migration job is fresh and uses the latest configmap
+          kubectl delete job flyway-migration -n oauth2-server --ignore-not-found
+          kubectl apply -f k8s/base/flyway-migration-job.yaml
+
+          echo "Waiting for Postgres to become ready..."
+          kubectl wait --for=condition=ready pod -l app=postgres -n oauth2-server --timeout=120s
+
+          echo "Waiting for Flyway migration job to complete..."
+          kubectl wait --for=condition=complete job/flyway-migration -n oauth2-server --timeout=180s
 
       - name: Wait for OAuth2 server
         run: |
           echo "Waiting for deployment to be ready..."
-          kubectl rollout status deployment/oauth2-server -n oauth2-server --timeout=90s
+          kubectl rollout status deployment/oauth2-server -n oauth2-server --timeout=180s
 
       - name: Check deployment status
         run: |
@@ -214,7 +222,12 @@ jobs:
             -d "grant_type=client_credentials&client_id=$client_id&client_secret=$client_secret&scope=read")
           
           echo "Token response: $token_response"
-          echo "$token_response" | jq -r '.access_token' > /tmp/token.txt
+          access_token=$(echo "$token_response" | jq -r '.access_token')
+          if [ -z "$access_token" ] || [ "$access_token" = "null" ]; then
+            echo "Failed to obtain access token"
+            exit 1
+          fi
+          echo "$access_token" > /tmp/token.txt
 
       - name: Introspect token
         run: |
@@ -232,6 +245,8 @@ jobs:
           active=$(echo "$introspect_response" | jq -r '.active')
           if [ "$active" != "true" ]; then
             echo "Token is not active!"
+            kubectl logs deployment/oauth2-server -n oauth2-server --tail=200 || true
+            kubectl get pods -n oauth2-server -o wide || true
             exit 1
           fi
 

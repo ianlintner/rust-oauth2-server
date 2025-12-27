@@ -7,8 +7,8 @@ CREATE TABLE IF NOT EXISTS clients (
     grant_types TEXT NOT NULL,
     scope TEXT NOT NULL,
     name TEXT NOT NULL,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
+    created_at TIMESTAMPTZ NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL
 );
 
-CREATE INDEX idx_clients_client_id ON clients(client_id);
+CREATE INDEX IF NOT EXISTS idx_clients_client_id ON clients(client_id);

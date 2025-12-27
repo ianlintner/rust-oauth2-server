@@ -3,43 +3,112 @@ kind: ConfigMap
 metadata:
   name: flyway-migrations
 data:
-  V1__initial_schema.sql: |
-    CREATE TABLE IF NOT EXISTS oauth2_clients (
-      id TEXT PRIMARY KEY,
-      client_secret_hash TEXT NOT NULL,
-      redirect_uris TEXT NOT NULL,
-      grant_types TEXT NOT NULL,
-      response_types TEXT NOT NULL,
-      scope TEXT NOT NULL,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  V1__create_clients_table.sql: |
+    -- Create clients table
+    CREATE TABLE IF NOT EXISTS clients (
+        id TEXT PRIMARY KEY,
+        client_id TEXT NOT NULL UNIQUE,
+        client_secret TEXT NOT NULL,
+        redirect_uris TEXT NOT NULL,
+        grant_types TEXT NOT NULL,
+        scope TEXT NOT NULL,
+        name TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL
     );
-    
-    CREATE TABLE IF NOT EXISTS oauth2_authorization_codes (
-      code TEXT PRIMARY KEY,
-      client_id TEXT NOT NULL,
-      user_id TEXT NOT NULL,
-      redirect_uri TEXT NOT NULL,
-      scope TEXT NOT NULL,
-      code_challenge TEXT,
-      code_challenge_method TEXT,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      expires_at TIMESTAMP NOT NULL,
-      FOREIGN KEY (client_id) REFERENCES oauth2_clients(id)
+
+    CREATE INDEX IF NOT EXISTS idx_clients_client_id ON clients(client_id);
+
+  V2__create_users_table.sql: |
+    -- Create users table
+    CREATE TABLE IF NOT EXISTS users (
+        id TEXT PRIMARY KEY,
+        username TEXT NOT NULL UNIQUE,
+        password_hash TEXT NOT NULL,
+        email TEXT NOT NULL,
+        enabled BOOLEAN NOT NULL DEFAULT TRUE,
+        created_at TIMESTAMPTZ NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL
     );
-    
-    CREATE TABLE IF NOT EXISTS oauth2_tokens (
-      access_token TEXT PRIMARY KEY,
-      token_type TEXT NOT NULL DEFAULT 'Bearer',
-      client_id TEXT NOT NULL,
-      user_id TEXT,
-      scope TEXT NOT NULL,
-      refresh_token TEXT UNIQUE,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      expires_at TIMESTAMP NOT NULL,
-      refresh_expires_at TIMESTAMP,
-      FOREIGN KEY (client_id) REFERENCES oauth2_clients(id)
+
+    CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
+    CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+
+  V3__create_tokens_table.sql: |
+    -- Create tokens table
+    CREATE TABLE IF NOT EXISTS tokens (
+        id TEXT PRIMARY KEY,
+        access_token TEXT NOT NULL UNIQUE,
+        refresh_token TEXT,
+        token_type TEXT NOT NULL,
+        expires_in INTEGER NOT NULL,
+        scope TEXT NOT NULL,
+        client_id TEXT NOT NULL,
+        user_id TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL,
+        expires_at TIMESTAMPTZ NOT NULL,
+        revoked BOOLEAN NOT NULL DEFAULT FALSE,
+        FOREIGN KEY (client_id) REFERENCES clients(client_id),
+        FOREIGN KEY (user_id) REFERENCES users(id)
     );
-    
-    CREATE INDEX idx_authorization_codes_expires ON oauth2_authorization_codes(expires_at);
-    CREATE INDEX idx_tokens_expires ON oauth2_tokens(expires_at);
-    CREATE INDEX idx_tokens_refresh ON oauth2_tokens(refresh_token);
+
+    CREATE INDEX IF NOT EXISTS idx_tokens_access_token ON tokens(access_token);
+    CREATE INDEX IF NOT EXISTS idx_tokens_refresh_token ON tokens(refresh_token);
+    CREATE INDEX IF NOT EXISTS idx_tokens_client_id ON tokens(client_id);
+    CREATE INDEX IF NOT EXISTS idx_tokens_user_id ON tokens(user_id);
+
+  V4__create_authorization_codes_table.sql: |
+    -- Create authorization_codes table
+    CREATE TABLE IF NOT EXISTS authorization_codes (
+        id TEXT PRIMARY KEY,
+        code TEXT NOT NULL UNIQUE,
+        client_id TEXT NOT NULL,
+        user_id TEXT NOT NULL,
+        redirect_uri TEXT NOT NULL,
+        scope TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL,
+        expires_at TIMESTAMPTZ NOT NULL,
+        used BOOLEAN NOT NULL DEFAULT FALSE,
+        code_challenge TEXT,
+        code_challenge_method TEXT,
+        FOREIGN KEY (client_id) REFERENCES clients(client_id),
+        FOREIGN KEY (user_id) REFERENCES users(id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_authorization_codes_code ON authorization_codes(code);
+    CREATE INDEX IF NOT EXISTS idx_authorization_codes_client_id ON authorization_codes(client_id);
+    CREATE INDEX IF NOT EXISTS idx_authorization_codes_user_id ON authorization_codes(user_id);
+
+  V5__insert_default_data.sql: |
+    -- Insert default data for development/testing only
+    -- WARNING: Remove or regenerate these credentials before production deployment
+
+    INSERT INTO clients (id, client_id, client_secret, redirect_uris, grant_types, scope, name, created_at, updated_at)
+    VALUES (
+        'default-client-id',
+        'default_client',
+        -- Generate a secure secret before production: openssl rand -hex 32
+        'INSECURE_DEFAULT_SECRET_REGENERATE_FOR_PRODUCTION',
+        '["http://localhost:3000/callback"]',
+        '["authorization_code", "client_credentials", "password", "refresh_token"]',
+        'read write admin',
+        'Default Client',
+        NOW(),
+        NOW()
+    )
+    ON CONFLICT (id) DO NOTHING;
+
+    -- Insert a test user for development only
+    -- Password is 'password' - this hash is a placeholder and will not work
+    -- Generate proper hash: echo 'password' | argon2 somesalt -id -t 2 -m 19 -p 1
+    INSERT INTO users (id, username, password_hash, email, enabled, created_at, updated_at)
+    VALUES (
+        'test-user-id',
+        'testuser',
+        '$argon2id$v=19$m=524288,t=2,p=1$c29tZXNhbHQxMjM0NTY3ODkwMTIzNDU$wA1qkO0rATEtNnS/xPbbgQ1234567890123456789012',
+        'test@example.com',
+        1,
+        NOW(),
+        NOW()
+    )
+    ON CONFLICT (id) DO NOTHING;
