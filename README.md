@@ -509,14 +509,14 @@ graph TB
 ```mermaid
 graph LR
     subgraph AuthCodeFlow["Authorization Code Flow"]
-        User1[User] -->|Login| Auth1[/oauth/authorize]
+        User1[User] -->|Login| Auth1["/oauth/authorize"]
         Auth1 -->|Code| Client1[Client]
-        Client1 -->|Exchange| Token1[/oauth/token]
+        Client1 -->|Exchange| Token1["/oauth/token"]
         Token1 -->|Access Token| Client1
     end
     
     subgraph ClientCredsFlow["Client Credentials Flow"]
-        Service[Service] -->|Credentials| Token2[/oauth/token]
+        Service[Service] -->|Credentials| Token2["/oauth/token"]
         Token2 -->|Access Token| Service
     end
     
