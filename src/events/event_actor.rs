@@ -1,4 +1,4 @@
-use crate::events::{AuthEvent, EventFilter, EventPlugin};
+use crate::events::{EventEnvelope, EventFilter, EventPlugin};
 use actix::prelude::*;
 use std::sync::Arc;
 
@@ -37,7 +37,7 @@ impl Actor for EventActor {
 #[derive(Message)]
 #[rtype(result = "()")]
 pub struct EmitEvent {
-    pub event: AuthEvent,
+    pub envelope: EventEnvelope,
 }
 
 impl Handler<EmitEvent> for EventActor {
@@ -45,13 +45,13 @@ impl Handler<EmitEvent> for EventActor {
 
     fn handle(&mut self, msg: EmitEvent, _: &mut Self::Context) -> Self::Result {
         // Check if event should be emitted based on filter
-        if !self.filter.should_emit(&msg.event.event_type) {
-            tracing::trace!("Event {:?} filtered out", msg.event.event_type);
+        if !self.filter.should_emit(&msg.envelope.event.event_type) {
+            tracing::trace!("Event {:?} filtered out", msg.envelope.event.event_type);
             return Box::pin(async {});
         }
 
         let plugins = self.plugins.clone();
-        let event = msg.event;
+        let envelope = msg.envelope;
 
         Box::pin(async move {
             // Emit to all plugins in parallel
@@ -59,9 +59,9 @@ impl Handler<EmitEvent> for EventActor {
                 .iter()
                 .map(|plugin| {
                     let plugin = plugin.clone();
-                    let event = event.clone();
+                    let envelope = envelope.clone();
                     async move {
-                        if let Err(e) = plugin.emit(&event).await {
+                        if let Err(e) = plugin.emit(&envelope).await {
                             tracing::error!(
                                 "Failed to emit event to plugin {}: {}",
                                 plugin.name(),
@@ -105,7 +105,7 @@ impl Handler<GetPluginHealth> for EventActor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::events::{EventSeverity, EventType, InMemoryEventLogger};
+    use crate::events::{AuthEvent, EventEnvelope, EventSeverity, EventType, InMemoryEventLogger};
 
     #[actix::test]
     async fn test_event_actor_emit() {
@@ -122,7 +122,8 @@ mod tests {
             Some("client_456".to_string()),
         );
 
-        actor.send(EmitEvent { event }).await.unwrap();
+        let envelope = EventEnvelope::from_current_span(event, "test");
+        actor.send(EmitEvent { envelope }).await.unwrap();
 
         // Give actor time to process
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
@@ -146,7 +147,8 @@ mod tests {
             Some("user_123".to_string()),
             None,
         );
-        actor.send(EmitEvent { event: event1 }).await.unwrap();
+        let env1 = EventEnvelope::from_current_span(event1, "test");
+        actor.send(EmitEvent { envelope: env1 }).await.unwrap();
 
         // This should be filtered out
         let event2 = AuthEvent::new(
@@ -155,14 +157,15 @@ mod tests {
             Some("user_123".to_string()),
             None,
         );
-        actor.send(EmitEvent { event: event2 }).await.unwrap();
+        let env2 = EventEnvelope::from_current_span(event2, "test");
+        actor.send(EmitEvent { envelope: env2 }).await.unwrap();
 
         // Give actor time to process
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
         let events = logger.get_events();
         assert_eq!(events.len(), 1);
-        assert_eq!(events[0].event_type, EventType::TokenCreated);
+        assert_eq!(events[0].event.event_type, EventType::TokenCreated);
     }
 
     #[actix::test]

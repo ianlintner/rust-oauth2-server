@@ -30,7 +30,7 @@ impl ActixEventBus {
 impl EventBus for ActixEventBus {
     async fn publish(&self, envelope: EventEnvelope) -> Result<(), EventBusError> {
         // Best-effort and non-blocking.
-        self.addr.do_send(EmitEvent { event: envelope.event });
+        self.addr.do_send(EmitEvent { envelope });
         Ok(())
     }
 }
@@ -38,7 +38,7 @@ impl EventBus for ActixEventBus {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::events::{EventFilter, EventPlugin, EventSeverity, EventType, InMemoryEventLogger};
+    use crate::events::{AuthEvent, EventFilter, EventPlugin, EventSeverity, EventType, InMemoryEventLogger};
     use std::sync::Arc;
 
     #[actix::test]
@@ -50,7 +50,7 @@ mod tests {
 
         let bus = ActixEventBus::new(actor);
 
-        let event = crate::events::AuthEvent::new(
+        let event = AuthEvent::new(
             EventType::TokenCreated,
             EventSeverity::Info,
             Some("user_1".to_string()),

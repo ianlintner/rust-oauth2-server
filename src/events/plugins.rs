@@ -1,4 +1,4 @@
-use crate::events::{AuthEvent, EventType};
+use crate::events::{EventEnvelope, EventType};
 use async_trait::async_trait;
 use std::collections::HashSet;
 use std::sync::{Arc, RwLock};
@@ -7,7 +7,7 @@ use std::sync::{Arc, RwLock};
 #[async_trait]
 pub trait EventPlugin: Send + Sync {
     /// Emit an event to the backend
-    async fn emit(&self, event: &AuthEvent) -> Result<(), String>;
+    async fn emit(&self, envelope: &EventEnvelope) -> Result<(), String>;
 
     /// Get the name of the plugin
     fn name(&self) -> &str;
@@ -72,7 +72,7 @@ impl EventFilter {
 
 /// In-memory event logger (default plugin)
 pub struct InMemoryEventLogger {
-    events: Arc<RwLock<Vec<AuthEvent>>>,
+    events: Arc<RwLock<Vec<EventEnvelope>>>,
     max_events: usize,
 }
 
@@ -87,13 +87,13 @@ impl InMemoryEventLogger {
 
     /// Get all stored events
     #[allow(dead_code)]
-    pub fn get_events(&self) -> Vec<AuthEvent> {
+    pub fn get_events(&self) -> Vec<EventEnvelope> {
         self.events.read().unwrap().clone()
     }
 
     /// Get recent events (up to limit)
     #[allow(dead_code)]
-    pub fn get_recent_events(&self, limit: usize) -> Vec<AuthEvent> {
+    pub fn get_recent_events(&self, limit: usize) -> Vec<EventEnvelope> {
         let events = self.events.read().unwrap();
         let start = if events.len() > limit {
             events.len() - limit
@@ -112,11 +112,11 @@ impl InMemoryEventLogger {
 
 #[async_trait]
 impl EventPlugin for InMemoryEventLogger {
-    async fn emit(&self, event: &AuthEvent) -> Result<(), String> {
+    async fn emit(&self, envelope: &EventEnvelope) -> Result<(), String> {
         let mut events = self.events.write().unwrap();
 
         // Add event
-        events.push(event.clone());
+        events.push(envelope.clone());
 
         // Keep only max_events
         if events.len() > self.max_events {
@@ -124,7 +124,7 @@ impl EventPlugin for InMemoryEventLogger {
             events.drain(0..excess);
         }
 
-        tracing::debug!("Event logged: {:?}", event.event_type);
+        tracing::debug!("Event logged: {:?}", envelope.event.event_type);
         Ok(())
     }
 
@@ -145,8 +145,8 @@ impl ConsoleEventLogger {
 
 #[async_trait]
 impl EventPlugin for ConsoleEventLogger {
-    async fn emit(&self, event: &AuthEvent) -> Result<(), String> {
-        match event.to_json() {
+    async fn emit(&self, envelope: &EventEnvelope) -> Result<(), String> {
+        match serde_json::to_string(envelope) {
             Ok(json) => {
                 tracing::info!("Event: {}", json);
                 Ok(())
@@ -163,7 +163,7 @@ impl EventPlugin for ConsoleEventLogger {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::events::EventSeverity;
+    use crate::events::{AuthEvent, EventSeverity};
 
     #[test]
     fn test_event_filter_allow_all() {
@@ -202,11 +202,13 @@ mod tests {
             None,
         );
 
-        logger.emit(&event).await.unwrap();
+        let env = EventEnvelope::from_current_span(event, "test");
+
+        logger.emit(&env).await.unwrap();
 
         let events = logger.get_events();
         assert_eq!(events.len(), 1);
-        assert_eq!(events[0].event_type, EventType::TokenCreated);
+        assert_eq!(events[0].event.event_type, EventType::TokenCreated);
     }
 
     #[tokio::test]
@@ -221,12 +223,13 @@ mod tests {
                 Some(format!("user_{}", i)),
                 None,
             );
-            logger.emit(&event).await.unwrap();
+            let env = EventEnvelope::from_current_span(event, "test");
+            logger.emit(&env).await.unwrap();
         }
 
         let events = logger.get_events();
         assert_eq!(events.len(), 3); // Only last 3 events
-        assert_eq!(events[0].user_id, Some("user_2".to_string()));
-        assert_eq!(events[2].user_id, Some("user_4".to_string()));
+        assert_eq!(events[0].event.user_id, Some("user_2".to_string()));
+        assert_eq!(events[2].event.user_id, Some("user_4".to_string()));
     }
 }

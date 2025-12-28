@@ -77,6 +77,11 @@ tracing-log = "0.2"
 futures = "0.3"
 async-trait = "0.1"
 
+# Optional eventing backends
+redis = { version = "0.25", optional = true, features = ["tokio-comp", "connection-manager"] }
+rdkafka = { version = "0.36", optional = true }
+lapin = { version = "2.5", optional = true, default-features = false, features = ["rustls", "tokio"] }
+
 # Admin UI templating
 tera = "1.19"
 actix-files = "0.6"
@@ -95,6 +100,11 @@ serde_urlencoded = "0.7"
 # Keep the default build lightweight: SQL backends only.
 default = []
 mongo = ["mongodb"]
+
+# Optional eventing backends (Phase 1 best-effort)
+events-redis = ["dep:redis"]
+events-kafka = ["dep:rdkafka"]
+events-rabbit = ["dep:lapin"]
 
 [lib]
 name = "rust_oauth2_server"
