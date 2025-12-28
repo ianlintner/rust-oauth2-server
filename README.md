@@ -240,7 +240,11 @@ Configure the authentication eventing system:
 # Enable/disable events (default: true)
 export OAUTH2_EVENTS_ENABLED=true
 
-# Backend: in_memory, console, or both (default: in_memory)
+# Backend (default: in_memory)
+# - in_memory, console, both
+# - redis  (requires --features events-redis)
+# - kafka  (requires --features events-kafka)
+# - rabbit (requires --features events-rabbit)
 export OAUTH2_EVENTS_BACKEND=console
 
 # Filter mode: allow_all, include, or exclude (default: allow_all)
@@ -248,6 +252,23 @@ export OAUTH2_EVENTS_FILTER_MODE=include
 
 # Event types (comma-separated, used with include/exclude modes)
 export OAUTH2_EVENTS_TYPES=token_created,token_revoked,client_registered
+
+# --- Backend-specific configuration (only used when selected) ---
+
+# Redis Streams (requires --features events-redis)
+# export OAUTH2_EVENTS_REDIS_URL=redis://localhost:6379
+# export OAUTH2_EVENTS_REDIS_STREAM=oauth2:events
+# export OAUTH2_EVENTS_REDIS_MAXLEN=10000
+
+# Kafka (requires --features events-kafka)
+# export OAUTH2_EVENTS_KAFKA_BROKERS=localhost:9092
+# export OAUTH2_EVENTS_KAFKA_TOPIC=oauth2-events
+# export OAUTH2_EVENTS_KAFKA_CLIENT_ID=rust-oauth2-server
+
+# RabbitMQ (requires --features events-rabbit)
+# export OAUTH2_EVENTS_RABBIT_URL=amqp://guest:guest@localhost:5672/%2f
+# export OAUTH2_EVENTS_RABBIT_EXCHANGE=oauth2.events
+# export OAUTH2_EVENTS_RABBIT_ROUTING_KEY=auth.*
 ```
 
 See [Eventing Documentation](docs/eventing.md) and [Examples](docs/examples/eventing.md) for more details.
