@@ -4,10 +4,16 @@ async fn storage_factory_rejects_mongo_without_feature() {
     // It ensures we fail fast with a clear error message.
     #[cfg(not(feature = "mongo"))]
     {
-        let err =
+        let result =
             rust_oauth2_server::storage::create_storage("mongodb://localhost:27017/oauth2_test")
-                .await
-                .expect_err("should error when mongo backend requested without feature");
+                .await;
+
+        assert!(
+            result.is_err(),
+            "should error when mongo backend requested without feature"
+        );
+
+        let err = result.err().unwrap();
 
         assert!(
             err.to_string()

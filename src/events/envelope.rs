@@ -1,6 +1,6 @@
 use crate::events::AuthEvent;
 use chrono::{DateTime, Utc};
-use opentelemetry::propagation::{Injector, TextMapPropagator};
+use opentelemetry::propagation::Injector;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tracing::Span;
@@ -105,9 +105,10 @@ fn extract_w3c_trace_context(span: &Span) -> (Option<String>, Option<String>) {
     }
 
     let cx = span.context();
-    let propagator = opentelemetry::global::get_text_map_propagator(|p| p.clone());
     let mut headers = HashMap::<String, String>::new();
-    propagator.inject_context(&cx, &mut HeaderInjector { map: &mut headers });
+    opentelemetry::global::get_text_map_propagator(|propagator| {
+        propagator.inject_context(&cx, &mut HeaderInjector { map: &mut headers });
+    });
 
     let traceparent = headers
         .get("traceparent")
