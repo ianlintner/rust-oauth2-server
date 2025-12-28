@@ -341,7 +341,7 @@ export OAUTH2_AUTH0_DOMAIN=your-tenant.auth0.com
 - `GET /ready` - Readiness check endpoint
 - `GET /metrics` - Prometheus metrics
 
-### Documentation
+### API Documentation
 
 - `GET /swagger-ui` - Interactive API documentation
 

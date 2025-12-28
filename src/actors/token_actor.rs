@@ -21,11 +21,7 @@ impl TokenActor {
         }
     }
 
-    pub fn with_events(
-        db: DynStorage,
-        jwt_secret: String,
-        event_actor: Addr<EventActor>,
-    ) -> Self {
+    pub fn with_events(db: DynStorage, jwt_secret: String, event_actor: Addr<EventActor>) -> Self {
         Self {
             db,
             jwt_secret,

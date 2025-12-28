@@ -12,6 +12,7 @@ pub mod mongo;
 ///
 /// This is intentionally small and mirrors the operations currently used by actors/handlers.
 #[async_trait]
+#[allow(dead_code)]
 pub trait Storage: Send + Sync {
     /// Initialize the backing store (e.g., bootstrap schema / create indexes).
     async fn init(&self) -> Result<(), OAuth2Error>;
@@ -33,10 +34,14 @@ pub trait Storage: Send + Sync {
     async fn revoke_token(&self, token: &str) -> Result<(), OAuth2Error>;
 
     // Authorization code operations
-    async fn save_authorization_code(&self, auth_code: &AuthorizationCode)
-        -> Result<(), OAuth2Error>;
-    async fn get_authorization_code(&self, code: &str)
-        -> Result<Option<AuthorizationCode>, OAuth2Error>;
+    async fn save_authorization_code(
+        &self,
+        auth_code: &AuthorizationCode,
+    ) -> Result<(), OAuth2Error>;
+    async fn get_authorization_code(
+        &self,
+        code: &str,
+    ) -> Result<Option<AuthorizationCode>, OAuth2Error>;
     async fn mark_authorization_code_used(&self, code: &str) -> Result<(), OAuth2Error>;
 
     /// Lightweight liveness/readiness check.

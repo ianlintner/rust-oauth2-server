@@ -2,10 +2,7 @@ use async_trait::async_trait;
 use mongodb::{
     bson::doc,
     options::{ClientOptions, IndexOptions},
-    Client as MongoClient,
-    Collection,
-    Database,
-    IndexModel,
+    Client as MongoClient, Collection, Database, IndexModel,
 };
 
 use crate::models::{AuthorizationCode, Client, OAuth2Error, Token, User};
@@ -110,12 +107,7 @@ impl MongoStorage {
             .create_index(
                 IndexModel::builder()
                     .keys(doc! { "refresh_token": 1 })
-                    .options(
-                        IndexOptions::builder()
-                            .unique(true)
-                            .sparse(true)
-                            .build(),
-                    )
+                    .options(IndexOptions::builder().unique(true).sparse(true).build())
                     .build(),
                 None,
             )

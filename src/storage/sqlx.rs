@@ -127,12 +127,16 @@ impl SqlxStorage {
         .execute(pool)
         .await?;
 
-        sqlx::query(r#"CREATE INDEX IF NOT EXISTS idx_tokens_access_token ON tokens(access_token);"#)
-            .execute(pool)
-            .await?;
-        sqlx::query(r#"CREATE INDEX IF NOT EXISTS idx_tokens_refresh_token ON tokens(refresh_token);"#)
-            .execute(pool)
-            .await?;
+        sqlx::query(
+            r#"CREATE INDEX IF NOT EXISTS idx_tokens_access_token ON tokens(access_token);"#,
+        )
+        .execute(pool)
+        .await?;
+        sqlx::query(
+            r#"CREATE INDEX IF NOT EXISTS idx_tokens_refresh_token ON tokens(refresh_token);"#,
+        )
+        .execute(pool)
+        .await?;
         sqlx::query(r#"CREATE INDEX IF NOT EXISTS idx_tokens_client_id ON tokens(client_id);"#)
             .execute(pool)
             .await?;
@@ -387,11 +391,13 @@ impl Storage for SqlxStorage {
     async fn revoke_token(&self, token: &str) -> Result<(), OAuth2Error> {
         match &self.pool {
             DatabasePool::Sqlite(pool) => {
-                sqlx::query("UPDATE tokens SET revoked = 1 WHERE access_token = ? OR refresh_token = ?")
-                    .bind(token)
-                    .bind(token)
-                    .execute(pool)
-                    .await?;
+                sqlx::query(
+                    "UPDATE tokens SET revoked = 1 WHERE access_token = ? OR refresh_token = ?",
+                )
+                .bind(token)
+                .bind(token)
+                .execute(pool)
+                .await?;
             }
             DatabasePool::Postgres(pool) => {
                 sqlx::query("UPDATE tokens SET revoked = true WHERE access_token = $1 OR refresh_token = $2")

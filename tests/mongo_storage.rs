@@ -48,13 +48,10 @@ async fn mongo_storage_roundtrip_smoke_test() -> Result<(), Box<dyn std::error::
         }
 
         storage.ok_or_else(|| {
-            std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!(
+            std::io::Error::other(format!(
                 "failed to connect to mongo testcontainer after retries: {}",
                 last_err.unwrap_or_else(|| "unknown".to_string())
-                ),
-            )
+            ))
         })?
     };
 

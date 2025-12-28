@@ -1,0 +1,13 @@
+{
+  // Keep docs readable without overly-strict table formatting rules.
+  "default": true,
+
+  // Allow HTML when needed (MkDocs/Mermaid embeds, badges, etc.)
+  "MD033": false,
+
+  // Table alignment rules are too strict for this repo; MkDocs renders tables fine.
+  "MD060": false,
+
+  // Indented code blocks are used by MkDocs extensions (e.g., tabbed content).
+  "MD046": false
+}
