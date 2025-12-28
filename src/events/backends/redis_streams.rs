@@ -83,7 +83,9 @@ impl EventPlugin for RedisStreamsEventPublisher {
     async fn health_check(&self) -> bool {
         let fut = async {
             let mut conn = self.conn.lock().await;
-            redis::cmd("PING").query_async::<_, String>(&mut *conn).await
+            redis::cmd("PING")
+                .query_async::<_, String>(&mut *conn)
+                .await
         };
 
         matches!(
