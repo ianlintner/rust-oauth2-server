@@ -409,7 +409,7 @@ Now that you have the basics working:
 3. **Explore Advanced Features**:
    - [Token Introspection](../api/endpoints.md#token-introspection)
    - [Scope Management](../api/authentication.md#scopes)
-   - [Custom Claims](../architecture/overview.md#jwt-tokens)
+  - [Custom Claims](../architecture/overview.md#jwt-token-structure)
 4. **Monitor Your Server**: Set up [Metrics and Tracing](../observability/metrics.md)
 5. **Deploy to Production**: Follow [Deployment Guides](../deployment/docker.md)
 

@@ -545,13 +545,96 @@ groups:
 
 ---
 
+## Database Performance Tuning
+
+1. **Confirm symptoms** (latency, error rate, slow queries).
+2. **Check database health**:
+   - CPU/memory/disk
+   - connection count
+   - long-running queries
+3. **Validate schema + indexes** (especially for token lookup/revocation patterns).
+4. **Scale / tune**:
+   - increase Postgres resources
+   - add connection pooling (e.g., PgBouncer)
+   - tune `max_connections`, `shared_buffers`, and `work_mem` for your workload
+
+## Pod Not Starting
+
+1. **Describe the pod**:
+   - `kubectl describe pod <pod> -n oauth2-server`
+2. **Check events** for image pull errors, missing secrets, scheduling issues.
+3. **Check logs**:
+   - `kubectl logs <pod> -n oauth2-server --previous`
+4. **Common causes**:
+   - missing `OAUTH2_JWT_SECRET`
+   - database not reachable
+   - migrations job failing
+
+## High Error Rate
+
+1. Check `/metrics` and logs for spikes in 4xx vs 5xx.
+2. Correlate with deploy/rollout events.
+3. Validate dependency health:
+   - database (`/ready`)
+   - eventing (`/events/health`, if enabled)
+4. If 5xx persists, consider rollback:
+   - `kubectl rollout undo deployment/oauth2-server -n oauth2-server`
+
+## Database Connection Issues
+
+1. **Check readiness**: `GET /ready` should report database `ok`.
+2. Verify Kubernetes service/DNS:
+   - `kubectl get svc -n oauth2-server`
+3. Verify credentials/secrets:
+   - `kubectl get secret oauth2-server-secret -n oauth2-server -o yaml`
+4. Check Postgres logs:
+   - `kubectl logs postgres-0 -n oauth2-server`
+
+## Performance Degradation
+
+1. Compare latency (P50/P95) before/after the degradation window.
+2. Check resource saturation (CPU/mem), restarts, and database health.
+3. If eventing is enabled, verify it is not misconfigured:
+   - failing backends are best-effort, but can add log noise.
+4. Consider temporarily reducing load and/or scaling up.
+
+## Rotate JWT Secret
+
+JWT secret rotation invalidates existing tokens. Plan a maintenance window.
+
+1. Generate a new secret and update the Kubernetes secret.
+2. Roll out the deployment.
+3. Validate new token issuance and introspection.
+
+## Rotate Database Password
+
+1. Update the database user password in Postgres.
+2. Update the Kubernetes secret used by the app.
+3. Restart/roll out the app.
+4. Verify `/ready` returns `ok`.
+
+## Revoke All Tokens
+
+There is no global revoke endpoint by default.
+Recommended approach is to rotate the JWT secret (see above) and/or rotate signing keys.
+
+## Security Incident Response
+
+1. Contain: revoke credentials/secrets and restrict access.
+2. Eradicate: rotate JWT secret and database passwords.
+3. Recover: redeploy from a known-good version.
+4. Post-incident: open an issue and follow the repository security policy.
+
+---
+
 ## Additional Runbooks
 
 For more specific scenarios, see:
 
 - **[Operations Agent](.github/agents/operations.md)** - Comprehensive operational procedures
-- **[Database Agent](.github/agents/database.md)** - Database-specific operations
-- **[Security Agent](.github/agents/security.md)** - Security incident response
+- **[Operations Agent](https://github.com/ianlintner/rust_oauth2_server/blob/main/.github/agents/operations.md)** - Comprehensive operational procedures
+- **[Database Agent](https://github.com/ianlintner/rust_oauth2_server/blob/main/.github/agents/database.md)** - Database-specific operations
+- **[Security Agent](https://github.com/ianlintner/rust_oauth2_server/blob/main/.github/agents/security.md)** - Security incident response
 
 ---
 
@@ -560,4 +643,4 @@ For more specific scenarios, see:
 - **Documentation**: `/docs` directory
 - **Issues**: GitHub Issues
 - **Discussions**: GitHub Discussions
-- **Security**: See [SECURITY.md](../SECURITY.md)
+- **Security**: See [SECURITY.md](https://github.com/ianlintner/rust_oauth2_server/blob/main/SECURITY.md)
