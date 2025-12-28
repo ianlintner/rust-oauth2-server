@@ -58,7 +58,8 @@ impl RabbitEventPublisher {
 #[async_trait]
 impl EventPlugin for RabbitEventPublisher {
     async fn emit(&self, envelope: &EventEnvelope) -> Result<(), String> {
-        let payload = serde_json::to_vec(envelope).map_err(|e| format!("serialize envelope: {e}"))?;
+        let payload =
+            serde_json::to_vec(envelope).map_err(|e| format!("serialize envelope: {e}"))?;
 
         // Best-effort publish. We still await server ack for immediate errors.
         self.channel

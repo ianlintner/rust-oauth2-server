@@ -61,8 +61,8 @@ impl RedisStreamsEventPublisher {
 #[async_trait]
 impl EventPlugin for RedisStreamsEventPublisher {
     async fn emit(&self, envelope: &EventEnvelope) -> Result<(), String> {
-        let payload_json = serde_json::to_string(envelope)
-            .map_err(|e| format!("serialize envelope: {e}"))?;
+        let payload_json =
+            serde_json::to_string(envelope).map_err(|e| format!("serialize envelope: {e}"))?;
 
         let cmd = self.xadd_cmd(envelope, &payload_json);
         let mut conn = self.conn.lock().await;

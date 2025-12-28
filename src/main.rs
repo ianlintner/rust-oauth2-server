@@ -208,7 +208,10 @@ async fn main() -> std::io::Result<()> {
                         .clone()
                         .unwrap_or_else(events::default_stream_name);
 
-                    let maxlen = config.events.redis_maxlen.or_else(|| events::default_maxlen());
+                    let maxlen = config
+                        .events
+                        .redis_maxlen
+                        .or_else(|| events::default_maxlen());
 
                     match events::RedisStreamsEventPublisher::connect(&url, stream, maxlen).await {
                         Ok(p) => vec![Arc::new(p)],

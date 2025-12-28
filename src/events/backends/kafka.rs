@@ -13,7 +13,11 @@ pub struct KafkaEventPublisher {
 }
 
 impl KafkaEventPublisher {
-    pub fn new(brokers: &str, topic: impl Into<String>, client_id: Option<String>) -> Result<Self, String> {
+    pub fn new(
+        brokers: &str,
+        topic: impl Into<String>,
+        client_id: Option<String>,
+    ) -> Result<Self, String> {
         let mut cfg = ClientConfig::new();
         cfg.set("bootstrap.servers", brokers);
         cfg.set("message.timeout.ms", "5000");
@@ -36,17 +40,14 @@ impl KafkaEventPublisher {
 #[async_trait]
 impl EventPlugin for KafkaEventPublisher {
     async fn emit(&self, envelope: &EventEnvelope) -> Result<(), String> {
-        let payload = serde_json::to_vec(envelope).map_err(|e| format!("serialize envelope: {e}"))?;
+        let payload =
+            serde_json::to_vec(envelope).map_err(|e| format!("serialize envelope: {e}"))?;
         let key = envelope.effective_idempotency_key();
 
         // We enqueue and then detach the delivery future to keep the plugin best-effort.
         let delivery = self
             .producer
-            .send_result(
-                FutureRecord::to(&self.topic)
-                    .payload(&payload)
-                    .key(&key),
-            )
+            .send_result(FutureRecord::to(&self.topic).payload(&payload).key(&key))
             .map_err(|(e, _msg)| format!("kafka send: {e}"))?;
 
         actix_rt::spawn(async move {

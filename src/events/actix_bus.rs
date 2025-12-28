@@ -38,7 +38,9 @@ impl EventBus for ActixEventBus {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::events::{AuthEvent, EventFilter, EventPlugin, EventSeverity, EventType, InMemoryEventLogger};
+    use crate::events::{
+        AuthEvent, EventFilter, EventPlugin, EventSeverity, EventType, InMemoryEventLogger,
+    };
     use std::sync::Arc;
 
     #[actix::test]
