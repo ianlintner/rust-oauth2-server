@@ -58,6 +58,7 @@ nav:
       - Installation: getting-started/installation.md
       - Quick Start: getting-started/quickstart.md
       - Configuration: getting-started/configuration.md
+      - Social Login Setup: getting-started/social-login-setup.md
   - Architecture:
       - Overview: architecture/overview.md
       - Actor Model: architecture/actors.md
