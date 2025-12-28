@@ -1,8 +1,7 @@
-use crate::db::Database;
 use crate::metrics::Metrics;
+use crate::storage::DynStorage;
 use actix_web::{web, HttpResponse, Result};
 use serde::Serialize;
-use std::sync::Arc;
 
 #[derive(Serialize)]
 pub struct DashboardData {
@@ -30,8 +29,8 @@ pub struct TokenInfo {
 }
 
 /// Admin dashboard - shows overview statistics
-pub async fn dashboard(_db: web::Data<Arc<Database>>) -> Result<HttpResponse> {
-    // In a real implementation, fetch actual stats from database
+pub async fn dashboard(_db: web::Data<DynStorage>) -> Result<HttpResponse> {
+    // In a real implementation, fetch actual stats from storage.
     let data = DashboardData {
         total_clients: 0,
         total_users: 0,
@@ -43,15 +42,15 @@ pub async fn dashboard(_db: web::Data<Arc<Database>>) -> Result<HttpResponse> {
 }
 
 /// List all registered clients
-pub async fn list_clients(_db: web::Data<Arc<Database>>) -> Result<HttpResponse> {
-    // In a real implementation, fetch from database
+pub async fn list_clients(_db: web::Data<DynStorage>) -> Result<HttpResponse> {
+    // In a real implementation, fetch from storage.
     let clients: Vec<ClientInfo> = vec![];
     Ok(HttpResponse::Ok().json(clients))
 }
 
 /// List all active tokens
-pub async fn list_tokens(_db: web::Data<Arc<Database>>) -> Result<HttpResponse> {
-    // In a real implementation, fetch from database
+pub async fn list_tokens(_db: web::Data<DynStorage>) -> Result<HttpResponse> {
+    // In a real implementation, fetch from storage.
     let tokens: Vec<TokenInfo> = vec![];
     Ok(HttpResponse::Ok().json(tokens))
 }
@@ -59,7 +58,7 @@ pub async fn list_tokens(_db: web::Data<Arc<Database>>) -> Result<HttpResponse> 
 /// Revoke a token by ID (admin function)
 pub async fn admin_revoke_token(
     token_id: web::Path<String>,
-    db: web::Data<Arc<Database>>,
+    db: web::Data<DynStorage>,
 ) -> Result<HttpResponse> {
     // Revoke token
     db.revoke_token(&token_id)
@@ -74,7 +73,7 @@ pub async fn admin_revoke_token(
 /// Delete a client (admin function)
 pub async fn delete_client(
     _client_id: web::Path<String>,
-    _db: web::Data<Arc<Database>>,
+    _db: web::Data<DynStorage>,
 ) -> Result<HttpResponse> {
     // In a real implementation, delete client and associated tokens
     Ok(HttpResponse::Ok().json(serde_json::json!({
@@ -105,9 +104,10 @@ pub async fn health() -> Result<HttpResponse> {
 }
 
 /// Readiness check endpoint
-pub async fn readiness(_db: web::Data<Arc<Database>>) -> Result<HttpResponse> {
-    // Check database connectivity
-    // In a real implementation, execute a simple query
+pub async fn readiness(db: web::Data<DynStorage>) -> Result<HttpResponse> {
+    db.healthcheck()
+        .await
+        .map_err(actix_web::error::ErrorServiceUnavailable)?;
 
     Ok(HttpResponse::Ok().json(serde_json::json!({
         "status": "ready",

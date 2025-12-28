@@ -16,6 +16,9 @@ env:
   CARGO_INCREMENTAL: 0
   RUST_BACKTRACE: 1
   OAUTH2_JWT_SECRET: "test-jwt-secret-for-ci-only-do-not-use-in-production-32chars"
+  # Always define this so workflow expressions referencing env.IMAGE_VERSION are valid.
+  # On tag builds, it's overwritten by the "Compute release version" step.
+  IMAGE_VERSION: "0.0.0-dev"
 
 jobs:
   ci:
@@ -158,6 +161,25 @@ jobs:
         env:
           OAUTH2_DATABASE_URL: postgresql://test_user:test_password@localhost:5432/oauth2_test
         run: cargo test --test integration --locked
+
+  mongo-storage:
+    name: Mongo Storage Tests (feature)
+    runs-on: ubuntu-latest
+    needs: [ci]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rust toolchain + cache
+        uses: ./.github/actions/rust-setup
+        with:
+          toolchain: stable
+          cache-key: mongo-storage
+          install-system-deps: 'true'
+
+      - name: Run Mongo storage tests (requires Docker)
+        env:
+          RUN_TESTCONTAINERS: "1"
+        run: cargo test --test mongo_storage --features mongo --locked
 
   # E2E Tests on KIND (reuses prebuilt binary from the 'ci' job)
   e2e-kind:

@@ -28,10 +28,20 @@ RUN cargo chef prepare --recipe-path recipe.json
 
 FROM chef AS cacher
 
+# Optional cargo features (e.g., "mongo")
+ARG CARGO_FEATURES=""
+
 COPY --from=planner /app/recipe.json recipe.json
-RUN cargo chef cook --release --locked --recipe-path recipe.json
+RUN if [ -n "$CARGO_FEATURES" ]; then \
+            cargo chef cook --release --locked --recipe-path recipe.json --features "$CARGO_FEATURES"; \
+        else \
+            cargo chef cook --release --locked --recipe-path recipe.json; \
+        fi
 
 FROM chef AS builder
+
+# Optional cargo features (e.g., "mongo")
+ARG CARGO_FEATURES=""
 
 # Reuse the dependency build artifacts from the cacher stage
 COPY --from=cacher /app/target /app/target
@@ -39,7 +49,11 @@ COPY --from=cacher /usr/local/cargo /usr/local/cargo
 
 # Copy full source tree and build the application
 COPY . .
-RUN cargo build --release --locked
+RUN if [ -n "$CARGO_FEATURES" ]; then \
+            cargo build --release --locked --features "$CARGO_FEATURES"; \
+        else \
+            cargo build --release --locked; \
+        fi
 
 # Stage 2: Runtime
 FROM debian:bookworm-slim

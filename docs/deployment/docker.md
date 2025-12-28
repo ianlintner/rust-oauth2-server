@@ -63,6 +63,9 @@ graph TB
 # Build the image
 docker build -t rust_oauth2_server:latest .
 
+# (Optional) Build with MongoDB backend support
+# docker build --build-arg CARGO_FEATURES=mongo -t rust_oauth2_server:latest .
+
 # Run the container
 docker run -d \
   -p 8080:8080 \
@@ -70,6 +73,14 @@ docker run -d \
   -e OAUTH2_JWT_SECRET=your-secret-key \
   --name oauth2_server \
   rust_oauth2_server:latest
+
+# (Optional) Run against MongoDB (requires image built with --build-arg CARGO_FEATURES=mongo)
+# docker run -d \
+#   -p 8080:8080 \
+#   -e OAUTH2_DATABASE_URL=mongodb://mongo:27017/oauth2 \
+#   -e OAUTH2_JWT_SECRET=your-secret-key \
+#   --name oauth2_server \
+#   rust_oauth2_server:latest
 ```
 
 ### Multi-Stage Dockerfile

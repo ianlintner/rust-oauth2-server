@@ -1,27 +1,26 @@
-use crate::db::Database;
 use crate::events::{
     event_actor::{EmitEvent, EventActor},
     AuthEvent, EventSeverity, EventType,
 };
 use crate::models::{AuthorizationCode, OAuth2Error};
+use crate::storage::DynStorage;
 use actix::prelude::*;
 use rand::Rng;
-use std::sync::Arc;
 
 pub struct AuthActor {
-    db: Arc<Database>,
+    db: DynStorage,
     event_actor: Option<Addr<EventActor>>,
 }
 
 impl AuthActor {
-    pub fn new(db: Arc<Database>) -> Self {
+    pub fn new(db: DynStorage) -> Self {
         Self {
             db,
             event_actor: None,
         }
     }
 
-    pub fn with_events(db: Arc<Database>, event_actor: Addr<EventActor>) -> Self {
+    pub fn with_events(db: DynStorage, event_actor: Addr<EventActor>) -> Self {
         Self {
             db,
             event_actor: Some(event_actor),

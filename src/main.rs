@@ -7,6 +7,7 @@ mod metrics;
 mod middleware;
 mod models;
 mod services;
+mod storage;
 mod telemetry;
 
 use actix::Actor;
@@ -116,16 +117,17 @@ async fn main() -> std::io::Result<()> {
     let metrics = metrics::Metrics::new().expect("Failed to initialize metrics");
     tracing::info!("Metrics initialized");
 
-    // Initialize database
-    tracing::info!(database_url = %config.database.url, "Connecting to database");
-    let db = db::Database::new(&config.database.url)
+    // Initialize storage backend (SQLx by default, optional MongoDB)
+    tracing::info!(database_url = %config.database.url, "Connecting to storage backend");
+    let storage = storage::create_storage(&config.database.url)
         .await
-        .expect("Failed to connect to database");
+        .expect("Failed to create storage backend");
 
-    db.init().await.expect("Failed to initialize database");
-    tracing::info!("Database initialized");
-
-    let db = Arc::new(db);
+    storage
+        .init()
+        .await
+        .expect("Failed to initialize storage backend");
+    tracing::info!("Storage backend initialized");
     let jwt_secret = config.jwt.secret.clone();
 
     // Load session key from environment or generate a new one
@@ -187,21 +189,22 @@ async fn main() -> std::io::Result<()> {
 
     // Start actors with event system
     let token_actor = if let Some(ref event_actor) = event_actor {
-        actors::TokenActor::with_events(db.clone(), jwt_secret.clone(), event_actor.clone()).start()
+        actors::TokenActor::with_events(storage.clone(), jwt_secret.clone(), event_actor.clone())
+            .start()
     } else {
-        actors::TokenActor::new(db.clone(), jwt_secret.clone()).start()
+        actors::TokenActor::new(storage.clone(), jwt_secret.clone()).start()
     };
 
     let client_actor = if let Some(ref event_actor) = event_actor {
-        actors::ClientActor::with_events(db.clone(), event_actor.clone()).start()
+        actors::ClientActor::with_events(storage.clone(), event_actor.clone()).start()
     } else {
-        actors::ClientActor::new(db.clone()).start()
+        actors::ClientActor::new(storage.clone()).start()
     };
 
     let auth_actor = if let Some(ref event_actor) = event_actor {
-        actors::AuthActor::with_events(db.clone(), event_actor.clone()).start()
+        actors::AuthActor::with_events(storage.clone(), event_actor.clone()).start()
     } else {
-        actors::AuthActor::new(db.clone()).start()
+        actors::AuthActor::new(storage.clone()).start()
     };
 
     tracing::info!("Actors started");
@@ -240,7 +243,7 @@ async fn main() -> std::io::Result<()> {
             .app_data(web::Data::new(client_actor.clone()))
             .app_data(web::Data::new(auth_actor.clone()))
             .app_data(web::Data::new(jwt_secret.clone()))
-            .app_data(web::Data::new(db.clone()))
+            .app_data(web::Data::new(storage.clone()))
             .app_data(web::Data::new(metrics.clone()))
             .app_data(web::Data::new(social_config.clone()));
 

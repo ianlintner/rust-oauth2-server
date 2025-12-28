@@ -55,6 +55,20 @@ export OAUTH2_SERVER_WORKERS=4
     export OAUTH2_DATABASE_URL=postgresql://username:password@localhost:5432/oauth2_db?sslmode=require
     ```
 
+=== "MongoDB (optional)"
+  MongoDB support is available behind a cargo feature flag to keep the default build lightweight.
+
+  - Build/run with: `--features mongo`
+  - Use a MongoDB connection URL (`mongodb://` or `mongodb+srv://`)
+
+  ```bash
+  # Local MongoDB
+  export OAUTH2_DATABASE_URL=mongodb://localhost:27017/oauth2
+
+  # MongoDB Atlas (SRV)
+  export OAUTH2_DATABASE_URL=mongodb+srv://user:pass@cluster0.example.mongodb.net/oauth2
+  ```
+
 ### JWT Configuration
 
 | Variable | Type | Default | Description |

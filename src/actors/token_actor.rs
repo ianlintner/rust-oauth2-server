@@ -1,20 +1,19 @@
-use crate::db::Database;
 use crate::events::{
     event_actor::{EmitEvent, EventActor},
     AuthEvent, EventSeverity, EventType,
 };
 use crate::models::{Claims, OAuth2Error, Token};
+use crate::storage::DynStorage;
 use actix::prelude::*;
-use std::sync::Arc;
 
 pub struct TokenActor {
-    db: Arc<Database>,
+    db: DynStorage,
     jwt_secret: String,
     event_actor: Option<Addr<EventActor>>,
 }
 
 impl TokenActor {
-    pub fn new(db: Arc<Database>, jwt_secret: String) -> Self {
+    pub fn new(db: DynStorage, jwt_secret: String) -> Self {
         Self {
             db,
             jwt_secret,
@@ -23,7 +22,7 @@ impl TokenActor {
     }
 
     pub fn with_events(
-        db: Arc<Database>,
+        db: DynStorage,
         jwt_secret: String,
         event_actor: Addr<EventActor>,
     ) -> Self {

@@ -136,6 +136,8 @@ OAUTH2_SERVER_PORT=8080
 OAUTH2_DATABASE_URL=sqlite:oauth2.db
 # For PostgreSQL:
 # OAUTH2_DATABASE_URL=postgresql://oauth2_user:your_password@localhost/oauth2_db
+# For MongoDB (requires building/running with `--features mongo`):
+# OAUTH2_DATABASE_URL=mongodb://localhost:27017/oauth2
 
 # JWT Configuration
 OAUTH2_JWT_SECRET=your-super-secret-jwt-key-minimum-32-characters-long

@@ -19,6 +19,20 @@ services:
       timeout: 5s
       retries: 5
 
+  # MongoDB database (optional - build with `--features mongo` and use a mongodb:// URL)
+  mongo:
+    image: mongo:7
+    container_name: oauth2_mongo
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "localhost/admin", "--eval", "db.runCommand({ ping: 1 }).ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
   # Flyway migration service
   flyway:
     image: flyway/flyway:10-alpine
@@ -53,3 +67,4 @@ services:
 
 volumes:
   postgres_data:
+  mongo_data:

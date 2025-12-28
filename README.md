@@ -1,10 +1,8 @@
 # Rust OAuth2 Server
+
 [![CI/CD Pipeline](https://github.com/ianlintner/rust_oauth2_server/actions/workflows/ci.yml/badge.svg)](https://github.com/ianlintner/rust_oauth2_server/actions/workflows/ci.yml)
 
-<img width="450" alt="image" src="https://github.com/user-attachments/assets/fbaad570-f1f6-4f1c-888d-68a34a0bc48c" />
-
-
-
+![Rust OAuth2 Server screenshot](https://github.com/user-attachments/assets/fbaad570-f1f6-4f1c-888d-68a34a0bc48c)
 
 A complete, production-ready OAuth2 authorization server built with Rust and Actix-web, featuring the actor model for concurrency, type safety, and comprehensive observability.
 
@@ -41,10 +39,11 @@ graph LR
 - 🎭 **Actor Model** using Actix for concurrent request handling
 - 🔒 **Type-Safe** Rust implementation
 - 🔐 **JWT Tokens** with configurable expiration
-- 💾 **Database Support** (SQLite, PostgreSQL via SQLx)
+- 💾 **Database Support** (SQLite/PostgreSQL via SQLx, optional MongoDB via `--features mongo`)
 - 🗄️ **Flyway Migrations** for database schema management
 
 ### Authentication Eventing (NEW! ✨)
+
 - 📡 **Comprehensive Event System** - Emit events for all auth operations
 - 🔧 **Configurable Filtering** - Include/exclude specific event types
 - 🔌 **Pluggable Backends** - In-memory, console, and extensible for Redis/Kafka/RabbitMQ
@@ -88,7 +87,8 @@ graph LR
 ## 📋 Prerequisites
 
 - Rust 1.70 or higher
-- SQLite or PostgreSQL
+- SQLite or PostgreSQL (default)
+- MongoDB (optional, only if you want to run with `--features mongo`)
 - Docker (optional, for containerized deployment)
 - Flyway (optional, or use Docker for migrations)
 
@@ -224,6 +224,12 @@ export OAUTH2_SERVER_HOST=127.0.0.1
 export OAUTH2_SERVER_PORT=8080
 export OAUTH2_DATABASE_URL=sqlite:oauth2.db
 export OAUTH2_JWT_SECRET=your-secret-key-change-in-production
+
+# Alternatively (PostgreSQL)
+# export OAUTH2_DATABASE_URL=postgresql://oauth2_user:password@localhost:5432/oauth2
+
+# Alternatively (MongoDB - requires building/running with `--features mongo`)
+# export OAUTH2_DATABASE_URL=mongodb://localhost:27017/oauth2
 ```
 
 ### Event System Configuration
@@ -406,7 +412,7 @@ curl -X POST http://localhost:8080/clients/register \
 
 1. **Get Authorization Code**:
 
-```
+```text
 http://localhost:8080/oauth/authorize?response_type=code&client_id=CLIENT_ID&redirect_uri=http://localhost:3000/callback&scope=read
 ```
 
