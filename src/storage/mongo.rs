@@ -64,7 +64,6 @@ impl MongoStorage {
                     .keys(doc! { "client_id": 1 })
                     .options(IndexOptions::builder().unique(true).build())
                     .build(),
-                None,
             )
             .await
             .map_err(Self::mongo_err_to_oauth)?;
@@ -76,17 +75,13 @@ impl MongoStorage {
                     .keys(doc! { "username": 1 })
                     .options(IndexOptions::builder().unique(true).build())
                     .build(),
-                None,
             )
             .await
             .map_err(Self::mongo_err_to_oauth)?;
 
         // users.email non-unique index (matches SQL's index; not unique constraint)
         self.users
-            .create_index(
-                IndexModel::builder().keys(doc! { "email": 1 }).build(),
-                None,
-            )
+            .create_index(IndexModel::builder().keys(doc! { "email": 1 }).build())
             .await
             .map_err(Self::mongo_err_to_oauth)?;
 
@@ -97,7 +92,6 @@ impl MongoStorage {
                     .keys(doc! { "access_token": 1 })
                     .options(IndexOptions::builder().unique(true).build())
                     .build(),
-                None,
             )
             .await
             .map_err(Self::mongo_err_to_oauth)?;
@@ -109,7 +103,6 @@ impl MongoStorage {
                     .keys(doc! { "refresh_token": 1 })
                     .options(IndexOptions::builder().unique(true).sparse(true).build())
                     .build(),
-                None,
             )
             .await
             .map_err(Self::mongo_err_to_oauth)?;
@@ -121,7 +114,6 @@ impl MongoStorage {
                     .keys(doc! { "code": 1 })
                     .options(IndexOptions::builder().unique(true).build())
                     .build(),
-                None,
             )
             .await
             .map_err(Self::mongo_err_to_oauth)?;
@@ -150,7 +142,7 @@ impl Storage for MongoStorage {
     async fn init(&self) -> Result<(), OAuth2Error> {
         // Ping and ensure indexes.
         self.db
-            .run_command(doc! { "ping": 1 }, None)
+            .run_command(doc! { "ping": 1 })
             .await
             .map_err(Self::mongo_err_to_oauth)?;
         self.ensure_indexes().await
@@ -158,7 +150,7 @@ impl Storage for MongoStorage {
 
     async fn save_client(&self, client: &Client) -> Result<(), OAuth2Error> {
         self.clients
-            .insert_one(client, None)
+            .insert_one(client)
             .await
             .map(|_| ())
             .map_err(Self::mongo_err_to_oauth)
@@ -166,14 +158,14 @@ impl Storage for MongoStorage {
 
     async fn get_client(&self, client_id: &str) -> Result<Option<Client>, OAuth2Error> {
         self.clients
-            .find_one(doc! { "client_id": client_id }, None)
+            .find_one(doc! { "client_id": client_id })
             .await
             .map_err(Self::mongo_err_to_oauth)
     }
 
     async fn save_user(&self, user: &User) -> Result<(), OAuth2Error> {
         self.users
-            .insert_one(user, None)
+            .insert_one(user)
             .await
             .map(|_| ())
             .map_err(Self::mongo_err_to_oauth)
@@ -181,14 +173,14 @@ impl Storage for MongoStorage {
 
     async fn get_user_by_username(&self, username: &str) -> Result<Option<User>, OAuth2Error> {
         self.users
-            .find_one(doc! { "username": username }, None)
+            .find_one(doc! { "username": username })
             .await
             .map_err(Self::mongo_err_to_oauth)
     }
 
     async fn save_token(&self, token: &Token) -> Result<(), OAuth2Error> {
         self.tokens
-            .insert_one(token, None)
+            .insert_one(token)
             .await
             .map(|_| ())
             .map_err(Self::mongo_err_to_oauth)
@@ -199,7 +191,7 @@ impl Storage for MongoStorage {
         access_token: &str,
     ) -> Result<Option<Token>, OAuth2Error> {
         self.tokens
-            .find_one(doc! { "access_token": access_token }, None)
+            .find_one(doc! { "access_token": access_token })
             .await
             .map_err(Self::mongo_err_to_oauth)
     }
@@ -209,7 +201,6 @@ impl Storage for MongoStorage {
             .update_many(
                 doc! { "$or": [ {"access_token": token }, {"refresh_token": token } ] },
                 doc! { "$set": { "revoked": true } },
-                None,
             )
             .await
             .map(|_| ())
@@ -221,7 +212,7 @@ impl Storage for MongoStorage {
         auth_code: &AuthorizationCode,
     ) -> Result<(), OAuth2Error> {
         self.authorization_codes
-            .insert_one(auth_code, None)
+            .insert_one(auth_code)
             .await
             .map(|_| ())
             .map_err(Self::mongo_err_to_oauth)
@@ -232,18 +223,14 @@ impl Storage for MongoStorage {
         code: &str,
     ) -> Result<Option<AuthorizationCode>, OAuth2Error> {
         self.authorization_codes
-            .find_one(doc! { "code": code }, None)
+            .find_one(doc! { "code": code })
             .await
             .map_err(Self::mongo_err_to_oauth)
     }
 
     async fn mark_authorization_code_used(&self, code: &str) -> Result<(), OAuth2Error> {
         self.authorization_codes
-            .update_one(
-                doc! { "code": code },
-                doc! { "$set": { "used": true } },
-                None,
-            )
+            .update_one(doc! { "code": code }, doc! { "$set": { "used": true } })
             .await
             .map(|_| ())
             .map_err(Self::mongo_err_to_oauth)
@@ -251,7 +238,7 @@ impl Storage for MongoStorage {
 
     async fn healthcheck(&self) -> Result<(), OAuth2Error> {
         self.db
-            .run_command(doc! { "ping": 1 }, None)
+            .run_command(doc! { "ping": 1 })
             .await
             .map(|_| ())
             .map_err(Self::mongo_err_to_oauth)
