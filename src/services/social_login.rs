@@ -33,8 +33,18 @@ pub struct SocialLoginService;
 
 impl SocialLoginService {
     pub fn get_google_client(config: &ProviderConfig) -> Result<ConfiguredClient, OAuth2Error> {
-        Ok(BasicClient::new(ClientId::new(config.client_id.clone()))
-            .set_client_secret(ClientSecret::new(config.client_secret.clone()))
+        let client_id = config.client_id.as_ref().ok_or_else(|| {
+            OAuth2Error::new("invalid_configuration", Some("Google client_id not set"))
+        })?;
+        let client_secret = config.client_secret.as_ref().ok_or_else(|| {
+            OAuth2Error::new("invalid_configuration", Some("Google client_secret not set"))
+        })?;
+        let redirect_uri = config.redirect_uri.as_ref().ok_or_else(|| {
+            OAuth2Error::new("invalid_configuration", Some("Google redirect_uri not set"))
+        })?;
+        
+        Ok(BasicClient::new(ClientId::new(client_id.clone()))
+            .set_client_secret(ClientSecret::new(client_secret.clone()))
             .set_auth_uri(
                 AuthUrl::new("https://accounts.google.com/o/oauth2/v2/auth".to_string())
                     .map_err(|e| OAuth2Error::new("invalid_configuration", Some(&e.to_string())))?,
@@ -44,15 +54,25 @@ impl SocialLoginService {
                     .map_err(|e| OAuth2Error::new("invalid_configuration", Some(&e.to_string())))?,
             )
             .set_redirect_uri(
-                RedirectUrl::new(config.redirect_uri.clone())
+                RedirectUrl::new(redirect_uri.clone())
                     .map_err(|e| OAuth2Error::new("invalid_configuration", Some(&e.to_string())))?,
             ))
     }
 
     pub fn get_microsoft_client(config: &ProviderConfig) -> Result<ConfiguredClient, OAuth2Error> {
+        let client_id = config.client_id.as_ref().ok_or_else(|| {
+            OAuth2Error::new("invalid_configuration", Some("Microsoft client_id not set"))
+        })?;
+        let client_secret = config.client_secret.as_ref().ok_or_else(|| {
+            OAuth2Error::new("invalid_configuration", Some("Microsoft client_secret not set"))
+        })?;
+        let redirect_uri = config.redirect_uri.as_ref().ok_or_else(|| {
+            OAuth2Error::new("invalid_configuration", Some("Microsoft redirect_uri not set"))
+        })?;
+        
         let tenant = config.tenant_id.as_deref().unwrap_or("common");
-        Ok(BasicClient::new(ClientId::new(config.client_id.clone()))
-            .set_client_secret(ClientSecret::new(config.client_secret.clone()))
+        Ok(BasicClient::new(ClientId::new(client_id.clone()))
+            .set_client_secret(ClientSecret::new(client_secret.clone()))
             .set_auth_uri(
                 AuthUrl::new(format!(
                     "https://login.microsoftonline.com/{}/oauth2/v2.0/authorize",
@@ -68,14 +88,24 @@ impl SocialLoginService {
                 .map_err(|e| OAuth2Error::new("invalid_configuration", Some(&e.to_string())))?,
             )
             .set_redirect_uri(
-                RedirectUrl::new(config.redirect_uri.clone())
+                RedirectUrl::new(redirect_uri.clone())
                     .map_err(|e| OAuth2Error::new("invalid_configuration", Some(&e.to_string())))?,
             ))
     }
 
     pub fn get_github_client(config: &ProviderConfig) -> Result<ConfiguredClient, OAuth2Error> {
-        Ok(BasicClient::new(ClientId::new(config.client_id.clone()))
-            .set_client_secret(ClientSecret::new(config.client_secret.clone()))
+        let client_id = config.client_id.as_ref().ok_or_else(|| {
+            OAuth2Error::new("invalid_configuration", Some("GitHub client_id not set"))
+        })?;
+        let client_secret = config.client_secret.as_ref().ok_or_else(|| {
+            OAuth2Error::new("invalid_configuration", Some("GitHub client_secret not set"))
+        })?;
+        let redirect_uri = config.redirect_uri.as_ref().ok_or_else(|| {
+            OAuth2Error::new("invalid_configuration", Some("GitHub redirect_uri not set"))
+        })?;
+        
+        Ok(BasicClient::new(ClientId::new(client_id.clone()))
+            .set_client_secret(ClientSecret::new(client_secret.clone()))
             .set_auth_uri(
                 AuthUrl::new("https://github.com/login/oauth/authorize".to_string())
                     .map_err(|e| OAuth2Error::new("invalid_configuration", Some(&e.to_string())))?,
@@ -85,18 +115,27 @@ impl SocialLoginService {
                     .map_err(|e| OAuth2Error::new("invalid_configuration", Some(&e.to_string())))?,
             )
             .set_redirect_uri(
-                RedirectUrl::new(config.redirect_uri.clone())
+                RedirectUrl::new(redirect_uri.clone())
                     .map_err(|e| OAuth2Error::new("invalid_configuration", Some(&e.to_string())))?,
             ))
     }
 
     pub fn get_okta_client(config: &ProviderConfig) -> Result<ConfiguredClient, OAuth2Error> {
+        let client_id = config.client_id.as_ref().ok_or_else(|| {
+            OAuth2Error::new("invalid_configuration", Some("Okta client_id not set"))
+        })?;
+        let client_secret = config.client_secret.as_ref().ok_or_else(|| {
+            OAuth2Error::new("invalid_configuration", Some("Okta client_secret not set"))
+        })?;
+        let redirect_uri = config.redirect_uri.as_ref().ok_or_else(|| {
+            OAuth2Error::new("invalid_configuration", Some("Okta redirect_uri not set"))
+        })?;
         let domain = config.domain.as_ref().ok_or_else(|| {
             OAuth2Error::new("invalid_configuration", Some("Okta domain is required"))
         })?;
 
-        Ok(BasicClient::new(ClientId::new(config.client_id.clone()))
-            .set_client_secret(ClientSecret::new(config.client_secret.clone()))
+        Ok(BasicClient::new(ClientId::new(client_id.clone()))
+            .set_client_secret(ClientSecret::new(client_secret.clone()))
             .set_auth_uri(
                 AuthUrl::new(format!("https://{}/oauth2/default/v1/authorize", domain))
                     .map_err(|e| OAuth2Error::new("invalid_configuration", Some(&e.to_string())))?,
@@ -106,18 +145,27 @@ impl SocialLoginService {
                     .map_err(|e| OAuth2Error::new("invalid_configuration", Some(&e.to_string())))?,
             )
             .set_redirect_uri(
-                RedirectUrl::new(config.redirect_uri.clone())
+                RedirectUrl::new(redirect_uri.clone())
                     .map_err(|e| OAuth2Error::new("invalid_configuration", Some(&e.to_string())))?,
             ))
     }
 
     pub fn get_auth0_client(config: &ProviderConfig) -> Result<ConfiguredClient, OAuth2Error> {
+        let client_id = config.client_id.as_ref().ok_or_else(|| {
+            OAuth2Error::new("invalid_configuration", Some("Auth0 client_id not set"))
+        })?;
+        let client_secret = config.client_secret.as_ref().ok_or_else(|| {
+            OAuth2Error::new("invalid_configuration", Some("Auth0 client_secret not set"))
+        })?;
+        let redirect_uri = config.redirect_uri.as_ref().ok_or_else(|| {
+            OAuth2Error::new("invalid_configuration", Some("Auth0 redirect_uri not set"))
+        })?;
         let domain = config.domain.as_ref().ok_or_else(|| {
             OAuth2Error::new("invalid_configuration", Some("Auth0 domain is required"))
         })?;
 
-        Ok(BasicClient::new(ClientId::new(config.client_id.clone()))
-            .set_client_secret(ClientSecret::new(config.client_secret.clone()))
+        Ok(BasicClient::new(ClientId::new(client_id.clone()))
+            .set_client_secret(ClientSecret::new(client_secret.clone()))
             .set_auth_uri(
                 AuthUrl::new(format!("https://{}/authorize", domain))
                     .map_err(|e| OAuth2Error::new("invalid_configuration", Some(&e.to_string())))?,
@@ -127,7 +175,7 @@ impl SocialLoginService {
                     .map_err(|e| OAuth2Error::new("invalid_configuration", Some(&e.to_string())))?,
             )
             .set_redirect_uri(
-                RedirectUrl::new(config.redirect_uri.clone())
+                RedirectUrl::new(redirect_uri.clone())
                     .map_err(|e| OAuth2Error::new("invalid_configuration", Some(&e.to_string())))?,
             ))
     }
