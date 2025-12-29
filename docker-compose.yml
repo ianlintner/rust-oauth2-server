@@ -51,19 +51,27 @@ services:
       postgres:
         condition: service_healthy
 
-  # OAuth2 Server (uncomment after building the image)
-  # oauth2_server:
-  #   build: .
-  #   container_name: oauth2_server
-  #   ports:
-  #     - "8080:8080"
-  #   environment:
-  #     - OAUTH2_SERVER_HOST=0.0.0.0
-  #     - OAUTH2_SERVER_PORT=8080
-  #     - OAUTH2_DATABASE_URL=postgresql://oauth2_user:oauth2_password@postgres:5432/oauth2
-  #     - OAUTH2_JWT_SECRET=change-me-in-production
-  #   depends_on:
-  #     - flyway
+  # OAuth2 Server
+  oauth2_server:
+    build: .
+    container_name: oauth2_server
+    ports:
+      - "8080:8080"
+    environment:
+      - OAUTH2_SERVER_HOST=0.0.0.0
+      - OAUTH2_SERVER_PORT=8080
+      - OAUTH2_DATABASE_URL=postgresql://oauth2_user:oauth2_password@postgres:5432/oauth2
+      - OAUTH2_JWT_SECRET=${OAUTH2_JWT_SECRET:-change-me-in-production}
+      # Optional: send traces to the local otel collector if you bring up docker-compose.observability.yml
+      - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel_collector:4317}
+      - OTEL_EXPORTER_OTLP_PROTOCOL=grpc
+      - OTEL_SERVICE_NAME=oauth2_server
+      - RUST_LOG=${RUST_LOG:-info}
+    depends_on:
+      flyway:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
 
 volumes:
   postgres_data:

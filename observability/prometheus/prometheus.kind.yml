@@ -1,0 +1,21 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  # Scrapes the oauth2-server running in a KIND cluster via a local port-forward.
+  # See docs/deployment/kubernetes.md ("Local observability with KIND").
+  - job_name: oauth2-server-kind
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          # On macOS/Windows, Docker containers can reach the host via this DNS name.
+          - host.docker.internal:18080
+
+  - job_name: prometheus
+    static_configs:
+      - targets:
+          - prometheus:9090
+
+rule_files:
+  - /etc/prometheus/rules/*.yml

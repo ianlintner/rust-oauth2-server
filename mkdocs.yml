@@ -79,6 +79,7 @@ nav:
     - Examples: examples/eventing.md
   - Observability:
       - Metrics: observability/metrics.md
+      - SLOs: observability/slos.md
       - Tracing: observability/tracing.md
       - Logging: observability/logging.md
       - Health Checks: observability/health.md

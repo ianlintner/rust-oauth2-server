@@ -1,0 +1,19 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: oauth2-server
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          # The oauth2-server Service in the same namespace.
+          - oauth2-server:80
+
+  - job_name: prometheus
+    static_configs:
+      - targets:
+          - localhost:9090
+
+rule_files:
+  - /etc/prometheus/rules/*.yml

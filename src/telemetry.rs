@@ -12,6 +12,32 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilte
 ///     traces are exported via OTLP.
 ///   - Otherwise, a local tracer provider is installed to generate trace/span IDs for log correlation.
 pub fn init_telemetry(service_name: &str) -> Result<(), Box<dyn std::error::Error>> {
+    // Back-compat / convenience: this repo historically documented `OAUTH2_OTLP_ENDPOINT`.
+    // OpenTelemetry SDKs use `OTEL_EXPORTER_OTLP_ENDPOINT` (or `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`).
+    // If the standard OTEL vars are not set but the app-specific one is, bridge it.
+    let oauth2_otlp_endpoint = std::env::var("OAUTH2_OTLP_ENDPOINT")
+        .ok()
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty());
+
+    let otel_endpoint_missing = std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT")
+        .ok()
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
+        .is_none();
+
+    let otel_traces_endpoint_missing = std::env::var("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT")
+        .ok()
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
+        .is_none();
+
+    if otel_endpoint_missing && otel_traces_endpoint_missing {
+        if let Some(endpoint) = oauth2_otlp_endpoint {
+            std::env::set_var("OTEL_EXPORTER_OTLP_ENDPOINT", endpoint);
+        }
+    }
+
     let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
 
     // Use W3C trace-context for propagation (traceparent/tracestate).

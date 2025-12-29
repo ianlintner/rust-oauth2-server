@@ -59,14 +59,32 @@ where
         let metrics = self.metrics.clone();
         let svc = self.service.clone();
 
+        let method = req.method().as_str().to_string();
+
         Box::pin(async move {
             metrics.http_requests_total.inc();
 
             let res = svc.call(req).await?;
 
+            let status = res.status().as_u16().to_string();
+            let route = res
+                .request()
+                .match_pattern()
+                .unwrap_or_else(|| res.request().path().to_string());
+
             let duration = start.elapsed();
             metrics
                 .http_request_duration_seconds
+                .observe(duration.as_secs_f64());
+
+            metrics
+                .http_requests_total_by_route
+                .with_label_values(&[&method, &route, &status])
+                .inc();
+
+            metrics
+                .http_request_duration_seconds_by_route
+                .with_label_values(&[&method, &route, &status])
                 .observe(duration.as_secs_f64());
 
             Ok(res)

@@ -1,0 +1,41 @@
+groups:
+  - name: oauth2-server-critical
+    rules:
+      # Immediate heads-up if the server stops being scraped.
+      - alert: OAuth2ServerTargetDown
+        expr: up{job="oauth2-server"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "OAuth2 server target is down"
+          description: "Prometheus cannot scrape the OAuth2 server (/metrics)."
+
+      # High 5xx rate over short window (requires labeled HTTP metrics).
+      - alert: OAuth2ServerHigh5xxRate
+        expr: |
+          (
+            sum(rate(oauth2_server_http_requests_total_by_route{status=~"5.."}[5m]))
+            /
+            clamp_min(sum(rate(oauth2_server_http_requests_total_by_route[5m])), 1e-9)
+          ) > 0.02
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "OAuth2 server 5xx error rate > 2%"
+          description: "The OAuth2 server is returning elevated 5xx responses."
+
+      # Latency SLO-ish alert: p95 > 500ms for 10m (tune thresholds per environment).
+      - alert: OAuth2ServerHighLatencyP95
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (le) (rate(oauth2_server_http_request_duration_seconds_by_route_bucket[5m]))
+          ) > 0.5
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "OAuth2 server p95 latency > 500ms"
+          description: "Elevated request latency observed (p95 over last 5m)."

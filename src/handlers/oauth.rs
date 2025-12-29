@@ -1,4 +1,5 @@
 use crate::actors::{AuthActor, CreateAuthorizationCode, CreateToken, TokenActor};
+use crate::metrics::Metrics;
 use crate::models::{OAuth2Error, TokenResponse};
 use actix::Addr;
 use actix_web::{web, HttpResponse, Result};
@@ -21,6 +22,7 @@ pub struct AuthorizeQuery {
 pub async fn authorize(
     query: web::Query<AuthorizeQuery>,
     auth_actor: web::Data<Addr<AuthActor>>,
+    metrics: web::Data<Metrics>,
 ) -> Result<HttpResponse, OAuth2Error> {
     // In a real implementation, this would show a consent page
     // For now, we'll auto-approve with a mock user
@@ -40,6 +42,8 @@ pub async fn authorize(
         })
         .await
         .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))??;
+
+    metrics.oauth_authorization_codes_issued.inc();
 
     // Redirect back to client with code
     let mut redirect_url = format!("{}?code={}", query.redirect_uri, auth_code.code);
@@ -73,16 +77,23 @@ pub async fn token(
     form: web::Form<TokenRequest>,
     token_actor: web::Data<Addr<TokenActor>>,
     auth_actor: web::Data<Addr<AuthActor>>,
+    metrics: web::Data<Metrics>,
 ) -> Result<HttpResponse, OAuth2Error> {
     match form.grant_type.as_str() {
         "authorization_code" => {
-            handle_authorization_code_grant(form.into_inner(), token_actor, auth_actor).await
+            handle_authorization_code_grant(
+                form.into_inner(),
+                token_actor,
+                auth_actor,
+                metrics,
+            )
+            .await
         }
         "client_credentials" => {
-            handle_client_credentials_grant(form.into_inner(), token_actor).await
+            handle_client_credentials_grant(form.into_inner(), token_actor, metrics).await
         }
-        "password" => handle_password_grant(form.into_inner(), token_actor).await,
-        "refresh_token" => handle_refresh_token_grant(form.into_inner(), token_actor).await,
+        "password" => handle_password_grant(form.into_inner(), token_actor, metrics).await,
+        "refresh_token" => handle_refresh_token_grant(form.into_inner(), token_actor, metrics).await,
         _ => Err(OAuth2Error::unsupported_grant_type(&format!(
             "Grant type '{}' not supported",
             form.grant_type
@@ -94,6 +105,7 @@ async fn handle_authorization_code_grant(
     req: TokenRequest,
     token_actor: web::Data<Addr<TokenActor>>,
     auth_actor: web::Data<Addr<AuthActor>>,
+    metrics: web::Data<Metrics>,
 ) -> Result<HttpResponse, OAuth2Error> {
     let code = req
         .code
@@ -126,12 +138,15 @@ async fn handle_authorization_code_grant(
         .await
         .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))??;
 
+    metrics.oauth_token_issued_total.inc();
+
     Ok(HttpResponse::Ok().json(TokenResponse::from(token)))
 }
 
 async fn handle_client_credentials_grant(
     req: TokenRequest,
     token_actor: web::Data<Addr<TokenActor>>,
+    metrics: web::Data<Metrics>,
 ) -> Result<HttpResponse, OAuth2Error> {
     // Validate client credentials
     let _client_secret = req
@@ -152,12 +167,15 @@ async fn handle_client_credentials_grant(
         .await
         .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))??;
 
+    metrics.oauth_token_issued_total.inc();
+
     Ok(HttpResponse::Ok().json(TokenResponse::from(token)))
 }
 
 async fn handle_password_grant(
     req: TokenRequest,
     token_actor: web::Data<Addr<TokenActor>>,
+    metrics: web::Data<Metrics>,
 ) -> Result<HttpResponse, OAuth2Error> {
     let username = req
         .username
@@ -180,12 +198,15 @@ async fn handle_password_grant(
         .await
         .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))??;
 
+    metrics.oauth_token_issued_total.inc();
+
     Ok(HttpResponse::Ok().json(TokenResponse::from(token)))
 }
 
 async fn handle_refresh_token_grant(
     _req: TokenRequest,
     _token_actor: web::Data<Addr<TokenActor>>,
+    _metrics: web::Data<Metrics>,
 ) -> Result<HttpResponse, OAuth2Error> {
     // Simplified refresh token handling
     Err(OAuth2Error::unsupported_grant_type(

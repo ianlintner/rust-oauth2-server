@@ -1,0 +1,51 @@
+version: "prometheus/v1"
+service: "oauth2-server"
+labels:
+  owner: "oauth2"
+  repo: "ianlintner/rust_oauth2_server"
+  tier: "1"
+slos:
+  # Token endpoint availability (server-side errors).
+  # NOTE: We only treat 5xx as SLO errors here. OAuth2-spec 4xx responses are typically client-driven.
+  - name: "token-availability"
+    objective: 99.9
+    description: "Successful /oauth/token responses (non-5xx)."
+    labels:
+      category: "availability"
+      endpoint: "/oauth/token"
+    sli:
+      events:
+        error_query: |
+          sum(rate(oauth2_server_http_requests_total_by_route{route="/oauth/token",method="POST",status=~"5.."}[{{.window}}]))
+        total_query: |
+          sum(rate(oauth2_server_http_requests_total_by_route{route="/oauth/token",method="POST"}[{{.window}}]))
+    alerting:
+      name: "OAuth2ServerTokenHighErrorRate"
+      labels:
+        category: "availability"
+        endpoint: "/oauth/token"
+
+  # Token endpoint latency. Uses classic histogram bucket math:
+  # error = total_count - count_le_threshold.
+  - name: "token-latency-500ms"
+    objective: 99
+    description: "99% of /oauth/token requests complete within 500ms (excludes 5xx from latency SLI)."
+    labels:
+      category: "latency"
+      endpoint: "/oauth/token"
+      threshold: "0.5s"
+    sli:
+      events:
+        error_query: |
+          (
+            sum(rate(oauth2_server_http_request_duration_seconds_by_route_count{route="/oauth/token",method="POST",status!~"5.."}[{{.window}}]))
+            -
+            sum(rate(oauth2_server_http_request_duration_seconds_by_route_bucket{route="/oauth/token",method="POST",status!~"5..",le="0.5"}[{{.window}}]))
+          )
+        total_query: |
+          sum(rate(oauth2_server_http_request_duration_seconds_by_route_count{route="/oauth/token",method="POST",status!~"5.."}[{{.window}}]))
+    alerting:
+      name: "OAuth2ServerTokenHighLatency"
+      labels:
+        category: "latency"
+        endpoint: "/oauth/token"

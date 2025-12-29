@@ -1,0 +1,89 @@
+{
+  "uid": "oauth2-server-overview",
+  "title": "OAuth2 Server - Overview",
+  "tags": ["oauth2", "actix", "prometheus"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "10s",
+  "time": { "from": "now-30m", "to": "now" },
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Requests / sec (all)",
+      "gridPos": { "x": 0, "y": 0, "w": 6, "h": 4 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(oauth2_server_http_requests_total_by_route[5m]))",
+          "legendFormat": "rps"
+        }
+      ],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "values": false } }
+    },
+    {
+      "type": "stat",
+      "title": "5xx error rate (%, 5m)",
+      "gridPos": { "x": 6, "y": 0, "w": 6, "h": 4 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "100 * (sum(rate(oauth2_server_http_requests_total_by_route{status=~\"5..\"}[5m])) / clamp_min(sum(rate(oauth2_server_http_requests_total_by_route[5m])), 1e-9))",
+          "legendFormat": "5xx%"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "percent" } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "values": false } }
+    },
+    {
+      "type": "stat",
+      "title": "p95 latency (s, 5m)",
+      "gridPos": { "x": 12, "y": 0, "w": 6, "h": 4 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(oauth2_server_http_request_duration_seconds_by_route_bucket[5m])))",
+          "legendFormat": "p95"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s" } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "values": false } }
+    },
+    {
+      "type": "timeseries",
+      "title": "Requests by route (rps)",
+      "gridPos": { "x": 0, "y": 4, "w": 18, "h": 8 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "topk(10, sum by (route) (rate(oauth2_server_http_requests_total_by_route[5m])))",
+          "legendFormat": "{{route}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "5xx by route (rps)",
+      "gridPos": { "x": 0, "y": 12, "w": 18, "h": 8 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "topk(10, sum by (route) (rate(oauth2_server_http_requests_total_by_route{status=~\\\"5..\\\"}[5m])))",
+          "legendFormat": "{{route}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Tokens issued / sec",
+      "gridPos": { "x": 0, "y": 20, "w": 18, "h": 6 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rate(oauth2_server_oauth_token_issued_total[5m])",
+          "legendFormat": "issued/s"
+        }
+      ]
+    }
+  ]
+}

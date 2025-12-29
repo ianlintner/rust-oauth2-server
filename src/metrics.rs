@@ -1,4 +1,4 @@
-use prometheus::{Counter, Histogram, HistogramOpts, IntCounter, IntGauge, Opts, Registry};
+use prometheus::{Counter, CounterVec, Histogram, HistogramOpts, HistogramVec, IntCounter, IntGauge, Opts, Registry};
 use std::sync::Arc;
 
 #[derive(Clone)]
@@ -8,6 +8,22 @@ pub struct Metrics {
     // Request metrics
     pub http_requests_total: Counter,
     pub http_request_duration_seconds: Histogram,
+
+    /// Labeled HTTP request counter.
+    ///
+    /// Labels:
+    /// - method: HTTP method
+    /// - route: actix route pattern (preferred) or path fallback
+    /// - status: HTTP status code
+    pub http_requests_total_by_route: CounterVec,
+
+    /// Labeled HTTP request latency histogram.
+    ///
+    /// Labels:
+    /// - method: HTTP method
+    /// - route: actix route pattern (preferred) or path fallback
+    /// - status: HTTP status code
+    pub http_request_duration_seconds_by_route: HistogramVec,
 
     // OAuth2 metrics
     #[allow(dead_code)] // Planned for observability implementation
@@ -50,6 +66,26 @@ impl Metrics {
             .namespace("oauth2_server"),
         )?;
         registry.register(Box::new(http_request_duration_seconds.clone()))?;
+
+        let http_requests_total_by_route = CounterVec::new(
+            Opts::new(
+                "http_requests_total_by_route",
+                "Total number of HTTP requests (labeled by method/route/status)",
+            )
+            .namespace("oauth2_server"),
+            &["method", "route", "status"],
+        )?;
+        registry.register(Box::new(http_requests_total_by_route.clone()))?;
+
+        let http_request_duration_seconds_by_route = HistogramVec::new(
+            HistogramOpts::new(
+                "http_request_duration_seconds_by_route",
+                "HTTP request duration in seconds (labeled by method/route/status)",
+            )
+            .namespace("oauth2_server"),
+            &["method", "route", "status"],
+        )?;
+        registry.register(Box::new(http_request_duration_seconds_by_route.clone()))?;
 
         let oauth_token_issued_total = IntCounter::with_opts(
             Opts::new("oauth_token_issued_total", "Total number of tokens issued")
@@ -114,6 +150,8 @@ impl Metrics {
             registry: Arc::new(registry),
             http_requests_total,
             http_request_duration_seconds,
+            http_requests_total_by_route,
+            http_request_duration_seconds_by_route,
             oauth_token_issued_total,
             oauth_token_revoked_total,
             oauth_authorization_codes_issued,

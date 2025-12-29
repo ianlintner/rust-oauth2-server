@@ -12,6 +12,8 @@ Metrics cover:
 - OAuth2 token issuance and revocation counters
 - Database query counts and latency histograms
 
+In addition, the repo contains **generated SLO recording + alerting rules** (see [SLOs](slos.md)).
+
 See the full list in the project README under **Metrics**.
 
 ## Prometheus scrape config

@@ -1,0 +1,12 @@
+version: '3.8'
+
+services:
+  prometheus:
+    volumes:
+      - ./observability/prometheus/prometheus.kind.yml:/etc/prometheus/prometheus.yml:ro
+      - ./observability/prometheus/rules:/etc/prometheus/rules:ro
+      - prometheus_data:/prometheus
+
+volumes:
+  prometheus_data:
+    external: false
