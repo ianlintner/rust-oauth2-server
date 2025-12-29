@@ -311,10 +311,19 @@ impl Config {
         // Check if any environment variables are set for this provider
         let client_id = std::env::var(format!("OAUTH2_{}_CLIENT_ID", prefix)).ok();
         let client_secret = std::env::var(format!("OAUTH2_{}_CLIENT_SECRET", prefix)).ok();
-        let redirect_uri = std::env::var(format!("OAUTH2_{}_REDIRECT_URI", prefix)).ok();
         
-        // If any required fields are set, enable the provider
-        if client_id.is_some() && client_secret.is_some() && redirect_uri.is_some() {
+        // If client_id and client_secret are set, enable the provider
+        if client_id.is_some() && client_secret.is_some() {
+            // Provide default redirect_uri if not set (for backward compatibility)
+            let redirect_uri = std::env::var(format!("OAUTH2_{}_REDIRECT_URI", prefix))
+                .ok()
+                .or_else(|| {
+                    Some(format!(
+                        "http://localhost:8080/auth/callback/{}",
+                        prefix.to_lowercase()
+                    ))
+                });
+            
             let tenant_id = std::env::var(format!("OAUTH2_{}_TENANT_ID", prefix)).ok();
             let domain = std::env::var(format!("OAUTH2_{}_DOMAIN", prefix)).ok();
             
