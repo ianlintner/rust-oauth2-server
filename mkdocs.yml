@@ -20,7 +20,6 @@ theme:
         icon: material/brightness-4
         name: Switch to light mode
   features:
-    - navigation.tabs
     - navigation.sections
     - navigation.expand
     - navigation.top
@@ -28,9 +27,29 @@ theme:
     - search.highlight
     - content.code.copy
 
+extra_css:
+  - assets/stylesheets/extra.css
+
 plugins:
   - search
   - mermaid2
+  - swagger-ui-tag:
+      dark_scheme_name: slate
+      validatorUrl: none
+      docExpansion: none
+      filter: ""
+      syntaxHighlightTheme: monokai
+  - git-revision-date-localized:
+      type: date
+      enable_creation_date: true
+      fallback_to_build_date: true
+  - minify:
+      minify_html: true
+      minify_js: true
+      minify_css: true
+      htmlmin_opts:
+        remove_comments: true
+  - glightbox
 
 markdown_extensions:
   - pymdownx.highlight:
@@ -44,11 +63,15 @@ markdown_extensions:
           format: !!python/name:mermaid2.fence_mermaid
   - pymdownx.tabbed:
       alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
   - admonition
   - pymdownx.details
   - pymdownx.emoji:
       emoji_index: !!python/name:material.extensions.emoji.twemoji
       emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - toc:
+      permalink: true
   - attr_list
   - md_in_html
 
@@ -59,41 +82,44 @@ nav:
       - Quick Start: getting-started/quickstart.md
       - Configuration: getting-started/configuration.md
       - Social Login Setup: getting-started/social-login-setup.md
-  - Examples & Cookbooks:
-    - Service-to-service (Introspection): examples/service-to-service.md
+  - Guides:
+      - OAuth2 Flows:
+          - Authorization Code: flows/authorization-code.md
+          - Client Credentials: flows/client-credentials.md
+          - Password Grant: flows/password.md
+          - Refresh Token: flows/refresh-token.md
+      - Eventing:
+          - Overview: eventing.md
+          - Examples: examples/eventing.md
+      - Examples & Cookbooks:
+          - Service-to-service (Introspection): examples/service-to-service.md
+  - Reference:
+      - API:
+          - Endpoints: api/endpoints.md
+          - OpenAPI (Swagger UI): api/openapi.md
+          - Authentication: api/authentication.md
+          - Error Handling: api/errors.md
+      - Admin Panel:
+          - Dashboard: admin/dashboard.md
+          - Client Management: admin/clients.md
+          - Token Management: admin/tokens.md
   - Architecture:
       - Overview: architecture/overview.md
       - Actor Model: architecture/actors.md
       - Database: architecture/database.md
-  - OAuth2 Flows:
-      - Authorization Code: flows/authorization-code.md
-      - Client Credentials: flows/client-credentials.md
-      - Password Grant: flows/password.md
-      - Refresh Token: flows/refresh-token.md
-  - API Reference:
-      - Endpoints: api/endpoints.md
-      - Authentication: api/authentication.md
-      - Error Handling: api/errors.md
-  - Eventing:
-    - Overview: eventing.md
-    - Examples: examples/eventing.md
   - Observability:
       - Metrics: observability/metrics.md
       - SLOs: observability/slos.md
       - Tracing: observability/tracing.md
       - Logging: observability/logging.md
       - Health Checks: observability/health.md
-  - Admin Panel:
-      - Dashboard: admin/dashboard.md
-      - Client Management: admin/clients.md
-      - Token Management: admin/tokens.md
   - Deployment:
       - Docker: deployment/docker.md
       - Kubernetes: deployment/kubernetes.md
       - Production: deployment/production.md
+  - Operations:
+      - Runbooks: operations/runbooks.md
   - Development:
       - Contributing: development/contributing.md
       - Testing: development/testing.md
       - CI/CD: development/cicd.md
-  - Operations:
-    - Runbooks: operations/runbooks.md

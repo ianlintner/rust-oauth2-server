@@ -1,15 +1,3 @@
-mod actors;
-mod config;
-mod db;
-mod events;
-mod handlers;
-mod metrics;
-mod middleware;
-mod models;
-mod services;
-mod storage;
-mod telemetry;
-
 use actix::Actor;
 use actix_cors::Cors;
 use actix_files::Files;
@@ -17,6 +5,10 @@ use actix_session::{storage::CookieSessionStore, SessionMiddleware};
 use actix_web::body::MessageBody;
 use actix_web::dev::{ServiceRequest, ServiceResponse};
 use actix_web::{cookie::Key, middleware as actix_middleware, web, App, HttpResponse, HttpServer};
+use rust_oauth2_server::openapi::ApiDoc;
+use rust_oauth2_server::{
+    actors, config, events, handlers, metrics, middleware, models, storage, telemetry,
+};
 use std::sync::Arc;
 use std::time::Duration;
 use tracing_actix_web::{DefaultRootSpanBuilder, RootSpanBuilder, TracingLogger};
@@ -42,39 +34,6 @@ impl RootSpanBuilder for OtelRootSpanBuilder {
         DefaultRootSpanBuilder::on_request_end(span, outcome);
     }
 }
-
-#[derive(OpenApi)]
-#[openapi(
-    components(
-        schemas(
-            models::TokenResponse,
-            models::IntrospectionResponse,
-            models::ClientRegistration,
-            models::ClientCredentials,
-            models::OAuth2Error,
-        )
-    ),
-    tags(
-        (name = "OAuth2", description = "OAuth2 authentication and authorization endpoints"),
-        (name = "Client Management", description = "Client registration and management"),
-        (name = "Token Management", description = "Token introspection and revocation"),
-        (name = "Admin", description = "Administrative and monitoring endpoints"),
-        (name = "Observability", description = "Health checks and metrics"),
-    ),
-    info(
-        title = "OAuth2 Server API",
-        version = "0.1.0",
-        description = "A complete OAuth2 server implementation with Actix-web, featuring social logins and OIDC support",
-        contact(
-            name = "API Support",
-            email = "support@example.com"
-        ),
-        license(
-            name = "MIT OR Apache-2.0"
-        )
-    )
-)]
-struct ApiDoc;
 
 // Helper function to parse event types from configuration strings
 fn parse_event_types(event_type_strings: &[String]) -> Vec<events::EventType> {

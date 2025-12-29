@@ -39,11 +39,11 @@ python3 -m pip install -r requirements-docs.txt
 Serve locally:
 
 ```bash
-mkdocs serve
+python3 -m mkdocs serve
 ```
 
 Build a static site:
 
 ```bash
-mkdocs build
+python3 -m mkdocs build --strict
 ```

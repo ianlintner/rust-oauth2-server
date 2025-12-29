@@ -202,53 +202,53 @@ erDiagram
     USERS ||--o{ AUTHORIZATION_CODES : authorizes
     
     CLIENTS {
-        uuid id PK
-        string client_id UK
-        string client_secret
-        string client_name
-        json redirect_uris
-        json grant_types
-        string scope
-        timestamp created_at
-        timestamp updated_at
+        text id PK "UUID primary key"
+        text client_id UK "Unique client identifier"
+        text client_secret "Hashed secret"
+        text client_name "Client display name"
+        text redirect_uris "JSON array"
+        text grant_types "JSON array"
+        text scope "Space-separated scopes"
+        text created_at "ISO 8601 timestamp"
+        text updated_at "ISO 8601 timestamp"
     }
     
     TOKENS {
-        uuid id PK
-        string token_value UK
-        string token_type
-        uuid client_id FK
-        uuid user_id FK
-        string scope
-        timestamp expires_at
-        timestamp created_at
-        boolean revoked
+        text id PK "UUID primary key"
+        text token_value UK "Token value"
+        text token_type "Token type (Bearer)"
+        text client_id FK "Reference to clients"
+        text user_id FK "Reference to users"
+        text scope "Granted scopes"
+        text expires_at "ISO 8601 timestamp"
+        text created_at "ISO 8601 timestamp"
+        integer revoked "Revocation status (0/1)"
     }
     
     AUTHORIZATION_CODES {
-        uuid id PK
-        string code UK
-        uuid client_id FK
-        uuid user_id FK
-        string redirect_uri
-        string scope
-        string code_challenge
-        string code_challenge_method
-        timestamp expires_at
-        timestamp created_at
-        boolean used
+        text id PK "UUID primary key"
+        text code UK "Authorization code"
+        text client_id FK "Reference to clients"
+        text user_id FK "Reference to users"
+        text redirect_uri "Callback URL"
+        text scope "Requested scopes"
+        text code_challenge "PKCE challenge"
+        text code_challenge_method "S256 or plain"
+        text expires_at "ISO 8601 timestamp"
+        text created_at "ISO 8601 timestamp"
+        integer used "Usage status (0/1)"
     }
     
     USERS {
-        uuid id PK
-        string email UK
-        string username
-        string password_hash
-        string provider
-        string provider_user_id
-        json metadata
-        timestamp created_at
-        timestamp updated_at
+        text id PK "UUID primary key"
+        text email UK "User email"
+        text username "Username"
+        text password_hash "Argon2 hash"
+        text provider "Local/social provider"
+        text provider_user_id "Provider user id"
+        text metadata "JSON blob"
+        text created_at "ISO 8601 timestamp"
+        text updated_at "ISO 8601 timestamp"
     }
 ```
 

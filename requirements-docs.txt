@@ -3,3 +3,9 @@ mkdocs>=1.5,<2
 mkdocs-material>=9,<10
 mkdocs-mermaid2-plugin>=1.1,<2
 pymdown-extensions>=10,<11
+
+# Docs polish / pro features
+mkdocs-swagger-ui-tag>=0.7,<1
+mkdocs-git-revision-date-localized-plugin>=1.2,<2
+mkdocs-minify-plugin>=0.7,<1
+mkdocs-glightbox>=0.3,<1

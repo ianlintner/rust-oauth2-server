@@ -1,0 +1,40 @@
+/*
+  Material for MkDocs customization
+  Goal: slightly more “Read the Docs”-like density/readability and better use of space.
+*/
+
+/* Increase overall readability a touch without feeling “bloggy”. */
+.md-typeset {
+  font-size: 0.95rem;
+  line-height: 1.65;
+}
+
+/* Sidebar/nav: improve scanability (especially for deep nav trees). */
+.md-nav__link {
+  padding-top: 0.28rem;
+  padding-bottom: 0.28rem;
+}
+
+.md-nav__title,
+.md-nav__item {
+  line-height: 1.35;
+}
+
+/* Content width: keep lines from getting too wide on big monitors. */
+.md-grid {
+  max-width: 76rem;
+}
+
+/* Mermaid diagrams: avoid horizontal scroll where possible. */
+.mermaid {
+  overflow-x: auto;
+}
+
+/* Swagger UI iframe inserted by swagger-ui-tag plugin. */
+iframe.swagger-ui-iframe,
+iframe[src*="swagger"] {
+  width: 100%;
+  min-height: 70vh;
+  border: 1px solid var(--md-default-fg-color--lightest);
+  border-radius: 6px;
+}

@@ -1,0 +1,23 @@
+# Configuration for cargo-audit
+#
+# cargo-audit reads configuration from `.cargo/audit.toml`.
+# See: https://github.com/RustSec/rustsec/tree/main/cargo-audit#configuration
+
+[advisories]
+# Ignore specific vulnerabilities that cannot be fixed, or are not applicable to this project.
+#
+# Note: This server supports optional backends/features (e.g. `--features mongo`).
+# Some advisories are only reachable through those optional dependencies.
+ignore = [
+  # RUSTSEC-2023-0071: RSA timing attack vulnerability
+  # Status: No fix available
+  # Reason: Transitive dependency via sqlx-mysql. This project does not enable MySQL support.
+  #         (sqlx-mysql is pulled in by sqlx macros internals.)
+  "RUSTSEC-2023-0071",
+
+  # RUSTSEC-2024-0421: `idna` accepts Punycode labels that do not produce any non-ASCII when decoded
+  # Status: Fix requires upgrading transitive dependency chain.
+  # Reason: Only pulled in via the optional `mongo` feature (mongodb -> trust-dns-* -> idna 0.2.x).
+  #         The default build does not include MongoDB.
+  "RUSTSEC-2024-0421",
+]
