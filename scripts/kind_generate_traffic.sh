@@ -15,7 +15,7 @@ set -euo pipefail
 
 NAMESPACE="oauth2-server"
 SERVICE_NAME="oauth2-server"
-DURATION="5m"        # duration format: 30s, 5m, 1h
+DURATION="5m"        # hey -z duration format, e.g. 30s, 5m, 1h
 QPS_SUCCESS="5"      # requests/sec for successful token requests
 CONCURRENCY_SUCCESS="5"
 QPS_INVALID="1"      # requests/sec for invalid token requests

@@ -81,19 +81,16 @@ pub async fn token(
 ) -> Result<HttpResponse, OAuth2Error> {
     match form.grant_type.as_str() {
         "authorization_code" => {
-            handle_authorization_code_grant(
-                form.into_inner(),
-                token_actor,
-                auth_actor,
-                metrics,
-            )
-            .await
+            handle_authorization_code_grant(form.into_inner(), token_actor, auth_actor, metrics)
+                .await
         }
         "client_credentials" => {
             handle_client_credentials_grant(form.into_inner(), token_actor, metrics).await
         }
         "password" => handle_password_grant(form.into_inner(), token_actor, metrics).await,
-        "refresh_token" => handle_refresh_token_grant(form.into_inner(), token_actor, metrics).await,
+        "refresh_token" => {
+            handle_refresh_token_grant(form.into_inner(), token_actor, metrics).await
+        }
         _ => Err(OAuth2Error::unsupported_grant_type(&format!(
             "Grant type '{}' not supported",
             form.grant_type
