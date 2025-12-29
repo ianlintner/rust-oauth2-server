@@ -215,36 +215,116 @@ See [MCP Server Documentation](mcp-server/README.md) for more details.
 
 ## 🔧 Configuration
 
-Configuration can be set via environment variables with the `OAUTH2_` prefix:
+The OAuth2 server uses **HOCON** (Human-Optimized Config Object Notation) for configuration, providing a human-readable format with powerful features like:
+- Comments and documentation within config files
+- Nested configuration structures  
+- Environment variable substitution with `${?VAR}` syntax
+- Value composition and inheritance
+- Fallback to environment variables for backward compatibility
+
+### Configuration Methods
+
+The server loads configuration in the following priority order:
+
+1. **HOCON file** (`application.conf`) - Main configuration file with sensible defaults
+2. **Environment variables** - Override any HOCON setting using `OAUTH2_*` prefix
+3. **Fallback defaults** - Built-in defaults if no configuration is provided
+
+### Quick Start
+
+Copy the example configuration:
+
+```bash
+cp application.conf.example application.conf
+```
+
+Then edit `application.conf` to customize your settings, or use environment variables to override specific values.
 
 ### Basic Configuration
+
+**Using HOCON file** (`application.conf`):
+
+```hocon
+# Server Configuration
+server {
+  host = "127.0.0.1"      # Override with OAUTH2_SERVER_HOST
+  port = 8080              # Override with OAUTH2_SERVER_PORT
+}
+
+# Database Configuration
+database {
+  # SQLite (default)
+  url = "sqlite:oauth2.db"
+  
+  # PostgreSQL
+  # url = "postgresql://oauth2_user:password@localhost:5432/oauth2"
+  
+  # MongoDB (requires building with --features mongo)
+  # url = "mongodb://localhost:27017/oauth2"
+  
+  # Override with OAUTH2_DATABASE_URL
+}
+
+# JWT Configuration
+jwt {
+  # MUST be changed for production (minimum 32 characters)
+  # Generate with: openssl rand -base64 48
+  secret = "insecure-default-for-testing-only-change-in-production"
+  # Override with OAUTH2_JWT_SECRET
+}
+```
+
+**Using Environment Variables** (legacy method, still fully supported):
 
 ```bash
 export OAUTH2_SERVER_HOST=127.0.0.1
 export OAUTH2_SERVER_PORT=8080
 export OAUTH2_DATABASE_URL=sqlite:oauth2.db
 export OAUTH2_JWT_SECRET=your-secret-key-change-in-production
-
-# Alternatively (PostgreSQL)
-# export OAUTH2_DATABASE_URL=postgresql://oauth2_user:password@localhost:5432/oauth2
-
-# Alternatively (MongoDB - requires building/running with `--features mongo`)
-# export OAUTH2_DATABASE_URL=mongodb://localhost:27017/oauth2
 ```
 
 ### Event System Configuration
 
-Configure the authentication eventing system:
+Configure the authentication eventing system using HOCON or environment variables:
+
+**Using HOCON** (`application.conf`):
+
+```hocon
+events {
+  enabled = true                    # Override with OAUTH2_EVENTS_ENABLED
+  backend = "in_memory"             # Override with OAUTH2_EVENTS_BACKEND
+  filter_mode = "allow_all"         # Override with OAUTH2_EVENTS_FILTER_MODE
+  
+  # Redis Streams backend (requires --features events-redis)
+  redis {
+    url = "redis://127.0.0.1:6379"
+    stream = "oauth2_events"
+    maxlen = null                   # Optional max length
+  }
+  
+  # Kafka backend (requires --features events-kafka)
+  kafka {
+    brokers = "127.0.0.1:9092"
+    topic = "oauth2_events"
+    client_id = null                # Optional client ID
+  }
+  
+  # RabbitMQ backend (requires --features events-rabbit)
+  rabbit {
+    url = "amqp://127.0.0.1:5672/%2f"
+    exchange = "oauth2.events"
+    routing_key = "oauth2.event"
+  }
+}
+```
+
+**Using Environment Variables**:
 
 ```bash
 # Enable/disable events (default: true)
 export OAUTH2_EVENTS_ENABLED=true
 
-# Backend (default: in_memory)
-# - in_memory, console, both
-# - redis  (requires --features events-redis)
-# - kafka  (requires --features events-kafka)
-# - rabbit (requires --features events-rabbit)
+# Backend options: in_memory, console, both, redis, kafka, rabbit
 export OAUTH2_EVENTS_BACKEND=console
 
 # Filter mode: allow_all, include, or exclude (default: allow_all)
@@ -253,29 +333,74 @@ export OAUTH2_EVENTS_FILTER_MODE=include
 # Event types (comma-separated, used with include/exclude modes)
 export OAUTH2_EVENTS_TYPES=token_created,token_revoked,client_registered
 
-# --- Backend-specific configuration (only used when selected) ---
-
 # Redis Streams (requires --features events-redis)
-# export OAUTH2_EVENTS_REDIS_URL=redis://localhost:6379
-# export OAUTH2_EVENTS_REDIS_STREAM=oauth2:events
-# export OAUTH2_EVENTS_REDIS_MAXLEN=10000
+export OAUTH2_EVENTS_REDIS_URL=redis://localhost:6379
+export OAUTH2_EVENTS_REDIS_STREAM=oauth2:events
+export OAUTH2_EVENTS_REDIS_MAXLEN=10000
 
 # Kafka (requires --features events-kafka)
-# export OAUTH2_EVENTS_KAFKA_BROKERS=localhost:9092
-# export OAUTH2_EVENTS_KAFKA_TOPIC=oauth2-events
-# export OAUTH2_EVENTS_KAFKA_CLIENT_ID=rust-oauth2-server
+export OAUTH2_EVENTS_KAFKA_BROKERS=localhost:9092
+export OAUTH2_EVENTS_KAFKA_TOPIC=oauth2-events
+export OAUTH2_EVENTS_KAFKA_CLIENT_ID=rust-oauth2-server
 
 # RabbitMQ (requires --features events-rabbit)
-# export OAUTH2_EVENTS_RABBIT_URL=amqp://guest:guest@localhost:5672/%2f
-# export OAUTH2_EVENTS_RABBIT_EXCHANGE=oauth2.events
-# export OAUTH2_EVENTS_RABBIT_ROUTING_KEY=auth.*
+export OAUTH2_EVENTS_RABBIT_URL=amqp://guest:guest@localhost:5672/%2f
+export OAUTH2_EVENTS_RABBIT_EXCHANGE=oauth2.events
+export OAUTH2_EVENTS_RABBIT_ROUTING_KEY=auth.*
 ```
 
 See [Eventing Documentation](docs/eventing.md) and [Examples](docs/examples/eventing.md) for more details.
 
 ### Social Login Configuration
 
-Configure social login providers by setting their respective environment variables:
+Configure social login providers using HOCON or environment variables. Providers are only enabled when their credentials are provided.
+
+**Using HOCON** (`application.conf`):
+
+```hocon
+social {
+  google {
+    enabled = false  # Set to true and provide credentials to enable
+    # These values are loaded from environment variables:
+    # OAUTH2_GOOGLE_CLIENT_ID
+    # OAUTH2_GOOGLE_CLIENT_SECRET
+    # OAUTH2_GOOGLE_REDIRECT_URI
+  }
+  
+  microsoft {
+    enabled = false
+    # OAUTH2_MICROSOFT_CLIENT_ID
+    # OAUTH2_MICROSOFT_CLIENT_SECRET
+    # OAUTH2_MICROSOFT_REDIRECT_URI
+    # OAUTH2_MICROSOFT_TENANT_ID (optional, defaults to "common")
+  }
+  
+  github {
+    enabled = false
+    # OAUTH2_GITHUB_CLIENT_ID
+    # OAUTH2_GITHUB_CLIENT_SECRET
+    # OAUTH2_GITHUB_REDIRECT_URI
+  }
+  
+  okta {
+    enabled = false
+    # OAUTH2_OKTA_CLIENT_ID
+    # OAUTH2_OKTA_CLIENT_SECRET
+    # OAUTH2_OKTA_REDIRECT_URI
+    # OAUTH2_OKTA_DOMAIN (required)
+  }
+  
+  auth0 {
+    enabled = false
+    # OAUTH2_AUTH0_CLIENT_ID
+    # OAUTH2_AUTH0_CLIENT_SECRET
+    # OAUTH2_AUTH0_REDIRECT_URI
+    # OAUTH2_AUTH0_DOMAIN (required)
+  }
+}
+```
+
+**Using Environment Variables**:
 
 #### Google OAuth2
 

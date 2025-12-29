@@ -132,8 +132,12 @@ async fn main() -> std::io::Result<()> {
 
     tracing::info!("Configuration loaded");
 
-    // Load social login configuration
-    let social_config = Arc::new(models::SocialLoginConfig::from_env());
+    // Load social login configuration from HOCON config or environment
+    let social_config = if let Some(ref social) = config.social {
+        Arc::new(models::SocialLoginConfig::from_config_social(social))
+    } else {
+        Arc::new(models::SocialLoginConfig::from_env())
+    };
     tracing::info!("Social login configuration loaded");
 
     // Initialize metrics

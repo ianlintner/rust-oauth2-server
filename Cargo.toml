@@ -39,6 +39,7 @@ chrono = { version = "0.4", features = ["serde"] }
 
 # Configuration
 config = "0.15"
+hocon = "0.9"
 
 # Logging
 env_logger = "0.11"
