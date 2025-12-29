@@ -13,6 +13,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SLO_SPEC_FILE_REL="observability/slo/sloth/oauth2-server.yml"
 OUT_RULES_FILE_REL="observability/prometheus/rules/oauth2_server_slos.yml"
 
+
 SLO_SPEC_FILE="${ROOT_DIR}/${SLO_SPEC_FILE_REL}"
 OUT_RULES_FILE="${ROOT_DIR}/${OUT_RULES_FILE_REL}"
 
@@ -42,5 +43,8 @@ docker run --rm \
   "${SLOTH_IMAGE}" generate \
   -i "${SLO_SPEC_FILE_REL}" \
   -o "${OUT_RULES_FILE_REL}"
+
+echo "==> Syncing observability assets into in-cluster component"
+"${ROOT_DIR}/scripts/sync_incluster_observability_assets.sh"
 
 echo "==> Done"

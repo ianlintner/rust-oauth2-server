@@ -1,0 +1,11 @@
+apiVersion: 1
+
+dashboards:
+  - name: oauth2-server
+    orgId: 1
+    folder: OAuth2 Server
+    type: file
+    disableDeletion: true
+    editable: false
+    options:
+      path: /var/lib/grafana/dashboards

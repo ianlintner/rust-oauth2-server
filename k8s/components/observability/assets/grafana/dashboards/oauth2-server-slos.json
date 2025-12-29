@@ -1,0 +1,91 @@
+{
+  "uid": "oauth2-server-slos",
+  "title": "OAuth2 Server - SLOs",
+  "tags": ["oauth2", "slo", "sloth", "prometheus"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-7d", "to": "now" },
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Token availability - error budget remaining (30d)",
+      "gridPos": { "x": 0, "y": 0, "w": 6, "h": 4 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "100 * slo:period_error_budget_remaining:ratio{sloth_id=\"oauth2-server-token-availability\", sloth_service=\"oauth2-server\", sloth_slo=\"token-availability\"}",
+          "legendFormat": "remaining%"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100 } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "values": false } }
+    },
+    {
+      "type": "stat",
+      "title": "Token availability - current burn rate (5m)",
+      "gridPos": { "x": 6, "y": 0, "w": 6, "h": 4 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "slo:current_burn_rate:ratio{sloth_id=\"oauth2-server-token-availability\", sloth_service=\"oauth2-server\", sloth_slo=\"token-availability\"}",
+          "legendFormat": "burn"
+        }
+      ],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "values": false } }
+    },
+    {
+      "type": "stat",
+      "title": "Token latency (<500ms) - error budget remaining (30d)",
+      "gridPos": { "x": 12, "y": 0, "w": 6, "h": 4 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "100 * slo:period_error_budget_remaining:ratio{sloth_id=\"oauth2-server-token-latency-500ms\", sloth_service=\"oauth2-server\", sloth_slo=\"token-latency-500ms\"}",
+          "legendFormat": "remaining%"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100 } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "values": false } }
+    },
+    {
+      "type": "stat",
+      "title": "Token latency (<500ms) - current burn rate (5m)",
+      "gridPos": { "x": 18, "y": 0, "w": 6, "h": 4 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "slo:current_burn_rate:ratio{sloth_id=\"oauth2-server-token-latency-500ms\", sloth_service=\"oauth2-server\", sloth_slo=\"token-latency-500ms\"}",
+          "legendFormat": "burn"
+        }
+      ],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "values": false } }
+    },
+    {
+      "type": "timeseries",
+      "title": "Current burn rate (by SLO)",
+      "gridPos": { "x": 0, "y": 4, "w": 24, "h": 8 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "slo:current_burn_rate:ratio{sloth_service=\"oauth2-server\"}",
+          "legendFormat": "{{sloth_slo}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "SLI error ratio (5m rate)",
+      "gridPos": { "x": 0, "y": 12, "w": 24, "h": 8 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "slo:sli_error:ratio_rate5m{sloth_service=\"oauth2-server\"}",
+          "legendFormat": "{{sloth_slo}}"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "percentunit" } }
+    }
+  ]
+}

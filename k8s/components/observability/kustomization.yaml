@@ -1,0 +1,51 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - prometheus-deployment.yaml
+  - prometheus-service.yaml
+  - grafana-deployment.yaml
+  - grafana-service.yaml
+  - jaeger-deployment.yaml
+  - jaeger-service.yaml
+  - otel-collector-deployment.yaml
+  - otel-collector-service.yaml
+
+configMapGenerator:
+  - name: oauth2-prometheus-config
+    options:
+      disableNameSuffixHash: true
+    files:
+      - prometheus.yml=prometheus/prometheus.incluster.yml
+
+  - name: oauth2-prometheus-rules
+    options:
+      disableNameSuffixHash: true
+    files:
+      - oauth2_server_alerts.yml=assets/prometheus/rules/oauth2_server_alerts.yml
+      - oauth2_server_slos.yml=assets/prometheus/rules/oauth2_server_slos.yml
+
+  - name: oauth2-otel-collector-config
+    options:
+      disableNameSuffixHash: true
+    files:
+      - config.yml=otel/otel-collector.yml
+
+  - name: oauth2-grafana-datasources
+    options:
+      disableNameSuffixHash: true
+    files:
+      - datasources.yml=grafana/provisioning/datasources/datasources.yml
+
+  - name: oauth2-grafana-dashboards-provisioning
+    options:
+      disableNameSuffixHash: true
+    files:
+      - dashboards.yml=grafana/provisioning/dashboards/dashboards.yml
+
+  - name: oauth2-grafana-dashboards
+    options:
+      disableNameSuffixHash: true
+    files:
+      - oauth2-server-overview.json=assets/grafana/dashboards/oauth2-server-overview.json
+      - oauth2-server-slos.json=assets/grafana/dashboards/oauth2-server-slos.json

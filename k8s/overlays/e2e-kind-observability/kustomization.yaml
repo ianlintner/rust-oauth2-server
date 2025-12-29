@@ -1,0 +1,14 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: oauth2-server
+
+# KIND overlay that includes the app stack (e2e-kind) plus in-cluster observability.
+# This avoids running Prometheus/Grafana/Jaeger via docker-compose for local demos.
+
+resources:
+  - ../e2e-kind
+  - ../../components/observability
+
+patches:
+  - path: patches/oauth2-server-otel-env.yaml
