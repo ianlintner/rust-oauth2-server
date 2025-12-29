@@ -1,0 +1,73 @@
+name: E2E Tests with KIND (Extended)
+
+on:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  RUST_BACKTRACE: 1
+
+jobs:
+  e2e-kind-extended:
+    name: Extended E2E on KIND
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Rust toolchain + cache
+        uses: ./.github/actions/rust-setup
+        with:
+          toolchain: stable
+          cache-key: e2e-kind-extended
+          install-system-deps: 'true'
+
+      - name: Install KIND
+        shell: bash
+        run: |
+          set -euo pipefail
+          KIND_VERSION="v0.24.0"
+          curl -fsSL -o kind "https://kind.sigs.k8s.io/dl/${KIND_VERSION}/kind-linux-amd64"
+          chmod +x kind
+          sudo mv kind /usr/local/bin/kind
+          kind version
+
+      - name: Build Rust release binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo build --release --locked
+          test -f target/release/rust_oauth2_server
+
+      - name: Build oauth2-server Docker image
+        timeout-minutes: 20
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: Dockerfile.prebuilt
+          tags: docker.io/ianlintner068/oauth2-server:test
+          load: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Install kustomize
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -s "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
+          sudo mv kustomize /usr/local/bin/
+
+      - name: Run Extended E2E
+        shell: bash
+        run: |
+          set -euo pipefail
+          SKIP_IMAGE_BUILD=1 \
+          CLUSTER_NAME=oauth2-test \
+          IMAGE_REF=docker.io/ianlintner068/oauth2-server:test \
+          bash scripts/e2e_kind_extended.sh

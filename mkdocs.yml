@@ -59,6 +59,8 @@ nav:
       - Quick Start: getting-started/quickstart.md
       - Configuration: getting-started/configuration.md
       - Social Login Setup: getting-started/social-login-setup.md
+  - Examples & Cookbooks:
+    - Service-to-service (Introspection): examples/service-to-service.md
   - Architecture:
       - Overview: architecture/overview.md
       - Actor Model: architecture/actors.md

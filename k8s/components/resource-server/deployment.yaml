@@ -1,0 +1,60 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: resource-server
+  labels:
+    app: resource-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: resource-server
+  template:
+    metadata:
+      labels:
+        app: resource-server
+    spec:
+      containers:
+        - name: resource-server
+          image: docker.io/ianlintner068/oauth2-resource-server:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: PORT
+              value: "8080"
+            - name: OAUTH2_INTROSPECT_URL
+              # ClusterIP service uses port 80
+              value: "http://oauth2-server/oauth/introspect"
+            # These will be overridden during E2E by kubectl set env after client registration.
+            - name: OAUTH2_CLIENT_ID
+              value: "placeholder"
+            - name: OAUTH2_CLIENT_SECRET
+              value: "placeholder"
+            - name: REQUIRED_SCOPE
+              value: "read"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 3
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "25m"
+            limits:
+              memory: "128Mi"
+              cpu: "100m"

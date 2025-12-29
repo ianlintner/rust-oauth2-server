@@ -1,0 +1,11 @@
+{
+  "name": "oauth2-resource-server",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Example resource server that validates OAuth2 access tokens via RFC7662 introspection",
+  "main": "server.js",
+  "license": "MIT",
+  "scripts": {
+    "start": "node server.js"
+  }
+}
