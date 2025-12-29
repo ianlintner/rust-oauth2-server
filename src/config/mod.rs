@@ -136,7 +136,10 @@ impl Default for Config {
     fn default() -> Self {
         // Try to load from HOCON file first, fall back to environment variables
         Self::from_hocon().unwrap_or_else(|e| {
-            tracing::warn!("Failed to load HOCON config: {}. Falling back to environment variables.", e);
+            tracing::warn!(
+                "Failed to load HOCON config: {}. Falling back to environment variables.",
+                e
+            );
             Self::from_env_fallback()
         })
     }
@@ -151,7 +154,7 @@ impl Config {
     /// Load configuration from a specific HOCON file path
     pub fn from_hocon_path<P: AsRef<Path>>(path: P) -> Result<Self, String> {
         let path = path.as_ref();
-        
+
         if !path.exists() {
             return Err(format!("Configuration file not found: {}", path.display()));
         }
@@ -164,7 +167,7 @@ impl Config {
 
         // Post-process to maintain backward compatibility with flat event config
         config.normalize_event_config();
-        
+
         // Handle OAUTH2_EVENTS_TYPES environment variable if set
         // HOCON doesn't support array substitution from env vars directly
         if let Ok(event_types_str) = std::env::var("OAUTH2_EVENTS_TYPES") {
@@ -174,7 +177,7 @@ impl Config {
                 .filter(|s| !s.is_empty())
                 .collect();
         }
-        
+
         // Handle social provider configuration from environment variables
         config.load_social_from_env();
 
@@ -293,7 +296,7 @@ impl Config {
             }
         }
     }
-    
+
     /// Load social provider configurations from environment variables
     fn load_social_from_env(&mut self) {
         if let Some(ref mut social) = self.social {
@@ -305,13 +308,13 @@ impl Config {
             Self::load_provider_from_env(&mut social.auth0, "AUTH0");
         }
     }
-    
+
     /// Load a single provider configuration from environment variables
     fn load_provider_from_env(provider: &mut Option<ProviderConfig>, prefix: &str) {
         // Check if any environment variables are set for this provider
         let client_id = std::env::var(format!("OAUTH2_{}_CLIENT_ID", prefix)).ok();
         let client_secret = std::env::var(format!("OAUTH2_{}_CLIENT_SECRET", prefix)).ok();
-        
+
         // If client_id and client_secret are set, enable the provider
         if client_id.is_some() && client_secret.is_some() {
             // Provide default redirect_uri if not set (for backward compatibility)
@@ -323,10 +326,10 @@ impl Config {
                         prefix.to_lowercase()
                     ))
                 });
-            
+
             let tenant_id = std::env::var(format!("OAUTH2_{}_TENANT_ID", prefix)).ok();
             let domain = std::env::var(format!("OAUTH2_{}_DOMAIN", prefix)).ok();
-            
+
             *provider = Some(ProviderConfig {
                 enabled: true,
                 client_id,
@@ -360,7 +363,7 @@ impl Config {
     pub fn sanitized(&self) -> Self {
         let mut clone = self.clone();
         clone.jwt.secret = "***MASKED***".to_string();
-        
+
         // Sanitize social provider secrets
         if let Some(ref mut social) = clone.social {
             Self::sanitize_provider(&mut social.google);
@@ -370,10 +373,10 @@ impl Config {
             Self::sanitize_provider(&mut social.okta);
             Self::sanitize_provider(&mut social.auth0);
         }
-        
+
         clone
     }
-    
+
     fn sanitize_provider(provider: &mut Option<ProviderConfig>) {
         if let Some(ref mut p) = provider {
             if let Some(ref mut secret) = p.client_secret {

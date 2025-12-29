@@ -46,7 +46,7 @@ impl SocialLoginConfig {
             auth0: Self::provider_from_env("AUTH0"),
         }
     }
-    
+
     /// Create SocialLoginConfig from the main config's social section
     pub fn from_config_social(social: &crate::config::SocialConfig) -> Self {
         Self {
@@ -58,7 +58,7 @@ impl SocialLoginConfig {
             auth0: social.auth0.clone().map(Self::convert_provider),
         }
     }
-    
+
     fn convert_provider(p: crate::config::ProviderConfig) -> ProviderConfig {
         ProviderConfig {
             enabled: p.enabled,
@@ -73,7 +73,7 @@ impl SocialLoginConfig {
     fn provider_from_env(prefix: &str) -> Option<ProviderConfig> {
         let client_id = std::env::var(format!("OAUTH2_{}_CLIENT_ID", prefix)).ok();
         let client_secret = std::env::var(format!("OAUTH2_{}_CLIENT_SECRET", prefix)).ok();
-        
+
         // Only create config if both client_id and client_secret are set
         if client_id.is_some() && client_secret.is_some() {
             let redirect_uri = std::env::var(format!("OAUTH2_{}_REDIRECT_URI", prefix))

@@ -37,32 +37,44 @@ impl SocialLoginService {
         config: &ProviderConfig,
         provider_name: &str,
     ) -> Result<(String, String, String), OAuth2Error> {
-        let client_id = config.client_id.as_ref().ok_or_else(|| {
-            OAuth2Error::new(
-                "invalid_configuration",
-                Some(&format!("{} client_id not set", provider_name)),
-            )
-        })?.clone();
-        let client_secret = config.client_secret.as_ref().ok_or_else(|| {
-            OAuth2Error::new(
-                "invalid_configuration",
-                Some(&format!("{} client_secret not set", provider_name)),
-            )
-        })?.clone();
-        let redirect_uri = config.redirect_uri.as_ref().ok_or_else(|| {
-            OAuth2Error::new(
-                "invalid_configuration",
-                Some(&format!("{} redirect_uri not set", provider_name)),
-            )
-        })?.clone();
-        
+        let client_id = config
+            .client_id
+            .as_ref()
+            .ok_or_else(|| {
+                OAuth2Error::new(
+                    "invalid_configuration",
+                    Some(&format!("{} client_id not set", provider_name)),
+                )
+            })?
+            .clone();
+        let client_secret = config
+            .client_secret
+            .as_ref()
+            .ok_or_else(|| {
+                OAuth2Error::new(
+                    "invalid_configuration",
+                    Some(&format!("{} client_secret not set", provider_name)),
+                )
+            })?
+            .clone();
+        let redirect_uri = config
+            .redirect_uri
+            .as_ref()
+            .ok_or_else(|| {
+                OAuth2Error::new(
+                    "invalid_configuration",
+                    Some(&format!("{} redirect_uri not set", provider_name)),
+                )
+            })?
+            .clone();
+
         Ok((client_id, client_secret, redirect_uri))
     }
-    
+
     pub fn get_google_client(config: &ProviderConfig) -> Result<ConfiguredClient, OAuth2Error> {
-        let (client_id, client_secret, redirect_uri) = 
+        let (client_id, client_secret, redirect_uri) =
             Self::validate_provider_config(config, "Google")?;
-        
+
         Ok(BasicClient::new(ClientId::new(client_id))
             .set_client_secret(ClientSecret::new(client_secret))
             .set_auth_uri(
@@ -80,9 +92,9 @@ impl SocialLoginService {
     }
 
     pub fn get_microsoft_client(config: &ProviderConfig) -> Result<ConfiguredClient, OAuth2Error> {
-        let (client_id, client_secret, redirect_uri) = 
+        let (client_id, client_secret, redirect_uri) =
             Self::validate_provider_config(config, "Microsoft")?;
-        
+
         let tenant = config.tenant_id.as_deref().unwrap_or("common");
         Ok(BasicClient::new(ClientId::new(client_id))
             .set_client_secret(ClientSecret::new(client_secret))
@@ -107,9 +119,9 @@ impl SocialLoginService {
     }
 
     pub fn get_github_client(config: &ProviderConfig) -> Result<ConfiguredClient, OAuth2Error> {
-        let (client_id, client_secret, redirect_uri) = 
+        let (client_id, client_secret, redirect_uri) =
             Self::validate_provider_config(config, "GitHub")?;
-        
+
         Ok(BasicClient::new(ClientId::new(client_id))
             .set_client_secret(ClientSecret::new(client_secret))
             .set_auth_uri(
@@ -127,9 +139,9 @@ impl SocialLoginService {
     }
 
     pub fn get_okta_client(config: &ProviderConfig) -> Result<ConfiguredClient, OAuth2Error> {
-        let (client_id, client_secret, redirect_uri) = 
+        let (client_id, client_secret, redirect_uri) =
             Self::validate_provider_config(config, "Okta")?;
-        
+
         let domain = config.domain.as_ref().ok_or_else(|| {
             OAuth2Error::new("invalid_configuration", Some("Okta domain is required"))
         })?;
@@ -151,9 +163,9 @@ impl SocialLoginService {
     }
 
     pub fn get_auth0_client(config: &ProviderConfig) -> Result<ConfiguredClient, OAuth2Error> {
-        let (client_id, client_secret, redirect_uri) = 
+        let (client_id, client_secret, redirect_uri) =
             Self::validate_provider_config(config, "Auth0")?;
-        
+
         let domain = config.domain.as_ref().ok_or_else(|| {
             OAuth2Error::new("invalid_configuration", Some("Auth0 domain is required"))
         })?;
