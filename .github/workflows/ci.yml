@@ -331,19 +331,19 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('**/mkdocs.yml') }}
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements-docs.txt', '**/mkdocs.yml') }}
           restore-keys: |
             ${{ runner.os }}-pip-
 
-      - name: Install MkDocs
+      - name: Install MkDocs + plugins
         run: |
-          pip install mkdocs-material
-          pip install mkdocs-mermaid2-plugin
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-docs.txt
 
       - name: Build MkDocs
         run: |
           if [ -f mkdocs.yml ]; then
-            mkdocs build
+            python -m mkdocs build --strict
           fi
 
       - name: Prepare docs for deployment
