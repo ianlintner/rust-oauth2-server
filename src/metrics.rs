@@ -1,4 +1,7 @@
-use prometheus::{Counter, CounterVec, Histogram, HistogramOpts, HistogramVec, IntCounter, IntGauge, Opts, Registry};
+use prometheus::{
+    Counter, CounterVec, Histogram, HistogramOpts, HistogramVec, IntCounter, IntGauge, Opts,
+    Registry,
+};
 use std::sync::Arc;
 
 #[derive(Clone)]
