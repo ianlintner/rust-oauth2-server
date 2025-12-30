@@ -198,10 +198,10 @@ impl Handler<ValidateAuthorizationCode> for AuthActor {
 }
 
 fn generate_code() -> String {
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     let code: String = (0..32)
         .map(|_| {
-            let idx = rng.gen_range(0..62);
+            let idx = rng.random_range(0..62);
             match idx {
                 0..=25 => (b'a' + idx) as char,
                 26..=51 => (b'A' + (idx - 26)) as char,

@@ -24,9 +24,9 @@ serde_json = "1.0"
 jsonwebtoken = "9.2"
 
 # Cryptography
-rand = "0.8"
+rand = "0.9"
 sha2 = "0.10"
-base64 = "0.21"
+base64 = "0.22"
 argon2 = "0.5"
 subtle = "2.5"
 hex = "0.4"
@@ -46,7 +46,7 @@ env_logger = "0.11"
 log = "0.4"
 
 # Validation
-validator = { version = "0.19", features = ["derive"] }
+validator = { version = "0.20", features = ["derive"] }
 
 # Database (SQLite for simplicity, can be extended)
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio-rustls", "sqlite", "postgres", "any", "chrono", "uuid", "macros", "migrate"] }
@@ -56,7 +56,7 @@ mongodb = { version = "2.8", optional = true }
 
 # OpenAPI
 utoipa = { version = "5.4", features = ["actix_extras", "chrono", "uuid"] }
-utoipa-swagger-ui = { version = "8.0", features = ["actix-web"] }
+utoipa-swagger-ui = { version = "9.0", features = ["actix-web"] }
 
 # CORS
 actix-cors = "0.7"
@@ -80,7 +80,7 @@ async-trait = "0.1"
 
 # Optional eventing backends
 redis = { version = "0.25", optional = true, features = ["tokio-comp", "connection-manager"] }
-rdkafka = { version = "0.36", optional = true }
+rdkafka = { version = "0.38", optional = true }
 lapin = { version = "2.5", optional = true, default-features = false, features = ["rustls"] }
 
 # Admin UI templating
@@ -88,7 +88,7 @@ tera = "1.19"
 actix-files = "0.6"
 
 # Session management
-actix-session = { version = "0.9", features = ["cookie-session"] }
+actix-session = { version = "0.11", features = ["cookie-session"] }
 
 # OAuth2 client for social logins
 oauth2 = "5.0"
