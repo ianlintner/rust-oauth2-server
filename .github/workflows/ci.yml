@@ -413,14 +413,19 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('**/mkdocs.yml') }}
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements-docs.txt', 'mkdocs.yml') }}
           restore-keys: |
             ${{ runner.os }}-pip-
 
       - name: Install MkDocs
         run: |
-          pip install mkdocs-material
-          pip install mkdocs-mermaid2-plugin
+          python -m pip install --upgrade pip
+          if [ -f requirements-docs.txt ]; then
+            pip install -r requirements-docs.txt
+          else
+            # Fallback: minimal deps for mkdocs.yml (keep in sync with requirements-docs.txt)
+            pip install mkdocs-material mkdocs-mermaid2-plugin
+          fi
 
       - name: Build MkDocs
         run: |
