@@ -24,13 +24,14 @@ Use this flow **only** when:
 ```mermaid
 sequenceDiagram
     autonumber
-    participant User as Resource Owner<br/>(User)
-    participant Client as Client Application<br/>(Trusted App)
+    participant User as Resource Owner (User)
+    participant Client as Client Application (Trusted App)
     participant AuthServer as Authorization Server
     
     User->>Client: 1. Enter username & password
-    Client->>AuthServer: 2. POST /oauth/token<br/>(password grant)
-    Note over Client,AuthServer: Includes username, password,<br/>client_id, client_secret
+    Note right of Client: grant_type=password
+    Client->>AuthServer: 2. POST /oauth/token
+    Note over Client,AuthServer: Includes username, password, client_id, client_secret
     
     AuthServer->>AuthServer: 3. Validate credentials
     AuthServer->>AuthServer: 4. Validate client

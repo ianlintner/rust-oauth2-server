@@ -16,19 +16,20 @@ Unlike flows that involve user authorization, the Client Credentials Flow:
 ```mermaid
 sequenceDiagram
     autonumber
-    participant Client as Client Application<br/>(Service/CLI/Daemon)
-    participant AuthServer as Authorization Server<br/>(OAuth2 Server)
-    participant ResourceServer as Resource Server<br/>(API)
+    participant Client as Client Application (Service/CLI/Daemon)
+    participant AuthServer as Authorization Server (OAuth2 Server)
+    participant ResourceServer as Resource Server (API)
     
-    Client->>AuthServer: 1. POST /oauth/token<br/>(client_credentials grant)
-    Note over Client,AuthServer: Authenticate with<br/>client_id & client_secret
+    Note right of Client: grant_type=client_credentials
+    Client->>AuthServer: 1. POST /oauth/token
+    Note over Client,AuthServer: Authenticate with client_id & client_secret
     
     AuthServer->>AuthServer: 2. Validate client credentials
     AuthServer->>AuthServer: 3. Check client permissions
     AuthServer->>AuthServer: 4. Generate access token
     
     AuthServer->>Client: 5. Return access_token
-    Note over AuthServer,Client: No refresh token<br/>(not needed for M2M)
+    Note over AuthServer,Client: No refresh token (not needed for M2M)
     
     Client->>ResourceServer: 6. API Request with access_token
     ResourceServer->>ResourceServer: 7. Validate token

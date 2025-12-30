@@ -8,48 +8,48 @@ The Rust OAuth2 Server is built using modern architectural patterns that priorit
 
 ```mermaid
 graph TB
-    subgraph "Client Layer"
+    subgraph ClientLayer[Client Layer]
         WebApp[Web Application]
         MobileApp[Mobile App]
         Service[Backend Service]
     end
     
-    subgraph "Load Balancer"
+    subgraph LoadBalancer[Load Balancer]
         LB[Load Balancer]
     end
     
-    subgraph "OAuth2 Server Instances"
+    subgraph OAuth2ServerInstances[OAuth2 Server Instances]
         Server1[OAuth2 Server 1]
         Server2[OAuth2 Server 2]
         Server3[OAuth2 Server 3]
     end
     
-    subgraph "Middleware Layer"
+    subgraph MiddlewareLayer[Middleware Layer]
         Auth[Auth Middleware]
         Metrics[Metrics Middleware]
         Tracing[Tracing Middleware]
         CORS[CORS Middleware]
     end
     
-    subgraph "Handler Layer"
+    subgraph HandlerLayer[Handler Layer]
         OAuthHandler[OAuth Handler]
         TokenHandler[Token Handler]
         ClientHandler[Client Handler]
         AdminHandler[Admin Handler]
     end
     
-    subgraph "Actor Layer"
+    subgraph ActorLayer[Actor Layer]
         TokenActor[Token Actor]
         ClientActor[Client Actor]
         AuthActor[Auth Actor]
     end
     
-    subgraph "Data Layer"
+    subgraph DataLayer[Data Layer]
         DB[(PostgreSQL/SQLite)]
         Cache[Redis Cache]
     end
     
-    subgraph "Observability"
+    subgraph Observability
         Prometheus[Prometheus]
         Jaeger[Jaeger]
         Logs[Log Aggregator]
@@ -140,7 +140,7 @@ The server uses the **Actor Model** for concurrent state management, provided by
 
 ```mermaid
 graph LR
-    subgraph "Actor System"
+    subgraph ActorSystem[Actor System]
         Request[HTTP Request] --> Router[Router]
         Router --> Handler[Request Handler]
         
@@ -448,31 +448,31 @@ The server issues JWT tokens with the following structure:
 
 ```mermaid
 graph TD
-    subgraph "Layer 1: Network"
+    subgraph Layer1[Layer 1 - Network]
         TLS[TLS/HTTPS]
         FW[Firewall]
         DDoS[DDoS Protection]
     end
     
-    subgraph "Layer 2: Application"
+    subgraph Layer2[Layer 2 - Application]
         CORS[CORS Policy]
         CSRF[CSRF Protection]
         RateLimit[Rate Limiting]
     end
     
-    subgraph "Layer 3: Authentication"
+    subgraph Layer3[Layer 3 - Authentication]
         OAuth2Flow[OAuth2 Flows]
         PKCE[PKCE]
         Social[Social Login]
     end
     
-    subgraph "Layer 4: Authorization"
+    subgraph Layer4[Layer 4 - Authorization]
         Scopes[Scope-Based Access]
         JWT[JWT Validation]
         TokenIntrospection[Token Introspection]
     end
     
-    subgraph "Layer 5: Data"
+    subgraph Layer5[Layer 5 - Data]
         Encryption[Data Encryption]
         SecretMgmt[Secret Management]
         Hashing[Password Hashing]
@@ -519,21 +519,21 @@ graph TD
 
 ```mermaid
 graph LR
-    subgraph "HTTP Server"
+    subgraph HTTPServer[HTTP Server]
         W1[Worker 1]
         W2[Worker 2]
         W3[Worker 3]
         W4[Worker 4]
     end
     
-    subgraph "Actor System"
+    subgraph ActorSystem[Actor System]
         TA1[Token Actor 1]
         TA2[Token Actor 2]
         CA1[Client Actor 1]
         CA2[Client Actor 2]
     end
     
-    subgraph "Database Pool"
+    subgraph DatabasePool[Database Pool]
         Conn1[Connection 1]
         Conn2[Connection 2]
         Conn3[Connection 3]
@@ -685,12 +685,14 @@ graph LR
 
 ```mermaid
 graph TB
-    Internet[Internet] --> ReverseProxy[Nginx/Traefik]
-    ReverseProxy --> OAuth2[OAuth2 Server]
-    OAuth2 --> DB[(PostgreSQL)]
-    OAuth2 --> OTLP[OTLP Collector]
-    OTLP --> Jaeger[Jaeger]
-    OTLP --> Prometheus[Prometheus]
+    subgraph DockerComposeStack[Docker Compose Stack]
+        Internet[Internet] --> ReverseProxy[Nginx/Traefik]
+        ReverseProxy --> OAuth2[OAuth2 Server]
+        OAuth2 --> DB[(PostgreSQL)]
+        OAuth2 --> OTLP[OTLP Collector]
+        OTLP --> Jaeger[Jaeger]
+        OTLP --> Prometheus[Prometheus]
+    end
     
     style Internet fill:#e1f5ff
     style OAuth2 fill:#fff3e0

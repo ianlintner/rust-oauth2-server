@@ -16,15 +16,15 @@ This separation ensures the access token is never exposed to the user's browser,
 ```mermaid
 sequenceDiagram
     autonumber
-    participant User as Resource Owner<br/>(User)
+    participant User as Resource Owner (User)
     participant Client as Client Application
-    participant Browser as User Agent<br/>(Browser)
-    participant AuthServer as Authorization Server<br/>(OAuth2 Server)
-    participant ResourceServer as Resource Server<br/>(API)
+    participant Browser as User Agent (Browser)
+    participant AuthServer as Authorization Server (OAuth2 Server)
+    participant ResourceServer as Resource Server (API)
     
     User->>Client: 1. Initiate Login
     Client->>Browser: 2. Redirect to authorization endpoint
-    Note over Client,Browser: With client_id, redirect_uri,<br/>scope, state parameters
+    Note over Client,Browser: With client_id, redirect_uri, scope, state parameters
     
     Browser->>AuthServer: 3. GET /oauth/authorize
     AuthServer->>User: 4. Display login & consent page
@@ -34,8 +34,8 @@ sequenceDiagram
     AuthServer->>Browser: 7. Redirect to redirect_uri with code
     
     Browser->>Client: 8. Return authorization code
-    Client->>AuthServer: 9. POST /oauth/token<br/>(exchange code for token)
-    Note over Client,AuthServer: Client authenticates with<br/>client_id & client_secret
+    Client->>AuthServer: 9. POST /oauth/token (exchange code for token)
+    Note over Client,AuthServer: Client authenticates with client_id & client_secret
     
     AuthServer->>AuthServer: 10. Validate code & client
     AuthServer->>Client: 11. Return access_token & refresh_token
@@ -376,10 +376,12 @@ sequenceDiagram
     Client->>Client: 1. Generate code_verifier
     Client->>Client: 2. Generate code_challenge = SHA256(code_verifier)
     
-    Client->>AuthServer: 3. GET /oauth/authorize<br/>with code_challenge
+    Note right of Client: Send code_challenge with auth request
+    Client->>AuthServer: 3. GET /oauth/authorize with code_challenge
     AuthServer->>Client: 4. Return authorization code
     
-    Client->>AuthServer: 5. POST /oauth/token<br/>with code + code_verifier
+    Note right of Client: Send code_verifier with token request
+    Client->>AuthServer: 5. POST /oauth/token with code + code_verifier
     AuthServer->>AuthServer: 6. Verify: SHA256(code_verifier) == code_challenge
     AuthServer->>Client: 7. Return access_token
 ```

@@ -28,8 +28,9 @@ sequenceDiagram
     
     Note over Client: Access token expired
     
-    Client->>AuthServer: 1. POST /oauth/token<br/>(refresh_token grant)
-    Note over Client,AuthServer: Includes refresh_token,<br/>client_id, client_secret
+    Note right of Client: grant_type=refresh_token
+    Client->>AuthServer: 1. POST /oauth/token
+    Note over Client,AuthServer: Includes refresh_token, client_id, client_secret
     
     AuthServer->>AuthServer: 2. Validate refresh token
     AuthServer->>AuthServer: 3. Validate client credentials
@@ -37,7 +38,8 @@ sequenceDiagram
     AuthServer->>AuthServer: 5. Generate new access token
     AuthServer->>AuthServer: 6. Optionally rotate refresh token
     
-    AuthServer->>Client: 7. Return new access_token<br/>(and optionally new refresh_token)
+    Note right of AuthServer: Returns new tokens
+    AuthServer->>Client: 7. Return new access_token and optionally new refresh_token
     
     Client->>ResourceServer: 8. API request with new token
     ResourceServer->>Client: 9. Return protected resource

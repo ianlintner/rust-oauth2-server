@@ -5,27 +5,8 @@ repo_url: https://github.com/ianlintner/rust_oauth2_server
 repo_name: ianlintner/rust_oauth2_server
 
 theme:
-  name: material
-  palette:
-    - scheme: default
-      primary: indigo
-      accent: indigo
-      toggle:
-        icon: material/brightness-7
-        name: Switch to dark mode
-    - scheme: slate
-      primary: indigo
-      accent: indigo
-      toggle:
-        icon: material/brightness-4
-        name: Switch to light mode
-  features:
-    - navigation.sections
-    - navigation.expand
-    - navigation.top
-    - search.suggest
-    - search.highlight
-    - content.code.copy
+    # Built-in MkDocs theme. Simpler than Material and works well for Read the Docs/GitHub Pages.
+    name: readthedocs
 
 extra_css:
   - assets/stylesheets/extra.css
@@ -44,7 +25,10 @@ plugins:
       enable_creation_date: true
       fallback_to_build_date: true
   - minify:
-      minify_html: true
+      # IMPORTANT: Mermaid diagrams rely on statement separators (newlines/semicolons).
+      # HTML minification collapses whitespace inside <div class="mermaid">, which can turn
+      # multi-line diagrams into a single line and cause Mermaid 10.x parse errors.
+      minify_html: false
       minify_js: true
       minify_css: true
       htmlmin_opts:
@@ -67,9 +51,8 @@ markdown_extensions:
       custom_checkbox: true
   - admonition
   - pymdownx.details
-  - pymdownx.emoji:
-      emoji_index: !!python/name:material.extensions.emoji.twemoji
-      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  # Keep emoji support, but avoid Material-specific functions.
+  - pymdownx.emoji
   - toc:
       permalink: true
   - attr_list

@@ -1,33 +1,19 @@
 /*
-  Material for MkDocs customization
-  Goal: slightly more “Read the Docs”-like density/readability and better use of space.
+  Read the Docs (MkDocs built-in theme) customizations
+
+  Goals:
+  - Keep Mermaid diagrams readable (and avoid horizontal scroll where possible)
+  - Provide automatic dark mode via prefers-color-scheme (no toggle)
+  - Avoid theme-specific variables from mkdocs-material
 */
 
-/* Increase overall readability a touch without feeling “bloggy”. */
-.md-typeset {
-  font-size: 0.95rem;
-  line-height: 1.65;
-}
-
-/* Sidebar/nav: improve scanability (especially for deep nav trees). */
-.md-nav__link {
-  padding-top: 0.28rem;
-  padding-bottom: 0.28rem;
-}
-
-.md-nav__title,
-.md-nav__item {
-  line-height: 1.35;
-}
-
-/* Content width: keep lines from getting too wide on big monitors. */
-.md-grid {
-  max-width: 76rem;
-}
-
-/* Mermaid diagrams: avoid horizontal scroll where possible. */
+/* Mermaid diagrams: keep large diagrams usable without breaking layout. */
 .mermaid {
   overflow-x: auto;
+  padding: 0.5rem;
+  border: 1px solid #e1e4e5;
+  border-radius: 4px;
+  background: #fff;
 }
 
 /* Swagger UI iframe inserted by swagger-ui-tag plugin. */
@@ -35,6 +21,375 @@ iframe.swagger-ui-iframe,
 iframe[src*="swagger"] {
   width: 100%;
   min-height: 70vh;
-  border: 1px solid var(--md-default-fg-color--lightest);
+  border: 1px solid #e1e4e5;
   border-radius: 6px;
+  background: #fff;
+}
+
+/* Automatic dark mode (based on OS/browser setting).
+   Note: RTD theme doesn't provide a built-in toggle.
+*/
+@media (prefers-color-scheme: dark) {
+  html,
+  body {
+    /* Deep ocean base */
+    background: #04131f;
+    color: #d6eef6;
+  }
+
+  /* RTD wrapper elements default to light backgrounds; force them dark. */
+  .wy-body-for-nav,
+  .wy-grid-for-nav {
+    background: #04131f;
+    color: #d6eef6;
+  }
+
+  /* Main content pane */
+  .wy-nav-content,
+  .wy-nav-content-wrap {
+    background: #04131f;
+    color: #d6eef6;
+  }
+
+  /* Top mobile nav bar */
+  .wy-nav-top {
+    background: #062133;
+    color: #d6eef6;
+  }
+
+  /* Left navigation */
+  .wy-nav-side,
+  .wy-side-scroll,
+  .wy-side-nav-search {
+    background: #062133;
+    color: #bfe6f2;
+  }
+
+  /* Search box */
+  .wy-side-nav-search input[type="text"] {
+    background: #041a2a;
+    border: 1px solid #0b3a52;
+    color: #d6eef6;
+  }
+
+  /* Nav links */
+  .wy-menu-vertical a {
+    color: #bfe6f2;
+  }
+
+  .wy-menu-vertical a:hover {
+    background: #0b2f44;
+    color: #eaffff;
+  }
+
+  /* Current/active nav items */
+  .wy-menu-vertical li.current > a,
+  .wy-menu-vertical li.current > a:hover,
+  .wy-menu-vertical li.toctree-l1.current > a {
+    background: #0b2f44;
+    color: #eaffff;
+  }
+
+  /* RTD uses more-specific selectors for nested current items; override those too. */
+  .wy-menu-vertical li.current {
+    background: #062133;
+  }
+
+  .wy-menu-vertical li.current a {
+    color: #bfe6f2;
+    border-right-color: #0b3a52;
+  }
+
+  .wy-menu-vertical li.current a:hover {
+    background: #0b2f44;
+    color: #eaffff;
+  }
+
+  .wy-menu-vertical li.toctree-l2.current > a,
+  .wy-menu-vertical li.toctree-l3.current > a,
+  .wy-menu-vertical li.toctree-l4.current > a,
+  .wy-menu-vertical li.toctree-l5.current > a,
+  .wy-menu-vertical li.toctree-l6.current > a,
+  .wy-menu-vertical li.toctree-l7.current > a,
+  .wy-menu-vertical li.toctree-l8.current > a,
+  .wy-menu-vertical li.toctree-l9.current > a,
+  .wy-menu-vertical li.toctree-l10.current > a,
+  .wy-menu-vertical li.toctree-l2.current li.toctree-l3 > a,
+  .wy-menu-vertical li.toctree-l3.current li.toctree-l4 > a,
+  .wy-menu-vertical li.toctree-l4.current li.toctree-l5 > a,
+  .wy-menu-vertical li.toctree-l5.current li.toctree-l6 > a,
+  .wy-menu-vertical li.toctree-l6.current li.toctree-l7 > a,
+  .wy-menu-vertical li.toctree-l7.current li.toctree-l8 > a,
+  .wy-menu-vertical li.toctree-l8.current li.toctree-l9 > a,
+  .wy-menu-vertical li.toctree-l9.current li.toctree-l10 > a,
+  .wy-menu-vertical li.toctree-l10.current li.toctree-l11 > a {
+    background: #0b2f44;
+    color: #eaffff;
+  }
+
+  /* Ensure expanded current subtree doesn't inherit light panel backgrounds. */
+  .wy-menu-vertical li.current ul {
+    background: #062133;
+  }
+
+  /* Dropdown menus (rare, but RTD defaults them to light). */
+  .wy-dropdown-menu {
+    background: #041a2a;
+    border-color: #0b3a52;
+    color: #d6eef6;
+  }
+
+  .wy-dropdown-menu > dd > a {
+    color: #d6eef6;
+  }
+
+  .wy-dropdown-menu > dd > a:hover {
+    background: #0b2f44;
+    color: #eaffff;
+  }
+
+  /* Body links */
+  .wy-nav-content a,
+  .rst-content a {
+    /* Bright ocean-cyan links */
+    color: #61d6ff;
+  }
+
+  .wy-nav-content a:visited,
+  .rst-content a:visited {
+    color: #7aa7ff;
+  }
+
+  /* Footer prev/next buttons (RTD uses .btn-neutral with !important light styles). */
+  .rst-footer-buttons .btn,
+  .rst-content .btn {
+    border-color: #0b3a52;
+  }
+
+  .btn-neutral {
+    background: #041a2a !important;
+    color: #e8f7ff !important;
+    border-color: #0b3a52 !important;
+    box-shadow: none;
+  }
+
+  .btn-neutral:hover {
+    background: #0b2f44 !important;
+    color: #eaffff !important;
+  }
+
+  .btn-neutral:focus,
+  .btn-neutral:focus-visible {
+    outline: 2px solid #61d6ff;
+    outline-offset: 2px;
+  }
+
+  /* Code blocks and inline code */
+  .rst-content pre,
+  .rst-content code,
+  .rst-content tt {
+    background: #041a2a;
+    color: #d6eef6;
+    border-color: #0b3a52;
+  }
+
+  /* Highlight.js (token colors)
+     The RTD theme ships with a light Highlight.js palette (blue-heavy) which becomes
+     low-contrast on our dark code background.
+     We override tokens in dark mode with a deep-ocean-friendly palette using:
+       - grays for comments
+       - oranges for numbers/literals
+       - white for base text
+       - light lavender for keywords/types
+       - magenta / light pink for strings and accents
+  */
+  .rst-content code.hljs,
+  .rst-content pre code.hljs,
+  .rst-content .hljs {
+    background: transparent;
+    color: #e8f7ff;
+  }
+
+  /* Comments / quotes */
+  .rst-content .hljs-comment,
+  .rst-content .hljs-quote {
+    color: #8aa4b2;
+  }
+
+  /* Keywords / selectors / emphasis */
+  .rst-content .hljs-keyword,
+  .rst-content .hljs-selector-tag,
+  .rst-content .hljs-doctag,
+  .rst-content .hljs-operator,
+  .rst-content .hljs-punctuation {
+    color: #c9b6ff;
+  }
+
+  /* Strings / regex / template */
+  .rst-content .hljs-string,
+  .rst-content .hljs-regexp,
+  .rst-content .hljs-template-string {
+    color: #ffb3d9;
+  }
+
+  /* Numbers / literals */
+  .rst-content .hljs-number,
+  .rst-content .hljs-literal {
+    color: #ffb86b;
+  }
+
+  /* Built-ins / types / symbols */
+  .rst-content .hljs-built_in,
+  .rst-content .hljs-builtin-name,
+  .rst-content .hljs-type,
+  .rst-content .hljs-class,
+  .rst-content .hljs-symbol {
+    color: #c9b6ff;
+  }
+
+  /* Titles / functions / sections */
+  .rst-content .hljs-title,
+  .rst-content .hljs-title.function_,
+  .rst-content .hljs-section {
+    color: #f3fbff;
+  }
+
+  /* Names / variables / attributes */
+  .rst-content .hljs-name,
+  .rst-content .hljs-variable,
+  .rst-content .hljs-attr,
+  .rst-content .hljs-attribute {
+    color: #ffd0a8;
+  }
+
+  /* Meta (e.g., shell prompts, annotations) */
+  .rst-content .hljs-meta,
+  .rst-content .hljs-meta .hljs-string {
+    color: #ff6bd6;
+  }
+
+  /* Additions/Deletions (diffs) */
+  .rst-content .hljs-addition {
+    color: #b7f7c2;
+    background: rgba(18, 54, 34, 0.45);
+  }
+
+  .rst-content .hljs-deletion {
+    color: #ffd1d1;
+    background: rgba(66, 18, 18, 0.45);
+  }
+
+  /* RTD's built-in `theme_extra.css` forces `pre code` to black-on-light.
+     Override it for dark mode so block content stays readable.
+  */
+  .rst-content pre code {
+    background: transparent;
+    color: #e8f7ff;
+  }
+
+  /* Highlight containers (covers fenced blocks rendered as `div.highlight`). */
+  .rst-content div[class^="highlight"],
+  .rst-content pre.literal-block {
+    background: #041a2a;
+    border-color: #0b3a52;
+  }
+
+  /* Anchor tags used for line-number permalinks should not turn code blue. */
+  .rst-content div[class^="highlight"] a {
+    color: inherit;
+    text-decoration: none;
+  }
+
+  /* Unhighlighted code blocks (e.g., ```text) should be readable too. */
+  .rst-content .no-highlight {
+    color: #e8f7ff;
+    background: #041a2a;
+    border-color: #0b3a52;
+  }
+
+  /* Inline code should pop but remain readable on the dark background. */
+  .rst-content code.literal,
+  .rst-content tt.literal {
+    color: #ffb3a7;
+  }
+
+  /* Inline code inside links should follow link color (avoid red-on-cyan). */
+  .rst-content a code,
+  .rst-content a tt,
+  a code {
+    color: inherit;
+  }
+
+  /* Theme_extra adds special inline-code styling inside admonitions; override for dark mode. */
+  .rst-content .admonition code,
+  .rst-content .admonition tt {
+    background: #041a2a;
+    color: #e8f7ff;
+    border-color: #0b3a52;
+  }
+
+  /* Tables */
+  .rst-content table.docutils,
+  .rst-content table.docutils td,
+  .rst-content table.docutils th {
+    border-color: #0b3a52;
+    color: #d6eef6;
+  }
+
+  .rst-content table.docutils {
+    background: #041a2a;
+  }
+
+  .rst-content table.docutils caption {
+    color: #bfe6f2;
+  }
+
+  .rst-content table.docutils td {
+    background: #041a2a;
+  }
+
+  /* RTD zebra striping is light by default (#f3f6f6). */
+  .rst-content table.docutils:not(.field-list) tr:nth-child(2n-1) td {
+    background: #062133;
+  }
+
+  .rst-content table.docutils th {
+    background: #062133;
+  }
+
+  /* Admonitions */
+  .rst-content .admonition,
+  .rst-content .note,
+  .rst-content .warning,
+  .rst-content .tip,
+  .rst-content .important,
+  .rst-content .caution {
+    background: #062133;
+    border-color: #0b3a52;
+    color: #d6eef6;
+  }
+
+  blockquote {
+    color: #bfe6f2;
+    border-left-color: #0b3a52;
+  }
+
+  hr {
+    border-top-color: #0b3a52;
+  }
+
+  /* Keep Mermaid diagrams readable in dark mode.
+     CSS alone can't re-theme Mermaid reliably, so we keep a light panel. */
+  .mermaid {
+    background: #ffffff;
+    color: #111111;
+    border-color: #0b3a52;
+  }
+
+  /* Swagger iframe: keep default light styling for readability */
+  iframe.swagger-ui-iframe,
+  iframe[src*="swagger"] {
+    background: #ffffff;
+    border-color: #0b3a52;
+  }
 }

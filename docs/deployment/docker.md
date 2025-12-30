@@ -21,21 +21,21 @@ The server will be available at `http://localhost:8080`.
 
 ```mermaid
 graph TB
-    subgraph "Docker Compose Stack"
-        subgraph "OAuth2 Service"
+    subgraph DockerComposeStack[Docker Compose Stack]
+        subgraph OAuth2Service[OAuth2 Service]
             OAuth2[OAuth2 Server Container]
         end
         
-        subgraph "Database Service"
+        subgraph DatabaseService[Database Service]
             DB[(PostgreSQL Container)]
         end
         
-        subgraph "Observability"
+        subgraph Observability
             Jaeger[Jaeger Container]
             Prometheus[Prometheus Container]
         end
         
-        subgraph "Networks"
+        subgraph Networks
             AppNet[app-network]
         end
     end

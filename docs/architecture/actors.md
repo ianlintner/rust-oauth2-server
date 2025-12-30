@@ -16,10 +16,10 @@ The Actor Model is a mathematical model of concurrent computation that treats "a
 
 ```mermaid
 graph TB
-    subgraph "Actor System"
+    subgraph ActorSystem[Actor System]
         Supervisor[Supervisor Actor]
         
-        subgraph "Worker Actors"
+        subgraph WorkerActors[Worker Actors]
             TokenActor1[Token Actor 1]
             TokenActor2[Token Actor 2]
             ClientActor[Client Actor]
@@ -439,13 +439,13 @@ Actors communicate only through messages, eliminating data races:
 
 ```mermaid
 graph LR
-    subgraph "Traditional Threading"
+    subgraph TraditionalThreading[Traditional Threading]
         T1[Thread 1] -.->|Lock| Shared[Shared State]
         T2[Thread 2] -.->|Lock| Shared
         T3[Thread 3] -.->|Lock| Shared
     end
     
-    subgraph "Actor Model"
+    subgraph ActorModel[Actor Model]
         A1[Actor 1] -->|Message| A2[Actor 2]
         A2 -->|Message| A3[Actor 3]
         A1 -->|Message| A3

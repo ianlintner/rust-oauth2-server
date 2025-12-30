@@ -1,6 +1,5 @@
 # Python dependencies for building the MkDocs documentation site
 mkdocs>=1.5,<2
-mkdocs-material>=9,<10
 mkdocs-mermaid2-plugin>=1.1,<2
 pymdown-extensions>=10,<11
 

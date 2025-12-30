@@ -8,20 +8,20 @@ The Rust OAuth2 Server is a complete OAuth2 implementation designed for modern c
 
 ```mermaid
 graph TB
-    subgraph "Applications"
+    subgraph Applications[Applications]
         WebApp[Web Applications]
         MobileApp[Mobile Apps]
         Services[Backend Services]
         CLI[CLI Tools]
     end
     
-    subgraph "OAuth2 Server"
+    subgraph OAuth2Server[OAuth2 Server]
         Auth[Authentication]
         Authz[Authorization]
         Tokens[Token Management]
     end
     
-    subgraph "Protected Resources"
+    subgraph ProtectedResources[Protected Resources]
         API1[API Server 1]
         API2[API Server 2]
         Resources[(Protected Data)]
@@ -121,7 +121,8 @@ sequenceDiagram
     participant Service
     participant OAuth2 as OAuth2 Server
     
-    Service->>OAuth2: POST /oauth/token<br/>(client_credentials)
+    Note right of Service: grant_type=client_credentials
+    Service->>OAuth2: POST /oauth/token
     OAuth2->>Service: Access token
     Service->>API: Request with token
 ```
@@ -140,7 +141,8 @@ sequenceDiagram
     participant OAuth2 as OAuth2 Server
     
     Note over Client: Access token expired
-    Client->>OAuth2: POST /oauth/token<br/>(refresh_token)
+    Note right of Client: grant_type=refresh_token
+    Client->>OAuth2: POST /oauth/token
     OAuth2->>Client: New access token
 ```
 

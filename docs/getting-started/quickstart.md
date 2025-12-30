@@ -77,6 +77,7 @@ sequenceDiagram
     User->>OAuth2: Approve access
     OAuth2->>Browser: Redirect with authorization code
     Browser->>App: Return code
+    Note right of App: Exchange code for token
     App->>OAuth2: POST /oauth/token (exchange code)
     OAuth2->>App: Return access_token & refresh_token
     App->>User: Logged in!
@@ -170,7 +171,8 @@ sequenceDiagram
     participant App as Your Service
     participant OAuth2 as OAuth2 Server
     
-    App->>OAuth2: POST /oauth/token<br/>(client_credentials)
+    Note right of App: grant_type=client_credentials
+    App->>OAuth2: POST /oauth/token
     OAuth2->>OAuth2: Validate client credentials
     OAuth2->>App: access_token
     App->>App: Use token for API calls
