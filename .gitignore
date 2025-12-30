@@ -51,3 +51,4 @@ package-lock.json
 
 # MCP server environment
 mcp-server/.env
+.venv-docs/
