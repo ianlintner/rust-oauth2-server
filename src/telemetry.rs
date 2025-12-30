@@ -1,7 +1,10 @@
-use opentelemetry::{global, KeyValue};
+use opentelemetry::global;
 use opentelemetry_sdk::{trace as sdktrace, Resource};
+use std::sync::OnceLock;
 use tracing::Span;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
+
+static TELEMETRY_PROVIDER: OnceLock<sdktrace::SdkTracerProvider> = OnceLock::new();
 
 /// Initialize tracing/logging and (optionally) OpenTelemetry export.
 ///
@@ -43,10 +46,9 @@ pub fn init_telemetry(service_name: &str) -> Result<(), Box<dyn std::error::Erro
     // Use W3C trace-context for propagation (traceparent/tracestate).
     global::set_text_map_propagator(opentelemetry_sdk::propagation::TraceContextPropagator::new());
 
-    let resource = Resource::new(vec![KeyValue::new(
-        "service.name",
-        service_name.to_string(),
-    )]);
+    let resource = Resource::builder()
+        .with_service_name(service_name.to_string())
+        .build();
 
     // Prefer OTLP export when configured; otherwise still install a provider to generate IDs.
     let otlp_endpoint_set = std::env::var("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT")
@@ -58,25 +60,39 @@ pub fn init_telemetry(service_name: &str) -> Result<(), Box<dyn std::error::Erro
             .filter(|v| !v.trim().is_empty())
             .is_some();
 
-    let tracer = if otlp_endpoint_set {
-        opentelemetry_otlp::new_pipeline()
-            .tracing()
-            .with_exporter(opentelemetry_otlp::new_exporter().tonic())
-            .with_trace_config(sdktrace::config().with_resource(resource))
-            .install_batch(opentelemetry_sdk::runtime::Tokio)?
+    let provider = if otlp_endpoint_set {
+        // New OTLP API (opentelemetry-otlp 0.31): build an exporter explicitly and attach it
+        // to an SdkTracerProvider.
+        //
+        // We default to OTLP/HTTP (enabled by default in opentelemetry-otlp). Endpoint
+        // selection follows the OTEL_* environment variables.
+        let exporter = opentelemetry_otlp::SpanExporter::builder()
+            .with_http()
+            .build()?;
+
+        sdktrace::SdkTracerProvider::builder()
+            .with_resource(resource.clone())
+            .with_batch_exporter(exporter)
+            .build()
     } else {
-        let provider = sdktrace::TracerProvider::builder()
-            .with_config(sdktrace::config().with_resource(resource).with_sampler(
-                sdktrace::Sampler::ParentBased(Box::new(sdktrace::Sampler::AlwaysOn)),
-            ))
-            .build();
-        let tracer = {
-            use opentelemetry::trace::TracerProvider as _;
-            provider.tracer(service_name.to_string())
-        };
-        global::set_tracer_provider(provider);
-        tracer
+        // Still install a provider so we generate trace/span IDs for log correlation,
+        // even when exporting is disabled.
+        sdktrace::SdkTracerProvider::builder()
+            .with_resource(resource.clone())
+            .with_sampler(sdktrace::Sampler::ParentBased(Box::new(sdktrace::Sampler::AlwaysOn)))
+            .build()
     };
+
+    let tracer = {
+        use opentelemetry::trace::TracerProvider as _;
+        provider.tracer(service_name.to_string())
+    };
+
+    // Set provider to be used as global tracer provider.
+    let _ = global::set_tracer_provider(provider.clone());
+
+    // Best-effort: remember the provider so we can flush/shutdown on exit.
+    let _ = TELEMETRY_PROVIDER.set(provider);
 
     // Export tracing spans to OpenTelemetry.
     let otel_layer = tracing_opentelemetry::layer().with_tracer(tracer);
@@ -119,6 +135,10 @@ pub fn annotate_span_with_trace_ids(span: &Span) {
 }
 
 pub fn shutdown_telemetry() {
-    // Flush any pending spans (when an exporter is installed).
-    global::shutdown_tracer_provider();
+    // Flush/shutdown any pending spans (when an exporter is installed).
+    //
+    // OpenTelemetry 0.31 removed the global shutdown helper; shut down the provider we installed.
+    if let Some(provider) = TELEMETRY_PROVIDER.get() {
+        let _ = provider.shutdown();
+    }
 }
