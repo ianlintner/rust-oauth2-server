@@ -79,7 +79,9 @@ pub fn init_telemetry(service_name: &str) -> Result<(), Box<dyn std::error::Erro
         // even when exporting is disabled.
         sdktrace::SdkTracerProvider::builder()
             .with_resource(resource.clone())
-            .with_sampler(sdktrace::Sampler::ParentBased(Box::new(sdktrace::Sampler::AlwaysOn)))
+            .with_sampler(sdktrace::Sampler::ParentBased(Box::new(
+                sdktrace::Sampler::AlwaysOn,
+            )))
             .build()
     };
 
