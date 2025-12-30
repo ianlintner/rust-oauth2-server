@@ -91,7 +91,7 @@ pub fn init_telemetry(service_name: &str) -> Result<(), Box<dyn std::error::Erro
     };
 
     // Set provider to be used as global tracer provider.
-    let _ = global::set_tracer_provider(provider.clone());
+    global::set_tracer_provider(provider.clone());
 
     // Best-effort: remember the provider so we can flush/shutdown on exit.
     let _ = TELEMETRY_PROVIDER.set(provider);
