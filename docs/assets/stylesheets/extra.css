@@ -193,6 +193,92 @@ iframe[src*="swagger"] {
     border-color: #0b3a52;
   }
 
+  /* Highlight.js (token colors)
+     The RTD theme ships with a light Highlight.js palette (blue-heavy) which becomes
+     low-contrast on our dark code background.
+     We override tokens in dark mode with a deep-ocean-friendly palette using:
+       - grays for comments
+       - oranges for numbers/literals
+       - white for base text
+       - light lavender for keywords/types
+       - magenta / light pink for strings and accents
+  */
+  .rst-content code.hljs,
+  .rst-content pre code.hljs,
+  .rst-content .hljs {
+    background: transparent;
+    color: #e8f7ff;
+  }
+
+  /* Comments / quotes */
+  .rst-content .hljs-comment,
+  .rst-content .hljs-quote {
+    color: #8aa4b2;
+  }
+
+  /* Keywords / selectors / emphasis */
+  .rst-content .hljs-keyword,
+  .rst-content .hljs-selector-tag,
+  .rst-content .hljs-doctag,
+  .rst-content .hljs-operator,
+  .rst-content .hljs-punctuation {
+    color: #c9b6ff;
+  }
+
+  /* Strings / regex / template */
+  .rst-content .hljs-string,
+  .rst-content .hljs-regexp,
+  .rst-content .hljs-template-string {
+    color: #ffb3d9;
+  }
+
+  /* Numbers / literals */
+  .rst-content .hljs-number,
+  .rst-content .hljs-literal {
+    color: #ffb86b;
+  }
+
+  /* Built-ins / types / symbols */
+  .rst-content .hljs-built_in,
+  .rst-content .hljs-builtin-name,
+  .rst-content .hljs-type,
+  .rst-content .hljs-class,
+  .rst-content .hljs-symbol {
+    color: #c9b6ff;
+  }
+
+  /* Titles / functions / sections */
+  .rst-content .hljs-title,
+  .rst-content .hljs-title.function_,
+  .rst-content .hljs-section {
+    color: #f3fbff;
+  }
+
+  /* Names / variables / attributes */
+  .rst-content .hljs-name,
+  .rst-content .hljs-variable,
+  .rst-content .hljs-attr,
+  .rst-content .hljs-attribute {
+    color: #ffd0a8;
+  }
+
+  /* Meta (e.g., shell prompts, annotations) */
+  .rst-content .hljs-meta,
+  .rst-content .hljs-meta .hljs-string {
+    color: #ff6bd6;
+  }
+
+  /* Additions/Deletions (diffs) */
+  .rst-content .hljs-addition {
+    color: #b7f7c2;
+    background: rgba(18, 54, 34, 0.45);
+  }
+
+  .rst-content .hljs-deletion {
+    color: #ffd1d1;
+    background: rgba(66, 18, 18, 0.45);
+  }
+
   /* RTD's built-in `theme_extra.css` forces `pre code` to black-on-light.
      Override it for dark mode so block content stays readable.
   */
