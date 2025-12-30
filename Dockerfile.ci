@@ -30,7 +30,10 @@ COPY --from=cacher /usr/local/cargo /usr/local/cargo
 COPY . .
 RUN cargo build --release --locked
 
-FROM debian:bookworm-slim
+# NOTE: Debian bookworm ships glibc < 2.38. CI-built binaries may require
+# GLIBC_2.38+ (e.g., when built on newer distros / base images). Use Debian
+# trixie to ensure runtime compatibility.
+FROM debian:trixie-slim
 
 WORKDIR /app
 

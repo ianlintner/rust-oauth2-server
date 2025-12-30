@@ -1,4 +1,8 @@
-FROM debian:bookworm-slim
+# NOTE: This image copies in a host-built binary (CI artifact). To avoid
+# runtime failures like:
+#   /lib/x86_64-linux-gnu/libc.so.6: version `GLIBC_2.38' not found
+# we use Debian trixie (glibc 2.38+) instead of Debian bookworm.
+FROM debian:trixie-slim
 
 WORKDIR /app
 

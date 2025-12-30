@@ -56,7 +56,11 @@ RUN if [ -n "$CARGO_FEATURES" ]; then \
         fi
 
 # Stage 2: Runtime
-FROM debian:bookworm-slim
+#
+# NOTE: We keep the runtime distro aligned with the build environment's glibc.
+# CI runners and upstream base images now commonly require GLIBC_2.38+, which
+# Debian bookworm does not provide. Debian trixie includes GLIBC_2.38.
+FROM debian:trixie-slim
 
 WORKDIR /app
 
