@@ -21,7 +21,7 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 
 # JWT handling
-jsonwebtoken = "9.2"
+jsonwebtoken = { version = "10.2", features = ["rust_crypto"] }
 
 # Cryptography
 rand = "0.9"
@@ -93,6 +93,7 @@ actix-session = { version = "0.11", features = ["cookie-session"] }
 # OAuth2 client for social logins
 oauth2 = "5.0"
 reqwest = { version = "0.13", features = ["json"] }
+oauth2_reqwest = { package = "reqwest", version = "0.12", features = ["rustls-tls"] }
 
 # Additional serialization
 serde_urlencoded = "0.7"
@@ -114,11 +115,11 @@ path = "src/lib.rs"
 [dev-dependencies]
 # Testing
 actix-rt = "2.9"
-cucumber = { version = "0.20", features = ["macros"] }
+cucumber = { version = "0.22", features = ["macros"] }
 futures = "0.3"
 tempfile = "3"
-testcontainers = "0.15"
-testcontainers-modules = { version = "0.3", features = ["postgres", "mongo"] }
+testcontainers = "0.26"
+testcontainers-modules = { version = "0.14", features = ["postgres", "mongo"] }
 
 [[test]]
 name = "bdd"

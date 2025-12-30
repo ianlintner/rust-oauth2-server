@@ -1,6 +1,6 @@
 use sqlx::{postgres::PgPoolOptions, Executor};
 use std::{fs, path::PathBuf, time::Duration};
-use testcontainers::clients::Cli;
+use testcontainers::{core::IntoContainerPort, runners::AsyncRunner};
 use testcontainers_modules::postgres::Postgres as TcPostgres;
 
 use rust_oauth2_server::models::Token;
@@ -16,10 +16,10 @@ async fn migrations_apply_successfully_on_postgres() -> Result<(), Box<dyn std::
         return Ok(());
     }
 
-    let docker = Cli::default();
-    let node = docker.run(TcPostgres::default());
-    let port = node.get_host_port_ipv4(5432);
-    let url = format!("postgres://postgres:postgres@127.0.0.1:{}/postgres", port);
+    let node = TcPostgres::default().start().await?;
+    let host = node.get_host().await?;
+    let port = node.get_host_port_ipv4(5432.tcp()).await?;
+    let url = format!("postgres://postgres:postgres@{host}:{port}/postgres");
 
     // Wait for Postgres to accept connections
     let pool = {
