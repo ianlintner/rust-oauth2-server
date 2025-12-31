@@ -5155,7 +5155,7 @@ dependencies = [
 
 [[package]]
 name = "rust_oauth2_server"
-version = "0.1.0"
+version = "0.0.4"
 dependencies = [
  "actix",
  "actix-cors",
