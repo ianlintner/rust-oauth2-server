@@ -10,6 +10,7 @@ repository = "https://github.com/ianlintner/rust_oauth2_server"
 [workspace]
 members = [
 	"crates/oauth2-core",
+	"crates/oauth2-observability",
 	"crates/oauth2-events",
 	"crates/oauth2-ports",
 	"crates/oauth2-storage-mongo",
@@ -20,6 +21,7 @@ members = [
 # Extracted reusable crates
 oauth2-core = { path = "crates/oauth2-core", features = ["actix", "sqlx", "openapi"] }
 oauth2-events = { path = "crates/oauth2-events" }
+oauth2-observability = { path = "crates/oauth2-observability", features = ["actix"] }
 oauth2-ports = { path = "crates/oauth2-ports" }
 oauth2-storage-mongo = { path = "crates/oauth2-storage-mongo", optional = true }
 oauth2-storage-sqlx = { path = "crates/oauth2-storage-sqlx" }
@@ -75,17 +77,8 @@ utoipa-swagger-ui = { version = "9.0", features = ["actix-web"] }
 actix-cors = "0.7"
 
 # Metrics and Observability
-prometheus = "0.14"
-
-# OpenTelemetry
-opentelemetry = { version = "0.31", features = ["trace", "metrics"] }
-opentelemetry_sdk = { version = "0.31", features = ["rt-tokio"] }
-opentelemetry-otlp = { version = "0.31", default-features = false, features = ["grpc-tonic", "trace", "metrics"] }
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
-tracing-opentelemetry = "0.32"
 tracing-actix-web = "0.7"
-tracing-log = "0.2"
 
 # Async utilities
 futures = "0.3"

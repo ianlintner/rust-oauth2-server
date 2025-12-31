@@ -3858,6 +3858,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "oauth2-observability"
+version = "0.1.0"
+dependencies = [
+ "actix-web",
+ "futures",
+ "opentelemetry",
+ "opentelemetry-otlp",
+ "opentelemetry_sdk",
+ "prometheus",
+ "tracing",
+ "tracing-log",
+ "tracing-opentelemetry",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "oauth2-ports"
 version = "0.1.0"
 dependencies = [
@@ -5162,13 +5178,10 @@ dependencies = [
  "oauth2",
  "oauth2-core",
  "oauth2-events",
+ "oauth2-observability",
  "oauth2-ports",
  "oauth2-storage-mongo",
  "oauth2-storage-sqlx",
- "opentelemetry",
- "opentelemetry-otlp",
- "opentelemetry_sdk",
- "prometheus",
  "rand 0.9.2",
  "reqwest 0.12.28",
  "reqwest 0.13.1",
@@ -5185,9 +5198,6 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-actix-web",
- "tracing-log",
- "tracing-opentelemetry",
- "tracing-subscriber",
  "utoipa",
  "utoipa-swagger-ui",
  "uuid",
