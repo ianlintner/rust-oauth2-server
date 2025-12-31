@@ -3837,6 +3837,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "oauth2-events"
+version = "0.1.0"
+dependencies = [
+ "actix",
+ "actix-rt",
+ "async-trait",
+ "chrono",
+ "futures",
+ "lapin",
+ "opentelemetry",
+ "rdkafka",
+ "redis",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-opentelemetry",
+ "uuid",
+]
+
+[[package]]
 name = "oauth2-ports"
 version = "0.1.0"
 dependencies = [
@@ -5126,11 +5147,11 @@ dependencies = [
  "hex",
  "hocon",
  "jsonwebtoken",
- "lapin",
  "log",
  "mongodb",
  "oauth2",
  "oauth2-core",
+ "oauth2-events",
  "oauth2-ports",
  "oauth2-storage-sqlx",
  "opentelemetry",
@@ -5138,8 +5159,6 @@ dependencies = [
  "opentelemetry_sdk",
  "prometheus",
  "rand 0.9.2",
- "rdkafka",
- "redis",
  "reqwest 0.12.28",
  "reqwest 0.13.1",
  "serde",
