@@ -2,7 +2,6 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: flyway-migration
-  namespace: oauth2-server
 spec:
   template:
     spec:

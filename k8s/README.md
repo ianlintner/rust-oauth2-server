@@ -1,13 +1,14 @@
 # Kubernetes Deployment
 
-This directory contains Kubernetes manifests for deploying the OAuth2 Server using Kustomize.
+This directory contains Kubernetes manifests for deploying the OAuth2 Server
+using Kustomize.
 
 ## Directory Structure
 
-```
+```text
 k8s/
 ├── base/                      # Base Kubernetes resources
-│   ├── namespace.yaml         # Namespace definition
+│   ├── namespace.yaml         # Example namespace definition (not applied by default)
 │   ├── configmap.yaml         # Configuration settings
 │   ├── secret.yaml            # Sensitive data (JWT secret, DB credentials)
 │   ├── postgres-pvc.yaml      # PostgreSQL persistent volume claim
@@ -44,7 +45,10 @@ k8s/
 # See: https://kubernetes.io/docs/tasks/tools/
 
 # Install kustomize (optional, kubectl has it built-in)
-curl -s "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
+curl -s \
+  "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/"\
+"hack/install_kustomize.sh" \
+  | bash
 ```
 
 ### 2. Configure Secrets
@@ -67,28 +71,41 @@ kubectl create secret generic oauth2-server-secret \
 ### 3. Deploy to Development
 
 ```bash
-# Apply development overlay
-kubectl apply -k overlays/dev
+# Choose a namespace (override as needed)
+export NAMESPACE=oauth2-server-dev
+
+# Create namespace (required)
+kubectl create namespace "${NAMESPACE}" --dry-run=client -o yaml \
+  | kubectl apply -f -
+
+# Apply development overlay into that namespace
+kubectl apply -k overlays/dev -n "${NAMESPACE}"
 
 # Verify deployment
-kubectl get all -n oauth2-server-dev
+kubectl get all -n "${NAMESPACE}"
 
 # Check logs
-kubectl logs -f deployment/dev-oauth2-server -n oauth2-server-dev
+kubectl logs -f deployment/dev-oauth2-server -n "${NAMESPACE}"
 ```
 
 ### 4. Deploy to Staging
 
 ```bash
-kubectl apply -k overlays/staging
-kubectl get all -n oauth2-server-staging
+export NAMESPACE=oauth2-server-staging
+kubectl create namespace "${NAMESPACE}" --dry-run=client -o yaml \
+  | kubectl apply -f -
+kubectl apply -k overlays/staging -n "${NAMESPACE}"
+kubectl get all -n "${NAMESPACE}"
 ```
 
 ### 5. Deploy to Production
 
 ```bash
-kubectl apply -k overlays/production
-kubectl get all -n oauth2-server
+export NAMESPACE=oauth2-server
+kubectl create namespace "${NAMESPACE}" --dry-run=client -o yaml \
+  | kubectl apply -f -
+kubectl apply -k overlays/production -n "${NAMESPACE}"
+kubectl get all -n "${NAMESPACE}"
 ```
 
 ## Configuration

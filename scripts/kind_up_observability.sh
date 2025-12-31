@@ -187,14 +187,14 @@ if [[ "${RECREATE_NAMESPACE}" == "1" ]]; then
   kubectl delete namespace "${NAMESPACE}" --ignore-not-found >/dev/null 2>&1 || true
 fi
 
-# The overlay sets namespace: oauth2-server, but we still ensure it exists to avoid races.
+# Ensure the namespace exists (manifests are applied with -n so the env can control it).
 kubectl get namespace "${NAMESPACE}" >/dev/null 2>&1 || kubectl create namespace "${NAMESPACE}" >/dev/null
 
-kustomize build "${KUSTOMIZE_DIR}" | kubectl apply -f - >/dev/null
+kustomize build "${KUSTOMIZE_DIR}" | kubectl apply -n "${NAMESPACE}" -f - >/dev/null
 
 # Ensure migration job is fresh for each run.
 kubectl delete job flyway-migration -n "${NAMESPACE}" --ignore-not-found >/dev/null 2>&1 || true
-kustomize build "${KUSTOMIZE_DIR}" | kubectl apply -f - >/dev/null
+kustomize build "${KUSTOMIZE_DIR}" | kubectl apply -n "${NAMESPACE}" -f - >/dev/null
 
 echo "==> Waiting for Postgres readiness"
 kubectl wait --for=condition=ready pod -l app=postgres -n "${NAMESPACE}" --timeout=180s >/dev/null
