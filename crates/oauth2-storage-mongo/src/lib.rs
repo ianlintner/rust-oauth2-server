@@ -5,14 +5,13 @@ use mongodb::{
     Client as MongoClient, Collection, Database, IndexModel,
 };
 
-use crate::models::{AuthorizationCode, Client, OAuth2Error, Token, User};
-
-use super::Storage;
+use oauth2_core::{AuthorizationCode, Client, OAuth2Error, Token, User};
+use oauth2_ports::Storage;
 
 /// MongoDB-backed storage implementation.
 ///
 /// Notes:
-/// - Uses your existing models as documents via `serde`.
+/// - Uses the core models as documents via `serde`.
 /// - Uses unique indexes on the same fields that are unique in SQL.
 pub struct MongoStorage {
     db: Database,
@@ -24,12 +23,11 @@ pub struct MongoStorage {
 
 impl MongoStorage {
     pub async fn new(uri: &str) -> Result<Self, OAuth2Error> {
-        // Use Rustls by default (controlled via crate features in Cargo.toml).
         let mut opts = ClientOptions::parse(uri)
             .await
             .map_err(Self::mongo_err_to_oauth)?;
         if opts.app_name.is_none() {
-            opts.app_name = Some("rust_oauth2_server".to_string());
+            opts.app_name = Some("oauth2-storage-mongo".to_string());
         }
 
         let client = MongoClient::with_options(opts).map_err(Self::mongo_err_to_oauth)?;
@@ -81,12 +79,9 @@ impl MongoStorage {
             .await
             .map_err(Self::mongo_err_to_oauth)?;
 
-        // users.email non-unique index (matches SQL's index; not unique constraint)
+        // users.email non-unique index
         self.users
-            .create_index(
-                IndexModel::builder().keys(doc! { "email": 1 }).build(),
-                None,
-            )
+            .create_index(IndexModel::builder().keys(doc! { "email": 1 }).build(), None)
             .await
             .map_err(Self::mongo_err_to_oauth)?;
 
@@ -130,9 +125,7 @@ impl MongoStorage {
     }
 
     fn duplicate_key_error(err: &mongodb::error::Error) -> bool {
-        // Be conservative and avoid relying on driver-internal error structures (which have
-        // changed across mongodb crate versions). The canonical server-side message includes
-        // "E11000".
+        // Canonical server-side message includes "E11000".
         err.to_string().contains("E11000")
     }
 
@@ -148,7 +141,6 @@ impl MongoStorage {
 #[async_trait]
 impl Storage for MongoStorage {
     async fn init(&self) -> Result<(), OAuth2Error> {
-        // Ping and ensure indexes.
         self.db
             .run_command(doc! { "ping": 1 }, None)
             .await

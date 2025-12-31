@@ -12,6 +12,7 @@ members = [
 	"crates/oauth2-core",
 	"crates/oauth2-events",
 	"crates/oauth2-ports",
+	"crates/oauth2-storage-mongo",
 	"crates/oauth2-storage-sqlx",
 ]
 
@@ -20,6 +21,7 @@ members = [
 oauth2-core = { path = "crates/oauth2-core", features = ["actix", "sqlx", "openapi"] }
 oauth2-events = { path = "crates/oauth2-events" }
 oauth2-ports = { path = "crates/oauth2-ports" }
+oauth2-storage-mongo = { path = "crates/oauth2-storage-mongo", optional = true }
 oauth2-storage-sqlx = { path = "crates/oauth2-storage-sqlx" }
 
 # Actix Web Framework
@@ -65,8 +67,7 @@ validator = { version = "0.20", features = ["derive"] }
 # Database (SQLite for simplicity, can be extended)
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio-rustls", "sqlite", "postgres", "any", "chrono", "uuid", "macros", "migrate"] }
 
-# Optional MongoDB backend (enabled with `--features mongo`)
-mongodb = { version = "2.8", optional = true }
+
 
 # OpenAPI
 utoipa = { version = "5.4", features = ["actix_extras", "chrono", "uuid"] }
@@ -111,7 +112,7 @@ serde_urlencoded = "0.7"
 [features]
 # Keep the default build lightweight: SQL backends only.
 default = []
-mongo = ["mongodb"]
+mongo = ["oauth2-storage-mongo"]
 
 # Optional eventing backends (Phase 1 best-effort)
 events-redis = ["oauth2-events/events-redis"]

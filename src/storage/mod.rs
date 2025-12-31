@@ -13,7 +13,9 @@ pub mod sqlx {
 }
 
 #[cfg(feature = "mongo")]
-pub mod mongo;
+pub mod mongo {
+    pub use oauth2_storage_mongo::MongoStorage;
+}
 
 /// Create a storage backend based on URL scheme.
 ///

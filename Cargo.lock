@@ -3866,6 +3866,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "oauth2-storage-mongo"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "mongodb",
+ "oauth2-core",
+ "oauth2-ports",
+ "serde",
+]
+
+[[package]]
 name = "oauth2-storage-sqlx"
 version = "0.1.0"
 dependencies = [
@@ -5148,11 +5159,11 @@ dependencies = [
  "hocon",
  "jsonwebtoken",
  "log",
- "mongodb",
  "oauth2",
  "oauth2-core",
  "oauth2-events",
  "oauth2-ports",
+ "oauth2-storage-mongo",
  "oauth2-storage-sqlx",
  "opentelemetry",
  "opentelemetry-otlp",
