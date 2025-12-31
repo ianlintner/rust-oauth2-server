@@ -1,4 +1,4 @@
-use rust_oauth2_server::openapi::ApiDoc;
+use oauth2_openapi::ApiDoc;
 use std::path::PathBuf;
 use utoipa::OpenApi;
 

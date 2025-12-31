@@ -1,5 +1,5 @@
-use rust_oauth2_server::models::{AuthorizationCode, Client, Token, User};
-use rust_oauth2_server::storage::Storage;
+use oauth2_core::{AuthorizationCode, Client, Token, User};
+use oauth2_ports::Storage;
 
 /// A minimal contract test suite that every `Storage` backend must satisfy.
 ///

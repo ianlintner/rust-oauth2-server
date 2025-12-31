@@ -3,7 +3,7 @@ use std::{fs, path::PathBuf, time::Duration};
 use testcontainers::{core::IntoContainerPort, runners::AsyncRunner};
 use testcontainers_modules::postgres::Postgres as TcPostgres;
 
-use rust_oauth2_server::models::Token;
+use oauth2_core::Token;
 use uuid::Uuid;
 
 // This test spins up a disposable Postgres via Testcontainers, applies our SQLx migrations,

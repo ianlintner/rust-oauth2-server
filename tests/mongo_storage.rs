@@ -2,7 +2,8 @@
 
 use std::time::Duration;
 
-use rust_oauth2_server::storage::{mongo::MongoStorage, Storage};
+use oauth2_ports::Storage;
+use oauth2_storage_mongo::MongoStorage;
 use testcontainers::{core::IntoContainerPort, runners::AsyncRunner};
 use testcontainers_modules::mongo::Mongo as TcMongo;
 

@@ -1,6 +1,7 @@
 mod common;
 
-use rust_oauth2_server::storage::{sqlx::SqlxStorage, Storage};
+use oauth2_ports::Storage;
+use oauth2_storage_sqlx::SqlxStorage;
 
 /// Contract tests for the default SQLx backend.
 ///
