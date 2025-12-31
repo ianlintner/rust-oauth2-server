@@ -2,7 +2,7 @@
 name = "rust_oauth2_server"
 version = "0.0.4"
 edition = "2021"
-autolibs = false
+autolib = false
 authors = ["Ian Lintner"]
 description = "A complete OAuth2 server implementation using Actix-web and the actor model"
 license = "MIT OR Apache-2.0"
@@ -70,6 +70,10 @@ sha2 = "0.10"
 tempfile = "3"
 testcontainers = "0.26"
 testcontainers-modules = { version = "0.14", features = ["postgres", "mongo"] }
+
+# Workspace crates used directly by root integration tests.
+oauth2-storage-sqlx = { path = "crates/oauth2-storage-sqlx" }
+oauth2-storage-mongo = { path = "crates/oauth2-storage-mongo" }
 
 # Used by integration tests (e.g., migrations and SQL-level assertions).
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio-rustls", "sqlite", "postgres", "any", "chrono", "uuid", "macros", "migrate"] }

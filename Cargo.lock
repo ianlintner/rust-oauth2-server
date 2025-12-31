@@ -5095,6 +5095,8 @@ dependencies = [
  "oauth2-server",
  "oauth2-social-login",
  "oauth2-storage-factory",
+ "oauth2-storage-mongo",
+ "oauth2-storage-sqlx",
  "serde",
  "serde_json",
  "sha2",
