@@ -207,7 +207,7 @@ impl Config {
             },
             database: DatabaseConfig {
                 url: std::env::var("OAUTH2_DATABASE_URL")
-                    .unwrap_or_else(|_| "sqlite:oauth2.db".to_string()),
+                    .unwrap_or_else(|_| "sqlite:oauth2.db?mode=rwc".to_string()),
             },
             jwt: JwtConfig {
                 secret: std::env::var("OAUTH2_JWT_SECRET").unwrap_or_else(|_| {

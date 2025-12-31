@@ -2,7 +2,9 @@ use async_trait::async_trait;
 use oauth2_core::{AuthorizationCode, Client, OAuth2Error, Token, User};
 use oauth2_ports::Storage;
 use sqlx::{Pool, Postgres, Sqlite};
+use std::borrow::Cow;
 use std::path::Path;
+use std::path::PathBuf;
 
 #[derive(Clone, Debug)]
 enum DatabasePool {
@@ -24,13 +26,24 @@ impl SqlxStorage {
         let pool = if database_url.starts_with("postgres") {
             DatabasePool::Postgres(Pool::<Postgres>::connect(database_url).await?)
         } else {
-            if let Some(parent_dir) = sqlite_parent_dir(database_url) {
-                // Best-effort: if we can't create it (permissions, etc.), sqlx will surface the
-                // underlying error on connect.
-                let _ = std::fs::create_dir_all(parent_dir);
+            // Best-effort: if we can't create it (permissions, etc.), sqlx will surface the
+            // underlying error on connect.
+            if let Some(path) = sqlite_db_path(database_url) {
+                if let Some(parent) = path.parent() {
+                    if !parent.as_os_str().is_empty() {
+                        let _ = std::fs::create_dir_all(parent);
+                    }
+                }
+
+                // Some sqlx/sqlite configurations will not create the DB file automatically.
+                // Pre-creating it avoids "unable to open database file" for local/dev defaults.
+                if !path.as_os_str().is_empty() && !path.exists() {
+                    let _ = std::fs::File::create(&path);
+                }
             }
 
-            DatabasePool::Sqlite(Pool::<Sqlite>::connect(database_url).await?)
+            let connect_url = sqlite_url_with_create_mode(database_url);
+            DatabasePool::Sqlite(Pool::<Sqlite>::connect(connect_url.as_ref()).await?)
         };
 
         Ok(Self { pool })
@@ -555,4 +568,49 @@ fn sqlite_parent_dir(database_url: &str) -> Option<&Path> {
     }
 
     Path::new(path_part).parent()
+}
+
+fn sqlite_db_path(database_url: &str) -> Option<PathBuf> {
+    if !database_url.starts_with("sqlite:") {
+        return None;
+    }
+    if database_url.starts_with("sqlite::memory:") {
+        return None;
+    }
+
+    let mut rest = &database_url["sqlite:".len()..];
+
+    // Normalize URL-ish forms into a filesystem-ish path by reducing multiple
+    // leading slashes to a single leading slash.
+    if rest.starts_with("///") {
+        rest = &rest[2..];
+    } else if rest.starts_with("//") {
+        rest = &rest[1..];
+    }
+
+    // Drop any query string.
+    let path_part = rest.split('?').next().unwrap_or(rest);
+    if path_part.is_empty() {
+        return None;
+    }
+
+    Some(PathBuf::from(path_part))
+}
+
+fn sqlite_url_with_create_mode(database_url: &str) -> Cow<'_, str> {
+    if !database_url.starts_with("sqlite:") {
+        return Cow::Borrowed(database_url);
+    }
+    if database_url.starts_with("sqlite::memory:") {
+        return Cow::Borrowed(database_url);
+    }
+
+    // Ensure we can create the sqlite database file when it doesn't exist.
+    // This is a common footgun with URI mode in SQLite.
+    if database_url.contains("mode=") {
+        return Cow::Borrowed(database_url);
+    }
+
+    let sep = if database_url.contains('?') { '&' } else { '?' };
+    Cow::Owned(format!("{database_url}{sep}mode=rwc"))
 }
