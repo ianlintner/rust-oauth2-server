@@ -6,6 +6,12 @@
 //! - Cleaner integration tests
 //! - Single source of truth for types used by utoipa/OpenAPI generation
 
+/// Reusable, framework-agnostic domain types.
+pub use oauth2_core as core;
+
+/// Integration ports (traits) for plugging in custom adapters (e.g., storage/DAO).
+pub use oauth2_ports as ports;
+
 pub mod actors;
 pub mod config;
 pub mod db;

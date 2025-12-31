@@ -7,7 +7,19 @@ description = "A complete OAuth2 server implementation using Actix-web and the a
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/ianlintner/rust_oauth2_server"
 
+[workspace]
+members = [
+	"crates/oauth2-core",
+	"crates/oauth2-ports",
+	"crates/oauth2-storage-sqlx",
+]
+
 [dependencies]
+# Extracted reusable crates
+oauth2-core = { path = "crates/oauth2-core", features = ["actix", "sqlx", "openapi"] }
+oauth2-ports = { path = "crates/oauth2-ports" }
+oauth2-storage-sqlx = { path = "crates/oauth2-storage-sqlx" }
+
 # Actix Web Framework
 actix-web = "4.4"
 actix-rt = "2.9"
