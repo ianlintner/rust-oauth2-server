@@ -14,6 +14,8 @@ oauth2-ports = { path = "../oauth2-ports" }
 actix = "0.13"
 actix-web = "4.4"
 
+futures = "0.3"
+
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 
