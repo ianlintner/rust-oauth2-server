@@ -1,4 +1,3 @@
-// Compatibility facade.
+// Intentionally empty.
 //
-// `ObservedStorage` moved into the extracted crates.
-pub use oauth2_storage_factory::ObservedStorage;
+// Use `oauth2_observability::ObservedStorage` (re-exported by `oauth2-storage-factory`).

@@ -1,1 +1,3 @@
-pub use oauth2_observability::actix::MetricsMiddleware;
+// Intentionally empty.
+//
+// Use `oauth2_observability::actix::MetricsMiddleware`.

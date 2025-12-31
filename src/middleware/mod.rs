@@ -1,6 +1,4 @@
-pub mod auth_middleware;
-pub mod metrics_middleware;
-
-pub use auth_middleware::*;
-pub use metrics_middleware::*;
+// Intentionally empty.
+//
+// Middleware lives in `oauth2-actix` and `oauth2-observability`.
 
