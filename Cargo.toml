@@ -2,6 +2,7 @@
 name = "rust_oauth2_server"
 version = "0.0.4"
 edition = "2021"
+autolibs = false
 authors = ["Ian Lintner"]
 description = "A complete OAuth2 server implementation using Actix-web and the actor model"
 license = "MIT OR Apache-2.0"
