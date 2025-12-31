@@ -1,26 +1,15 @@
-//! Library exports.
+//! Root crate library stub.
 //!
-//! Historically, this project kept most modules only in the binary crate (`main.rs`).
-//! Exporting modules here allows:
-//! - Reuse from additional binaries (e.g. OpenAPI exporters)
-//! - Cleaner integration tests
-//! - Single source of truth for types used by utoipa/OpenAPI generation
+//! This repository has been split into a Cargo workspace of reusable crates under `crates/`.
+//! The root package is intentionally kept minimal.
+//!
+//! Use these crates directly instead of `rust_oauth2_server::*`:
+//! - `oauth2-server` (server assembly)
+//! - `oauth2-actix` (HTTP handlers/actors/middleware)
+//! - `oauth2-core` (domain types)
+//! - `oauth2-ports` (traits like `Storage`)
+//! - `oauth2-storage-sqlx`, `oauth2-storage-mongo` (adapters)
+//! - `oauth2-storage-factory` (backend selection)
+//! - `oauth2-openapi` (OpenAPI generation)
 
-/// Reusable, framework-agnostic domain types.
-pub use oauth2_core as core;
-
-/// Integration ports (traits) for plugging in custom adapters (e.g., storage/DAO).
-pub use oauth2_ports as ports;
-
-pub mod actors;
-pub mod config;
-pub mod db;
-pub mod events;
-pub mod handlers;
-pub mod metrics;
-pub mod middleware;
-pub mod models;
-pub mod openapi;
-pub mod services;
-pub mod storage;
-pub mod telemetry;
+pub use oauth2_server;
