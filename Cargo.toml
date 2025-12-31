@@ -36,79 +36,8 @@ oauth2-social-login = { path = "crates/oauth2-social-login" }
 oauth2-server = { path = "crates/oauth2-server" }
 oauth2-storage-factory = { path = "crates/oauth2-storage-factory" }
 
-# Actix Web Framework
-actix-web = "4.4"
+# Runtime used only by the thin delegating binary (`src/main.rs`).
 actix-rt = "2.9"
-actix = "0.13"
-
-# Async runtime
-tokio = { version = "1.35", features = ["full"] }
-
-# Serialization
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-
-# JWT handling
-jsonwebtoken = { version = "10.2", features = ["rust_crypto"] }
-
-# Cryptography
-rand = "0.9"
-sha2 = "0.10"
-base64 = "0.22"
-argon2 = "0.5"
-subtle = "2.5"
-hex = "0.4"
-
-# UUID generation
-uuid = { version = "1.6", features = ["v4", "serde"] }
-
-# Time handling
-chrono = { version = "0.4", features = ["serde"] }
-
-# Configuration
-config = "0.15"
-hocon = "0.9"
-
-# Logging
-env_logger = "0.11"
-log = "0.4"
-
-# Validation
-validator = { version = "0.20", features = ["derive"] }
-
-# Database (SQLite for simplicity, can be extended)
-
-
-# OpenAPI
-utoipa = { version = "5.4", features = ["actix_extras", "chrono", "uuid"] }
-utoipa-swagger-ui = { version = "9.0", features = ["actix-web"] }
-
-# CORS
-actix-cors = "0.7"
-
-# Metrics and Observability
-tracing = "0.1"
-tracing-actix-web = "0.7"
-
-# Async utilities
-futures = "0.3"
-async-trait = "0.1"
-
-
-# Admin UI templating
-tera = "1.19"
-actix-files = "0.6"
-
-# Session management
-actix-session = { version = "0.11", features = ["cookie-session"] }
-
-# OAuth2 client for social logins
-oauth2 = "5.0"
-reqwest = { version = "0.13", features = ["json"] }
-oauth2_reqwest = { package = "reqwest", version = "0.12", features = ["rustls-tls"] }
-
-# Additional serialization
-serde_urlencoded = "0.7"
 
 [features]
 # Keep the default build lightweight: SQL backends only.
@@ -127,8 +56,16 @@ path = "src/lib.rs"
 [dev-dependencies]
 # Testing
 actix-rt = "2.9"
+actix-web = "4.4"
+tokio = { version = "1.35", features = ["full"] }
 cucumber = { version = "0.22", features = ["macros"] }
 futures = "0.3"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+uuid = { version = "1.6", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+base64 = "0.22"
+sha2 = "0.10"
 tempfile = "3"
 testcontainers = "0.26"
 testcontainers-modules = { version = "0.14", features = ["postgres", "mongo"] }
