@@ -83,11 +83,8 @@ pub async fn delete_client(
 
 /// Get system metrics
 pub async fn system_metrics(metrics: web::Data<Metrics>) -> Result<HttpResponse> {
-    use prometheus::Encoder;
-    let encoder = prometheus::TextEncoder::new();
-    let metric_families = metrics.registry.gather();
-    let mut buffer = vec![];
-    encoder.encode(&metric_families, &mut buffer).unwrap();
+    let buffer = oauth2_observability::encode_prometheus_text(&metrics.registry)
+        .map_err(actix_web::error::ErrorInternalServerError)?;
 
     Ok(HttpResponse::Ok()
         .content_type("text/plain; version=0.0.4")
