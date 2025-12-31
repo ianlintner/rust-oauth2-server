@@ -9,7 +9,10 @@ repository = "https://github.com/ianlintner/rust_oauth2_server"
 
 [workspace]
 members = [
+	"crates/oauth2-actix",
+	"crates/oauth2-config",
 	"crates/oauth2-core",
+	"crates/oauth2-openapi",
 	"crates/oauth2-observability",
 	"crates/oauth2-events",
 	"crates/oauth2-ports",
@@ -19,8 +22,11 @@ members = [
 
 [dependencies]
 # Extracted reusable crates
+oauth2-actix = { path = "crates/oauth2-actix" }
+oauth2-config = { path = "crates/oauth2-config" }
 oauth2-core = { path = "crates/oauth2-core", features = ["actix", "sqlx", "openapi"] }
 oauth2-events = { path = "crates/oauth2-events" }
+oauth2-openapi = { path = "crates/oauth2-openapi" }
 oauth2-observability = { path = "crates/oauth2-observability", features = ["actix"] }
 oauth2-ports = { path = "crates/oauth2-ports" }
 oauth2-storage-mongo = { path = "crates/oauth2-storage-mongo", optional = true }

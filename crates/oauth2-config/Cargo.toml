@@ -1,0 +1,11 @@
+[package]
+name = "oauth2-config"
+version = "0.0.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+hocon = "0.9"
+config = "0.15"
+tracing = "0.1"

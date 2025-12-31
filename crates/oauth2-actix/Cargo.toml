@@ -1,0 +1,30 @@
+[package]
+name = "oauth2-actix"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "Actix-web HTTP layer for rust-oauth2-server (handlers + actors)"
+
+[dependencies]
+oauth2-core = { path = "../oauth2-core", features = ["actix"] }
+oauth2-events = { path = "../oauth2-events" }
+oauth2-observability = { path = "../oauth2-observability" }
+oauth2-ports = { path = "../oauth2-ports" }
+
+actix = "0.13"
+actix-web = "4.4"
+
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+tokio = { version = "1.35", features = ["sync"] }
+
+tracing = "0.1"
+
+chrono = { version = "0.4", features = ["serde"] }
+rand = "0.9"
+uuid = { version = "1.6", features = ["v4", "serde"] }
+subtle = "2.5"
+
+sha2 = "0.10"
+base64 = "0.22"
