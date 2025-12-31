@@ -75,7 +75,7 @@ docker build -t rust_oauth2_server:latest .
 # Run the container
 docker run -d \
   -p 8080:8080 \
-  -e OAUTH2_DATABASE_URL=sqlite:oauth2.db \
+  -e OAUTH2_DATABASE_URL=sqlite:oauth2.db?mode=rwc \
   -e OAUTH2_JWT_SECRET=your-secret-key \
   --name oauth2_server \
   rust_oauth2_server:latest

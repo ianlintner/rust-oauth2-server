@@ -214,7 +214,7 @@ rust_oauth2_server/
 # Server
 OAUTH2_SERVER_HOST=127.0.0.1
 OAUTH2_SERVER_PORT=8080
-OAUTH2_DATABASE_URL=sqlite:oauth2.db
+OAUTH2_DATABASE_URL=sqlite:oauth2.db?mode=rwc
 OAUTH2_JWT_SECRET=your-secret-key
 
 # Google

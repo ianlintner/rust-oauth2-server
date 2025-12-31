@@ -130,7 +130,7 @@ Create a `.env` file for local development (DO NOT commit this file):
 # Server Configuration
 OAUTH2_SERVER_HOST=127.0.0.1
 OAUTH2_SERVER_PORT=8080
-OAUTH2_DATABASE_URL=sqlite:oauth2.db
+OAUTH2_DATABASE_URL=sqlite:oauth2.db?mode=rwc
 OAUTH2_JWT_SECRET=your-super-secret-jwt-key-minimum-32-characters
 
 # Google
@@ -174,14 +174,17 @@ oauth2_server:
 ### Common Issues
 
 1. **Redirect URI Mismatch**
+
    - Ensure the redirect URI configured in the provider matches exactly
    - Check for trailing slashes and protocol (http vs https)
 
 2. **CSRF Token Mismatch**
+
    - Clear browser cookies
    - Check session middleware configuration
 
 3. **Invalid Client Credentials**
+
    - Verify client ID and secret are correct
    - Check if credentials have expired or been revoked
 

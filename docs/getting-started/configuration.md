@@ -16,11 +16,11 @@ All configuration options can be set via environment variables with the `OAUTH2_
 
 ### Server Configuration
 
-| Variable | Type | Default | Description |
-| --- | --- | --- | --- |
-| `OAUTH2_SERVER_HOST` | String | `127.0.0.1` | Server bind address |
-| `OAUTH2_SERVER_PORT` | Integer | `8080` | Server port |
-| `OAUTH2_SERVER_WORKERS` | Integer | CPU cores | Number of worker threads |
+| Variable                | Type    | Default     | Description              |
+| ----------------------- | ------- | ----------- | ------------------------ |
+| `OAUTH2_SERVER_HOST`    | String  | `127.0.0.1` | Server bind address      |
+| `OAUTH2_SERVER_PORT`    | Integer | `8080`      | Server port              |
+| `OAUTH2_SERVER_WORKERS` | Integer | CPU cores   | Number of worker threads |
 
 **Example:**
 
@@ -32,31 +32,31 @@ export OAUTH2_SERVER_WORKERS=4
 
 ### Database Configuration
 
-| Variable | Type | Default | Description |
-| --- | --- | --- | --- |
-| `OAUTH2_DATABASE_URL` | String | `sqlite:oauth2.db` | Database connection URL |
-| `OAUTH2_DATABASE_MAX_CONNECTIONS` | Integer | `10` | Maximum database connections |
-| `OAUTH2_DATABASE_MIN_CONNECTIONS` | Integer | `1` | Minimum database connections |
-| `OAUTH2_DATABASE_CONNECT_TIMEOUT` | Integer | `30` | Connection timeout (seconds) |
+| Variable                          | Type    | Default                     | Description                  |
+| --------------------------------- | ------- | --------------------------- | ---------------------------- |
+| `OAUTH2_DATABASE_URL`             | String  | `sqlite:oauth2.db?mode=rwc` | Database connection URL      |
+| `OAUTH2_DATABASE_MAX_CONNECTIONS` | Integer | `10`                        | Maximum database connections |
+| `OAUTH2_DATABASE_MIN_CONNECTIONS` | Integer | `1`                         | Minimum database connections |
+| `OAUTH2_DATABASE_CONNECT_TIMEOUT` | Integer | `30`                        | Connection timeout (seconds) |
 
 **Supported Databases:**
 
 === "SQLite"
-    ```bash
-    export OAUTH2_DATABASE_URL=sqlite:oauth2.db
+`bash
+  export OAUTH2_DATABASE_URL=sqlite:oauth2.db?mode=rwc
     # Or with absolute path
     export OAUTH2_DATABASE_URL=sqlite:/path/to/oauth2.db
-    ```
+    `
 
 === "PostgreSQL"
-    ```bash
+`bash
     export OAUTH2_DATABASE_URL=postgresql://username:password@localhost:5432/oauth2_db
     # With SSL
     export OAUTH2_DATABASE_URL=postgresql://username:password@localhost:5432/oauth2_db?sslmode=require
-    ```
+    `
 
 === "MongoDB (optional)"
-    MongoDB support is available behind a cargo feature flag to keep the default build lightweight.
+MongoDB support is available behind a cargo feature flag to keep the default build lightweight.
 
     - Build/run with: `--features mongo`
     - Use a MongoDB connection URL (`mongodb://` or `mongodb+srv://`)
@@ -71,18 +71,14 @@ export OAUTH2_SERVER_WORKERS=4
 
 ### JWT Configuration
 
-| Variable | Type | Default | Description |
-| --- | --- | --- | --- |
-| `OAUTH2_JWT_SECRET` | String | **Required** | Secret key for signing JWT tokens |
-| `OAUTH2_JWT_ALGORITHM` | String | `HS256` | JWT signing algorithm |
-| `OAUTH2_JWT_ISSUER` | String | `rust_oauth2_server` | Token issuer identifier |
+| Variable               | Type   | Default              | Description                       |
+| ---------------------- | ------ | -------------------- | --------------------------------- |
+| `OAUTH2_JWT_SECRET`    | String | **Required**         | Secret key for signing JWT tokens |
+| `OAUTH2_JWT_ALGORITHM` | String | `HS256`              | JWT signing algorithm             |
+| `OAUTH2_JWT_ISSUER`    | String | `rust_oauth2_server` | Token issuer identifier           |
 
 !!! danger "Security Critical"
-    The `OAUTH2_JWT_SECRET` must be:
-    - At least 32 characters long (64+ recommended)
-    - Cryptographically random
-    - Kept secret and never committed to version control
-    - Rotated periodically in production
+The `OAUTH2_JWT_SECRET` must be: - At least 32 characters long (64+ recommended) - Cryptographically random - Kept secret and never committed to version control - Rotated periodically in production
 
 **Generating a secure JWT secret:**
 
@@ -102,11 +98,11 @@ export OAUTH2_JWT_SECRET="a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0u1v2w3x4y5z6"
 
 ### Token Expiration
 
-| Variable | Type | Default | Description |
-| --- | --- | --- | --- |
-| `OAUTH2_ACCESS_TOKEN_EXPIRATION` | Integer | `3600` | Access token lifetime (seconds) |
-| `OAUTH2_REFRESH_TOKEN_EXPIRATION` | Integer | `2592000` | Refresh token lifetime (seconds, 30 days) |
-| `OAUTH2_AUTHORIZATION_CODE_EXPIRATION` | Integer | `600` | Authorization code lifetime (seconds, 10 minutes) |
+| Variable                               | Type    | Default   | Description                                       |
+| -------------------------------------- | ------- | --------- | ------------------------------------------------- |
+| `OAUTH2_ACCESS_TOKEN_EXPIRATION`       | Integer | `3600`    | Access token lifetime (seconds)                   |
+| `OAUTH2_REFRESH_TOKEN_EXPIRATION`      | Integer | `2592000` | Refresh token lifetime (seconds, 30 days)         |
+| `OAUTH2_AUTHORIZATION_CODE_EXPIRATION` | Integer | `600`     | Authorization code lifetime (seconds, 10 minutes) |
 
 **Example:**
 
@@ -123,14 +119,14 @@ export OAUTH2_AUTHORIZATION_CODE_EXPIRATION=600
 
 ### Session Configuration
 
-| Variable | Type | Default | Description |
-| --- | --- | --- | --- |
-| `OAUTH2_SESSION_KEY` | String | Auto-generated | Session encryption key (min 64 chars) |
-| `OAUTH2_SESSION_TIMEOUT` | Integer | `3600` | Session timeout (seconds) |
-| `OAUTH2_SESSION_SECURE` | Boolean | `false` | Require HTTPS for cookies |
+| Variable                 | Type    | Default        | Description                           |
+| ------------------------ | ------- | -------------- | ------------------------------------- |
+| `OAUTH2_SESSION_KEY`     | String  | Auto-generated | Session encryption key (min 64 chars) |
+| `OAUTH2_SESSION_TIMEOUT` | Integer | `3600`         | Session timeout (seconds)             |
+| `OAUTH2_SESSION_SECURE`  | Boolean | `false`        | Require HTTPS for cookies             |
 
 !!! warning "Production Requirement"
-    In production, `OAUTH2_SESSION_KEY` must be set to a persistent value. Auto-generated keys will invalidate all sessions on server restart.
+In production, `OAUTH2_SESSION_KEY` must be set to a persistent value. Auto-generated keys will invalidate all sessions on server restart.
 
 **Example:**
 
@@ -144,46 +140,46 @@ export OAUTH2_SESSION_SECURE=true
 
 #### Google OAuth2
 
-| Variable | Type | Required | Description |
-| --- | --- | --- | --- |
-| `OAUTH2_GOOGLE_CLIENT_ID` | String | Yes | Google OAuth2 client ID |
-| `OAUTH2_GOOGLE_CLIENT_SECRET` | String | Yes | Google OAuth2 client secret |
-| `OAUTH2_GOOGLE_REDIRECT_URI` | String | Yes | Callback URL for Google |
+| Variable                      | Type   | Required | Description                 |
+| ----------------------------- | ------ | -------- | --------------------------- |
+| `OAUTH2_GOOGLE_CLIENT_ID`     | String | Yes      | Google OAuth2 client ID     |
+| `OAUTH2_GOOGLE_CLIENT_SECRET` | String | Yes      | Google OAuth2 client secret |
+| `OAUTH2_GOOGLE_REDIRECT_URI`  | String | Yes      | Callback URL for Google     |
 
 #### Microsoft/Azure AD
 
-| Variable | Type | Required | Description |
-| --- | --- | --- | --- |
-| `OAUTH2_MICROSOFT_CLIENT_ID` | String | Yes | Microsoft client ID |
-| `OAUTH2_MICROSOFT_CLIENT_SECRET` | String | Yes | Microsoft client secret |
-| `OAUTH2_MICROSOFT_REDIRECT_URI` | String | Yes | Callback URL for Microsoft |
-| `OAUTH2_MICROSOFT_TENANT_ID` | String | No | Azure AD tenant ID (default: `common`) |
+| Variable                         | Type   | Required | Description                            |
+| -------------------------------- | ------ | -------- | -------------------------------------- |
+| `OAUTH2_MICROSOFT_CLIENT_ID`     | String | Yes      | Microsoft client ID                    |
+| `OAUTH2_MICROSOFT_CLIENT_SECRET` | String | Yes      | Microsoft client secret                |
+| `OAUTH2_MICROSOFT_REDIRECT_URI`  | String | Yes      | Callback URL for Microsoft             |
+| `OAUTH2_MICROSOFT_TENANT_ID`     | String | No       | Azure AD tenant ID (default: `common`) |
 
 #### GitHub
 
-| Variable | Type | Required | Description |
-| --- | --- | --- | --- |
-| `OAUTH2_GITHUB_CLIENT_ID` | String | Yes | GitHub OAuth app client ID |
-| `OAUTH2_GITHUB_CLIENT_SECRET` | String | Yes | GitHub OAuth app client secret |
-| `OAUTH2_GITHUB_REDIRECT_URI` | String | Yes | Callback URL for GitHub |
+| Variable                      | Type   | Required | Description                    |
+| ----------------------------- | ------ | -------- | ------------------------------ |
+| `OAUTH2_GITHUB_CLIENT_ID`     | String | Yes      | GitHub OAuth app client ID     |
+| `OAUTH2_GITHUB_CLIENT_SECRET` | String | Yes      | GitHub OAuth app client secret |
+| `OAUTH2_GITHUB_REDIRECT_URI`  | String | Yes      | Callback URL for GitHub        |
 
 #### Okta
 
-| Variable | Type | Required | Description |
-|----------|------|----------|-------------|
-| `OAUTH2_OKTA_CLIENT_ID` | String | Yes | Okta client ID |
-| `OAUTH2_OKTA_CLIENT_SECRET` | String | Yes | Okta client secret |
-| `OAUTH2_OKTA_REDIRECT_URI` | String | Yes | Callback URL for Okta |
-| `OAUTH2_OKTA_DOMAIN` | String | Yes | Okta domain (e.g., dev-123.okta.com) |
+| Variable                    | Type   | Required | Description                          |
+| --------------------------- | ------ | -------- | ------------------------------------ |
+| `OAUTH2_OKTA_CLIENT_ID`     | String | Yes      | Okta client ID                       |
+| `OAUTH2_OKTA_CLIENT_SECRET` | String | Yes      | Okta client secret                   |
+| `OAUTH2_OKTA_REDIRECT_URI`  | String | Yes      | Callback URL for Okta                |
+| `OAUTH2_OKTA_DOMAIN`        | String | Yes      | Okta domain (e.g., dev-123.okta.com) |
 
 #### Auth0
 
-| Variable | Type | Required | Description |
-|----------|------|----------|-------------|
-| `OAUTH2_AUTH0_CLIENT_ID` | String | Yes | Auth0 client ID |
-| `OAUTH2_AUTH0_CLIENT_SECRET` | String | Yes | Auth0 client secret |
-| `OAUTH2_AUTH0_REDIRECT_URI` | String | Yes | Callback URL for Auth0 |
-| `OAUTH2_AUTH0_DOMAIN` | String | Yes | Auth0 domain (e.g., tenant.auth0.com) |
+| Variable                     | Type   | Required | Description                           |
+| ---------------------------- | ------ | -------- | ------------------------------------- |
+| `OAUTH2_AUTH0_CLIENT_ID`     | String | Yes      | Auth0 client ID                       |
+| `OAUTH2_AUTH0_CLIENT_SECRET` | String | Yes      | Auth0 client secret                   |
+| `OAUTH2_AUTH0_REDIRECT_URI`  | String | Yes      | Callback URL for Auth0                |
+| `OAUTH2_AUTH0_DOMAIN`        | String | Yes      | Auth0 domain (e.g., tenant.auth0.com) |
 
 **Complete Social Login Example:**
 
@@ -209,12 +205,12 @@ See [Social Login Setup Guide](social-login-setup.md) for detailed provider conf
 
 ### OpenTelemetry Configuration
 
-| Variable | Type | Default | Description |
-|----------|------|---------|-------------|
-| `OAUTH2_OTLP_ENDPOINT` | String | `http://localhost:4317` | OTLP gRPC endpoint |
-| `OAUTH2_OTLP_PROTOCOL` | String | `grpc` | Protocol (grpc or http/protobuf) |
-| `OAUTH2_OTLP_TRACES_ENABLED` | Boolean | `true` | Enable trace export |
-| `OAUTH2_OTLP_METRICS_ENABLED` | Boolean | `true` | Enable metrics export |
+| Variable                      | Type    | Default                 | Description                      |
+| ----------------------------- | ------- | ----------------------- | -------------------------------- |
+| `OAUTH2_OTLP_ENDPOINT`        | String  | `http://localhost:4317` | OTLP gRPC endpoint               |
+| `OAUTH2_OTLP_PROTOCOL`        | String  | `grpc`                  | Protocol (grpc or http/protobuf) |
+| `OAUTH2_OTLP_TRACES_ENABLED`  | Boolean | `true`                  | Enable trace export              |
+| `OAUTH2_OTLP_METRICS_ENABLED` | Boolean | `true`                  | Enable metrics export            |
 
 **Example:**
 
@@ -226,10 +222,10 @@ export OAUTH2_OTLP_TRACES_ENABLED=true
 
 ### Logging Configuration
 
-| Variable | Type | Default | Description |
-|----------|------|---------|-------------|
-| `RUST_LOG` | String | `info` | Log level filter |
-| `OAUTH2_LOG_FORMAT` | String | `json` | Log format (json or pretty) |
+| Variable            | Type   | Default | Description                 |
+| ------------------- | ------ | ------- | --------------------------- |
+| `RUST_LOG`          | String | `info`  | Log level filter            |
+| `OAUTH2_LOG_FORMAT` | String | `json`  | Log format (json or pretty) |
 
 **Log Levels:**
 
@@ -253,12 +249,12 @@ export OAUTH2_LOG_FORMAT=pretty
 
 ### CORS Configuration
 
-| Variable | Type | Default | Description |
-|----------|------|---------|-------------|
-| `OAUTH2_CORS_ALLOWED_ORIGINS` | String | `*` | Comma-separated list of allowed origins |
-| `OAUTH2_CORS_ALLOWED_METHODS` | String | `GET,POST,PUT,DELETE,OPTIONS` | Allowed HTTP methods |
-| `OAUTH2_CORS_ALLOWED_HEADERS` | String | `*` | Allowed headers |
-| `OAUTH2_CORS_MAX_AGE` | Integer | `3600` | Preflight cache duration (seconds) |
+| Variable                      | Type    | Default                       | Description                             |
+| ----------------------------- | ------- | ----------------------------- | --------------------------------------- |
+| `OAUTH2_CORS_ALLOWED_ORIGINS` | String  | `*`                           | Comma-separated list of allowed origins |
+| `OAUTH2_CORS_ALLOWED_METHODS` | String  | `GET,POST,PUT,DELETE,OPTIONS` | Allowed HTTP methods                    |
+| `OAUTH2_CORS_ALLOWED_HEADERS` | String  | `*`                           | Allowed headers                         |
+| `OAUTH2_CORS_MAX_AGE`         | Integer | `3600`                        | Preflight cache duration (seconds)      |
 
 **Example:**
 
@@ -281,7 +277,7 @@ OAUTH2_SERVER_HOST=127.0.0.1
 OAUTH2_SERVER_PORT=8080
 
 # Database
-OAUTH2_DATABASE_URL=sqlite:oauth2.db
+OAUTH2_DATABASE_URL=sqlite:oauth2.db?mode=rwc
 
 # JWT
 OAUTH2_JWT_SECRET=dev-secret-key-change-in-production-minimum-32-chars
@@ -350,7 +346,7 @@ OAUTH2_GOOGLE_REDIRECT_URI=https://oauth.example.com/auth/callback/google
 
 ```yaml
 # docker-compose.yml
-version: '3.8'
+version: "3.8"
 
 services:
   oauth2_server:
@@ -365,7 +361,7 @@ services:
       OAUTH2_SESSION_KEY: ${SESSION_KEY}
     depends_on:
       - postgres
-  
+
   postgres:
     image: postgres:16-alpine
     environment:
@@ -383,7 +379,7 @@ volumes:
 
 ```yaml
 # docker-compose.yml
-version: '3.8'
+version: "3.8"
 
 services:
   oauth2_server:
@@ -437,15 +433,15 @@ spec:
   template:
     spec:
       containers:
-      - name: oauth2-server
-        image: rust_oauth2_server:latest
-        envFrom:
-        - configMapRef:
-            name: oauth2-config
-        - secretRef:
-            name: oauth2-secrets
-        ports:
-        - containerPort: 8080
+        - name: oauth2-server
+          image: rust_oauth2_server:latest
+          envFrom:
+            - configMapRef:
+                name: oauth2-config
+            - secretRef:
+                name: oauth2-secrets
+          ports:
+            - containerPort: 8080
 ```
 
 ## Configuration Validation
@@ -524,20 +520,24 @@ export OAUTH2_RATE_LIMIT_BURST=10
 ## Best Practices
 
 1. **Never commit secrets to version control**
+
    - Use `.gitignore` for `.env` files
    - Use secret management services in production
 
 2. **Use strong secrets**
+
    - Generate cryptographically random secrets
    - Use minimum recommended lengths
    - Rotate secrets periodically
 
 3. **Environment-specific configuration**
+
    - Separate dev, staging, and production configs
    - Use different secrets for each environment
    - Document required variables
 
 4. **Database configuration**
+
    - Use PostgreSQL in production
    - Configure appropriate connection pools
    - Enable SSL for database connections

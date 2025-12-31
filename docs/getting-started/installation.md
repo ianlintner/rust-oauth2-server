@@ -13,16 +13,16 @@ Before installing the OAuth2 server, ensure you have the following prerequisites
   ```bash
   curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
   ```
-  
+
 - **SQLite** (for development) or **PostgreSQL** (for production)
 
   ```bash
   # Ubuntu/Debian
   sudo apt-get install sqlite3 libsqlite3-dev
-  
+
   # macOS
   brew install sqlite
-  
+
   # For PostgreSQL
   sudo apt-get install postgresql postgresql-contrib
   ```
@@ -133,7 +133,7 @@ OAUTH2_SERVER_HOST=127.0.0.1
 OAUTH2_SERVER_PORT=8080
 
 # Database Configuration
-OAUTH2_DATABASE_URL=sqlite:oauth2.db
+OAUTH2_DATABASE_URL=sqlite:oauth2.db?mode=rwc
 # For PostgreSQL:
 # OAUTH2_DATABASE_URL=postgresql://oauth2_user:your_password@localhost/oauth2_db
 # For MongoDB (requires building/running with `--features mongo`):
@@ -159,7 +159,7 @@ OAUTH2_OTLP_ENDPOINT=http://localhost:4317
 ```
 
 !!! warning "Security Notice"
-    Never commit the `.env` file or any files containing secrets to version control. The `.gitignore` file is already configured to exclude it.
+Never commit the `.env` file or any files containing secrets to version control. The `.gitignore` file is already configured to exclude it.
 
 ### 6. Build the Project
 

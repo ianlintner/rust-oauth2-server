@@ -287,7 +287,7 @@ server {
 # Database Configuration
 database {
   # SQLite (default)
-  url = "sqlite:oauth2.db"
+  url = "sqlite:oauth2.db?mode=rwc"
 
   # PostgreSQL
   # url = "postgresql://oauth2_user:password@localhost:5432/oauth2"
@@ -312,7 +312,7 @@ jwt {
 ```bash
 export OAUTH2_SERVER_HOST=127.0.0.1
 export OAUTH2_SERVER_PORT=8080
-export OAUTH2_DATABASE_URL=sqlite:oauth2.db
+export OAUTH2_DATABASE_URL=sqlite:oauth2.db?mode=rwc
 export OAUTH2_JWT_SECRET=your-secret-key-change-in-production
 ```
 
