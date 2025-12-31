@@ -4,8 +4,8 @@ use oauth2::{
 };
 use serde::Deserialize;
 
-use oauth2_core::OAuth2Error;
 use oauth2_config::ProviderConfig;
+use oauth2_core::OAuth2Error;
 
 use crate::models::SocialUserInfo;
 

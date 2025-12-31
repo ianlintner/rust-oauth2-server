@@ -4,7 +4,9 @@ use serde::Deserialize;
 
 use oauth2_observability::Metrics;
 
-use crate::actors::{AuthActor, CreateAuthorizationCode, CreateToken, TokenActor, ValidateAuthorizationCode};
+use crate::actors::{
+    AuthActor, CreateAuthorizationCode, CreateToken, TokenActor, ValidateAuthorizationCode,
+};
 use oauth2_core::{OAuth2Error, TokenResponse};
 
 #[derive(Debug, Deserialize)]

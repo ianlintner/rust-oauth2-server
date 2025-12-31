@@ -182,7 +182,10 @@ pub async fn run() -> std::io::Result<()> {
                         .clone()
                         .unwrap_or_else(oauth2_events::default_stream_name);
 
-                    let maxlen = config.events.redis_maxlen.or_else(oauth2_events::default_maxlen);
+                    let maxlen = config
+                        .events
+                        .redis_maxlen
+                        .or_else(oauth2_events::default_maxlen);
 
                     match oauth2_events::RedisStreamsEventPublisher::connect(&url, stream, maxlen)
                         .await
@@ -300,11 +303,10 @@ pub async fn run() -> std::io::Result<()> {
     });
 
     // Best-effort Phase 1 in-memory idempotency cache for ingest.
-    let ingest_idempotency = oauth2_actix::handlers::events::IdempotencyStore::new(
-        Duration::from_secs(5 * 60),
-    )
-    // Explicitly set to default to make it configurable without changing call sites.
-    .with_max_entries(100_000);
+    let ingest_idempotency =
+        oauth2_actix::handlers::events::IdempotencyStore::new(Duration::from_secs(5 * 60))
+            // Explicitly set to default to make it configurable without changing call sites.
+            .with_max_entries(100_000);
 
     // Start actors with event system
     let token_actor = if let Some(ref event_bus) = event_bus {
@@ -418,8 +420,7 @@ pub async fn run() -> std::io::Result<()> {
                             )
                             .route(
                                 "/microsoft",
-                                web::get()
-                                    .to(oauth2_social_login::handlers::auth::microsoft_login),
+                                web::get().to(oauth2_social_login::handlers::auth::microsoft_login),
                             )
                             .route(
                                 "/github",
@@ -427,8 +428,7 @@ pub async fn run() -> std::io::Result<()> {
                             )
                             .route(
                                 "/azure",
-                                web::get()
-                                    .to(oauth2_social_login::handlers::auth::microsoft_login),
+                                web::get().to(oauth2_social_login::handlers::auth::microsoft_login),
                             ) // Azure uses Microsoft endpoint
                             // NOTE: Okta and Auth0 handlers not yet implemented - buttons should be hidden in UI
                             // or implement proper handlers in handlers::auth module
@@ -502,9 +502,7 @@ pub async fn run() -> std::io::Result<()> {
                             )
                             .route(
                                 "/tokens/{id}/revoke",
-                                web::post().to(
-                                    oauth2_actix::handlers::admin::admin_revoke_token,
-                                ),
+                                web::post().to(oauth2_actix::handlers::admin::admin_revoke_token),
                             )
                             .route(
                                 "/clients/{id}",
@@ -541,8 +539,7 @@ pub async fn run() -> std::io::Result<()> {
             )
             // Swagger UI
             .service(
-                SwaggerUi::new("/swagger-ui/{_:.*}")
-                    .url("/api-docs/openapi.json", openapi.clone()),
+                SwaggerUi::new("/swagger-ui/{_:.*}").url("/api-docs/openapi.json", openapi.clone()),
             )
             // Static files
             .service(Files::new("/static", "./static"))

@@ -4,8 +4,8 @@ async fn storage_factory_rejects_mongo_without_feature() {
     // It ensures we fail fast with a clear error message.
     #[cfg(not(feature = "mongo"))]
     {
-        let result = oauth2_storage_factory::create_storage("mongodb://localhost:27017/oauth2_test")
-            .await;
+        let result =
+            oauth2_storage_factory::create_storage("mongodb://localhost:27017/oauth2_test").await;
 
         assert!(
             result.is_err(),
