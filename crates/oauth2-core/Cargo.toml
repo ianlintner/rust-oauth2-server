@@ -1,0 +1,31 @@
+[package]
+name = "oauth2-core"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "Core domain types and logic for rust-oauth2-server (framework-agnostic)"
+repository = "https://github.com/ianlintner/rust-oauth2_server"
+
+[features]
+# Optional integrations
+default = []
+sqlx = ["dep:sqlx"]
+openapi = ["dep:utoipa"]
+actix = ["dep:actix-web"]
+
+[dependencies]
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1.6", features = ["v4", "serde"] }
+jsonwebtoken = { version = "10.2", features = ["rust_crypto"] }
+
+# Crypto / helpers used by PKCE
+sha2 = "0.10"
+base64 = "0.22"
+
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Optional: DB and web framework integrations used only for derives / error mapping
+sqlx = { version = "0.8", default-features = false, optional = true }
+utoipa = { version = "5.4", optional = true }
+actix-web = { version = "4.4", optional = true }
