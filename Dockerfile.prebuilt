@@ -6,12 +6,15 @@ FROM debian:trixie-slim
 
 WORKDIR /app
 
+# Provided by BuildKit/buildx when building multi-platform images.
+ARG TARGETARCH
+
 RUN apt-get update && apt-get install -y \
     ca-certificates \
     libssl3 \
     && rm -rf /var/lib/apt/lists/*
 
-COPY target/release/rust_oauth2_server /app/rust_oauth2_server
+COPY target/release/rust_oauth2_server-${TARGETARCH} /app/rust_oauth2_server
 RUN chmod +x /app/rust_oauth2_server
 
 COPY templates ./templates

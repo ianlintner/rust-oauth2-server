@@ -2,14 +2,14 @@ name: CI/CD Pipeline
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [main, develop]
     tags:
-      - '*.*.*'
-      - 'v*.*.*'
-      - '*.*.*-*'
-      - 'v*.*.*-*'
+      - "*.*.*"
+      - "v*.*.*"
+      - "*.*.*-*"
+      - "v*.*.*-*"
   pull_request:
-    branches: [ main, develop ]
+    branches: [main, develop]
 
 env:
   CARGO_TERM_COLOR: always
@@ -42,7 +42,7 @@ jobs:
           toolchain: stable
           components: rustfmt, clippy
           cache-key: ci
-          install-system-deps: 'true'
+          install-system-deps: "true"
 
       - name: Job summary
         run: echo "- ✅ Rust toolchain + cache (2/7)" >> "$GITHUB_STEP_SUMMARY"
@@ -65,19 +65,39 @@ jobs:
       - name: Job summary
         run: echo "- ✅ cargo test (5/7)" >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Build release binary (cached)
+      - name: Install cross (for arm64 builds)
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cross
+
+      - name: Build release binary (linux/amd64)
         run: |
           cargo build --release --locked
           test -f target/release/rust_oauth2_server
+          cp target/release/rust_oauth2_server target/release/rust_oauth2_server-amd64
+
+      - name: Build release binary (linux/arm64)
+        run: |
+          cross build --release --locked --target aarch64-unknown-linux-gnu
+          test -f target/aarch64-unknown-linux-gnu/release/rust_oauth2_server
+          mkdir -p target/release
+          cp target/aarch64-unknown-linux-gnu/release/rust_oauth2_server target/release/rust_oauth2_server-arm64
 
       - name: Job summary
         run: echo "- ✅ cargo build --release (6/7)" >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Upload release binary artifact
+      - name: Upload release binary artifact (linux/amd64)
         uses: actions/upload-artifact@v4
         with:
           name: rust_oauth2_server-linux-amd64
-          path: target/release/rust_oauth2_server
+          path: target/release/rust_oauth2_server-amd64
+          if-no-files-found: error
+
+      - name: Upload release binary artifact (linux/arm64)
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust_oauth2_server-linux-arm64
+          path: target/release/rust_oauth2_server-arm64
           if-no-files-found: error
 
       - name: Job summary (final)
@@ -109,7 +129,7 @@ jobs:
         with:
           toolchain: stable
           cache-key: security
-          install-system-deps: 'true'
+          install-system-deps: "true"
 
       - name: Job summary
         run: echo "- ✅ Rust toolchain + cache (2/4)" >> "$GITHUB_STEP_SUMMARY"
@@ -162,7 +182,7 @@ jobs:
         with:
           toolchain: stable
           cache-key: coverage
-          install-system-deps: 'true'
+          install-system-deps: "true"
 
       - name: Job summary
         run: echo "- ✅ Rust toolchain + cache (2/4)" >> "$GITHUB_STEP_SUMMARY"
@@ -227,7 +247,7 @@ jobs:
         with:
           toolchain: stable
           cache-key: integration
-          install-system-deps: 'true'
+          install-system-deps: "true"
 
       - name: Job summary
         run: echo "- ✅ Rust toolchain + cache (2/4)" >> "$GITHUB_STEP_SUMMARY"
@@ -280,7 +300,7 @@ jobs:
         with:
           toolchain: stable
           cache-key: mongo-storage
-          install-system-deps: 'true'
+          install-system-deps: "true"
 
       - name: Job summary
         run: echo "- ✅ Rust toolchain + cache (2/3)" >> "$GITHUB_STEP_SUMMARY"
@@ -318,17 +338,23 @@ jobs:
             echo "- ✅ Checkout (1/8)"
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Download prebuilt server binary
+      - name: Download prebuilt server binaries
         uses: actions/download-artifact@v4
         with:
           name: rust_oauth2_server-linux-amd64
           path: target/release
 
+      - name: Download prebuilt server binary (arm64)
+        uses: actions/download-artifact@v4
+        with:
+          name: rust_oauth2_server-linux-arm64
+          path: target/release
+
       - name: Job summary
         run: echo "- ✅ Download binary (2/8)" >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Ensure binary is executable
-        run: chmod +x target/release/rust_oauth2_server
+      - name: Ensure binaries are executable
+        run: chmod +x target/release/rust_oauth2_server-amd64 target/release/rust_oauth2_server-arm64
 
       - name: Job summary
         run: echo "- ✅ Binary prepared (3/8)" >> "$GITHUB_STEP_SUMMARY"
@@ -440,17 +466,23 @@ jobs:
             echo "- ✅ Checkout (1/6)"
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Download prebuilt server binary
+      - name: Download prebuilt server binaries
         uses: actions/download-artifact@v4
         with:
           name: rust_oauth2_server-linux-amd64
           path: target/release
 
+      - name: Download prebuilt server binary (arm64)
+        uses: actions/download-artifact@v4
+        with:
+          name: rust_oauth2_server-linux-arm64
+          path: target/release
+
       - name: Job summary
         run: echo "- ✅ Download binary (2/6)" >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Ensure binary is executable
-        run: chmod +x target/release/rust_oauth2_server
+      - name: Ensure binaries are executable
+        run: chmod +x target/release/rust_oauth2_server-amd64 target/release/rust_oauth2_server-arm64
 
       - name: Job summary
         run: echo "- ✅ Binary prepared (3/6)" >> "$GITHUB_STEP_SUMMARY"
@@ -540,12 +572,31 @@ jobs:
           context: .
           push: true
           file: Dockerfile.prebuilt
+          platforms: linux/amd64,linux/arm64
           tags: |
             ${{ steps.meta_ghcr.outputs.tags }}
             ${{ steps.meta_dockerhub.outputs.tags }}
           labels: ${{ steps.meta_ghcr.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Validate multi-arch manifest (GHCR)
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "${{ startsWith(github.ref, 'refs/tags/') }}" == "true" ]]; then
+            tag="${{ env.IMAGE_VERSION }}"
+          else
+            tag="latest"
+          fi
+
+          image="ghcr.io/${{ github.repository_owner }}/oauth2-server:${tag}"
+          echo "Inspecting manifest for: $image"
+
+          docker buildx imagetools inspect "$image" | tee /tmp/imagetools.txt
+          grep -Eqi 'linux/amd64' /tmp/imagetools.txt
+          grep -Eqi 'linux/arm64' /tmp/imagetools.txt
 
       - name: Job summary (final)
         if: always()
@@ -584,7 +635,7 @@ jobs:
         with:
           toolchain: stable
           cache-key: docs
-          install-system-deps: 'true'
+          install-system-deps: "true"
 
       - name: Job summary
         run: echo "- ✅ Rust toolchain + cache (2/6)" >> "$GITHUB_STEP_SUMMARY"
@@ -598,7 +649,7 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.11'
+          python-version: "3.11"
 
       - name: Cache pip
         uses: actions/cache@v4
@@ -684,7 +735,7 @@ jobs:
           if [ "${{ needs.coverage.result }}" = "failure" ]; then
             echo "⚠️  Coverage job failed (informational only)"
           fi
-          
+
           # Only fail on critical job failures
           if [ "${{ needs.ci.result }}" != "success" ] || \
              [ "${{ needs.integration.result }}" != "success" ] || \
