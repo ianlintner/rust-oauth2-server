@@ -1,0 +1,96 @@
+name: Release (bump version + tag)
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release (e.g., 0.1.2 or v0.1.2)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Bump Cargo.toml + tag
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Normalize + validate version
+        id: ver
+        shell: bash
+        run: |
+          set -euo pipefail
+          input='${{ inputs.version }}'
+          version="${input#v}"
+
+          # Semver-ish: 1.2.3, optionally with -rc.1 or +build.7 etc.
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]; then
+            echo "Invalid version: '$input' (normalized: '$version')" >&2
+            exit 1
+          fi
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+
+      - name: Fail if tag already exists
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag='${{ steps.ver.outputs.tag }}'
+          if git rev-parse -q --verify "refs/tags/${tag}" >/dev/null; then
+            echo "Tag already exists: ${tag}" >&2
+            exit 1
+          fi
+
+      - name: Bump root Cargo.toml version
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/bump_cargo_version.py --file Cargo.toml --version '${{ steps.ver.outputs.version }}'
+
+      - name: Commit version bump to main
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if git diff --quiet; then
+            echo "No changes detected after bump; refusing to tag." >&2
+            exit 1
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add Cargo.toml
+          git commit -m "chore(release): bump version to ${{ steps.ver.outputs.version }}"
+          git push origin main
+
+      - name: Create and push tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag='${{ steps.ver.outputs.tag }}'
+          git tag -a "$tag" -m "$tag"
+          git push origin "$tag"
+
+      - name: Job summary
+        run: |
+          {
+            echo "## Release created"
+            echo
+            echo "- Version: `${{ steps.ver.outputs.version }}`"
+            echo "- Tag: `${{ steps.ver.outputs.tag }}`"
+            echo "- Cargo.toml updated + committed to main, then tag pushed."
+          } >> "$GITHUB_STEP_SUMMARY"
