@@ -28,7 +28,8 @@ pub mod mongo {
 /// - `postgres://...` and `sqlite:...` -> SQLx backend
 /// - `mongodb://...` and `mongodb+srv://...` -> Mongo backend (requires `--features mongo`)
 pub async fn create_storage(database_url: &str) -> Result<DynStorage, OAuth2Error> {
-    let is_mongo = database_url.starts_with("mongodb://") || database_url.starts_with("mongodb+srv://");
+    let is_mongo =
+        database_url.starts_with("mongodb://") || database_url.starts_with("mongodb+srv://");
 
     if is_mongo {
         #[cfg(feature = "mongo")]
