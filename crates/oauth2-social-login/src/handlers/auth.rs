@@ -181,9 +181,8 @@ async fn handle_google_callback(
     let client = SocialLoginService::get_google_client(provider_config)?;
 
     // oauth2 implements its async HTTP client trait for reqwest 0.12.
-    // We intentionally use a dedicated 0.12 client here (see Cargo.toml `oauth2_reqwest`)
-    // while the rest of the app uses reqwest 0.13.
-    let http_client = oauth2_reqwest::Client::new();
+    // We standardize on reqwest 0.12 (rustls) here to keep cross-compilation (arm64) OpenSSL-free.
+    let http_client = reqwest::Client::new();
     let token_result = client
         .exchange_code(AuthorizationCode::new(code.to_string()))
         .request_async(&http_client)
@@ -205,7 +204,7 @@ async fn handle_microsoft_callback(
 
     let client = SocialLoginService::get_microsoft_client(provider_config)?;
 
-    let http_client = oauth2_reqwest::Client::new();
+    let http_client = reqwest::Client::new();
     let token_result = client
         .exchange_code(AuthorizationCode::new(code.to_string()))
         .request_async(&http_client)
@@ -227,7 +226,7 @@ async fn handle_github_callback(
 
     let client = SocialLoginService::get_github_client(provider_config)?;
 
-    let http_client = oauth2_reqwest::Client::new();
+    let http_client = reqwest::Client::new();
     let token_result = client
         .exchange_code(AuthorizationCode::new(code.to_string()))
         .request_async(&http_client)

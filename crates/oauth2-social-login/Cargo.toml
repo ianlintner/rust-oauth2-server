@@ -15,7 +15,6 @@ actix-session = { version = "0.11", features = ["cookie-session"] }
 # OAuth2 + HTTP
 oauth2 = "5.0"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
-oauth2_reqwest = { package = "reqwest", version = "0.12", default-features = false, features = ["rustls-tls"] }
 
 # Serde
 serde = { version = "1.0", features = ["derive"] }
