@@ -76,12 +76,42 @@ jobs:
           test -f target/release/rust_oauth2_server
           cp target/release/rust_oauth2_server target/release/rust_oauth2_server-amd64
 
+      - name: Build release binary (linux/amd64, mongo feature)
+        if: github.event_name == 'push' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) || startsWith(github.ref, 'refs/tags/'))
+        run: |
+          cargo build --release --locked --features mongo
+          test -f target/release/rust_oauth2_server
+          cp target/release/rust_oauth2_server target/release/rust_oauth2_server-mongo-amd64
+
+      - name: Build release binary (linux/amd64, mongo-only; no SQLx)
+        if: github.event_name == 'push' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) || startsWith(github.ref, 'refs/tags/'))
+        run: |
+          cargo build --release --locked --no-default-features --features mongo
+          test -f target/release/rust_oauth2_server
+          cp target/release/rust_oauth2_server target/release/rust_oauth2_server-mongo-only-amd64
+
       - name: Build release binary (linux/arm64)
         run: |
           cross build --release --locked --target aarch64-unknown-linux-gnu
           test -f target/aarch64-unknown-linux-gnu/release/rust_oauth2_server
           mkdir -p target/release
           cp target/aarch64-unknown-linux-gnu/release/rust_oauth2_server target/release/rust_oauth2_server-arm64
+
+      - name: Build release binary (linux/arm64, mongo feature)
+        if: github.event_name == 'push' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) || startsWith(github.ref, 'refs/tags/'))
+        run: |
+          cross build --release --locked --target aarch64-unknown-linux-gnu --features mongo
+          test -f target/aarch64-unknown-linux-gnu/release/rust_oauth2_server
+          mkdir -p target/release
+          cp target/aarch64-unknown-linux-gnu/release/rust_oauth2_server target/release/rust_oauth2_server-mongo-arm64
+
+      - name: Build release binary (linux/arm64, mongo-only; no SQLx)
+        if: github.event_name == 'push' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) || startsWith(github.ref, 'refs/tags/'))
+        run: |
+          cross build --release --locked --target aarch64-unknown-linux-gnu --no-default-features --features mongo
+          test -f target/aarch64-unknown-linux-gnu/release/rust_oauth2_server
+          mkdir -p target/release
+          cp target/aarch64-unknown-linux-gnu/release/rust_oauth2_server target/release/rust_oauth2_server-mongo-only-arm64
 
       - name: Job summary
         run: echo "- ✅ cargo build --release (6/7)" >> "$GITHUB_STEP_SUMMARY"
@@ -93,11 +123,43 @@ jobs:
           path: target/release/rust_oauth2_server-amd64
           if-no-files-found: error
 
+      - name: Upload release binary artifact (linux/amd64, mongo feature)
+        if: github.event_name == 'push' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) || startsWith(github.ref, 'refs/tags/'))
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust_oauth2_server-mongo-linux-amd64
+          path: target/release/rust_oauth2_server-mongo-amd64
+          if-no-files-found: error
+
+      - name: Upload release binary artifact (linux/amd64, mongo-only; no SQLx)
+        if: github.event_name == 'push' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) || startsWith(github.ref, 'refs/tags/'))
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust_oauth2_server-mongo-only-linux-amd64
+          path: target/release/rust_oauth2_server-mongo-only-amd64
+          if-no-files-found: error
+
       - name: Upload release binary artifact (linux/arm64)
         uses: actions/upload-artifact@v4
         with:
           name: rust_oauth2_server-linux-arm64
           path: target/release/rust_oauth2_server-arm64
+          if-no-files-found: error
+
+      - name: Upload release binary artifact (linux/arm64, mongo feature)
+        if: github.event_name == 'push' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) || startsWith(github.ref, 'refs/tags/'))
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust_oauth2_server-mongo-linux-arm64
+          path: target/release/rust_oauth2_server-mongo-arm64
+          if-no-files-found: error
+
+      - name: Upload release binary artifact (linux/arm64, mongo-only; no SQLx)
+        if: github.event_name == 'push' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) || startsWith(github.ref, 'refs/tags/'))
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust_oauth2_server-mongo-only-linux-arm64
+          path: target/release/rust_oauth2_server-mongo-only-arm64
           if-no-files-found: error
 
       - name: Job summary (final)
@@ -496,11 +558,42 @@ jobs:
           name: rust_oauth2_server-linux-arm64
           path: target/release
 
+      - name: Download prebuilt server binaries (mongo feature)
+        uses: actions/download-artifact@v4
+        with:
+          name: rust_oauth2_server-mongo-linux-amd64
+          path: target/release
+
+      - name: Download prebuilt server binary (arm64, mongo feature)
+        uses: actions/download-artifact@v4
+        with:
+          name: rust_oauth2_server-mongo-linux-arm64
+          path: target/release
+
+      - name: Download prebuilt server binaries (mongo-only; no SQLx)
+        uses: actions/download-artifact@v4
+        with:
+          name: rust_oauth2_server-mongo-only-linux-amd64
+          path: target/release
+
+      - name: Download prebuilt server binary (arm64, mongo-only; no SQLx)
+        uses: actions/download-artifact@v4
+        with:
+          name: rust_oauth2_server-mongo-only-linux-arm64
+          path: target/release
+
       - name: Job summary
         run: echo "- ✅ Download binary (2/6)" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Ensure binaries are executable
-        run: chmod +x target/release/rust_oauth2_server-amd64 target/release/rust_oauth2_server-arm64
+        run: |
+          chmod +x \
+            target/release/rust_oauth2_server-amd64 \
+            target/release/rust_oauth2_server-arm64 \
+            target/release/rust_oauth2_server-mongo-amd64 \
+            target/release/rust_oauth2_server-mongo-arm64 \
+            target/release/rust_oauth2_server-mongo-only-amd64 \
+            target/release/rust_oauth2_server-mongo-only-arm64
 
       - name: Job summary
         run: echo "- ✅ Binary prepared (3/6)" >> "$GITHUB_STEP_SUMMARY"
@@ -569,6 +662,34 @@ jobs:
             # Tag publishes: versioned image (e.g., 0.0.1)
             type=raw,value=${{ env.IMAGE_VERSION }},enable=${{ startsWith(github.ref, 'refs/tags/') }}
 
+      - name: Extract metadata (GHCR, mongo)
+        id: meta_ghcr_mongo
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ghcr.io/${{ github.repository_owner }}/oauth2-server
+          tags: |
+            # Main branch publishes: latest-mongo + commit SHA suffix
+            type=raw,value=latest-mongo,enable=${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+            type=sha,format=short,suffix=-mongo,enable=${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+
+            # Tag publishes: versioned image (e.g., 0.0.1-mongo)
+            type=raw,value=${{ env.IMAGE_VERSION }}-mongo,enable=${{ startsWith(github.ref, 'refs/tags/') }}
+
+      - name: Extract metadata (GHCR, mongo-only)
+        id: meta_ghcr_mongo_only
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ghcr.io/${{ github.repository_owner }}/oauth2-server
+          tags: |
+            # Main branch publishes: latest-mongo-only + commit SHA suffix
+            type=raw,value=latest-mongo-only,enable=${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+            type=sha,format=short,suffix=-mongo-only,enable=${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+
+            # Tag publishes: versioned image (e.g., 0.0.1-mongo-only)
+            type=raw,value=${{ env.IMAGE_VERSION }}-mongo-only,enable=${{ startsWith(github.ref, 'refs/tags/') }}
+
       - name: Extract metadata (Docker Hub)
         if: steps.publish.outputs.dockerhub == 'true'
         id: meta_dockerhub
@@ -584,6 +705,36 @@ jobs:
             # Tag publishes: versioned image (e.g., 0.0.1)
             type=raw,value=${{ env.IMAGE_VERSION }},enable=${{ startsWith(github.ref, 'refs/tags/') }}
 
+      - name: Extract metadata (Docker Hub, mongo)
+        if: steps.publish.outputs.dockerhub == 'true'
+        id: meta_dockerhub_mongo
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            docker.io/${{ secrets.DOCKER_USERNAME }}/oauth2-server
+          tags: |
+            # Main branch publishes: latest-mongo + commit SHA suffix
+            type=raw,value=latest-mongo,enable=${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+            type=sha,format=short,suffix=-mongo,enable=${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+
+            # Tag publishes: versioned image (e.g., 0.0.1-mongo)
+            type=raw,value=${{ env.IMAGE_VERSION }}-mongo,enable=${{ startsWith(github.ref, 'refs/tags/') }}
+
+      - name: Extract metadata (Docker Hub, mongo-only)
+        if: steps.publish.outputs.dockerhub == 'true'
+        id: meta_dockerhub_mongo_only
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            docker.io/${{ secrets.DOCKER_USERNAME }}/oauth2-server
+          tags: |
+            # Main branch publishes: latest-mongo-only + commit SHA suffix
+            type=raw,value=latest-mongo-only,enable=${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+            type=sha,format=short,suffix=-mongo-only,enable=${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+
+            # Tag publishes: versioned image (e.g., 0.0.1-mongo-only)
+            type=raw,value=${{ env.IMAGE_VERSION }}-mongo-only,enable=${{ startsWith(github.ref, 'refs/tags/') }}
+
       - name: Build and Push
         uses: docker/build-push-action@v5
         with:
@@ -595,6 +746,38 @@ jobs:
             ${{ steps.meta_ghcr.outputs.tags }}
             ${{ steps.meta_dockerhub.outputs.tags }}
           labels: ${{ steps.meta_ghcr.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and Push (mongo image)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          file: Dockerfile.prebuilt
+          platforms: linux/amd64,linux/arm64
+          build-args: |
+            BINARY_SUFFIX=-mongo
+          tags: |
+            ${{ steps.meta_ghcr_mongo.outputs.tags }}
+            ${{ steps.meta_dockerhub_mongo.outputs.tags }}
+          labels: ${{ steps.meta_ghcr_mongo.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and Push (mongo-only image; no SQLx)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          file: Dockerfile.prebuilt
+          platforms: linux/amd64,linux/arm64
+          build-args: |
+            BINARY_SUFFIX=-mongo-only
+          tags: |
+            ${{ steps.meta_ghcr_mongo_only.outputs.tags }}
+            ${{ steps.meta_dockerhub_mongo_only.outputs.tags }}
+          labels: ${{ steps.meta_ghcr_mongo_only.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -615,6 +798,99 @@ jobs:
           docker buildx imagetools inspect "$image" | tee /tmp/imagetools.txt
           grep -Eqi 'linux/amd64' /tmp/imagetools.txt
           grep -Eqi 'linux/arm64' /tmp/imagetools.txt
+
+      - name: Validate multi-arch manifest (GHCR, mongo)
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "${{ startsWith(github.ref, 'refs/tags/') }}" == "true" ]]; then
+            tag="${{ env.IMAGE_VERSION }}-mongo"
+          else
+            tag="latest-mongo"
+          fi
+
+          image="ghcr.io/${{ github.repository_owner }}/oauth2-server:${tag}"
+          echo "Inspecting manifest for: $image"
+
+          docker buildx imagetools inspect "$image" | tee /tmp/imagetools-mongo.txt
+          grep -Eqi 'linux/amd64' /tmp/imagetools-mongo.txt
+          grep -Eqi 'linux/arm64' /tmp/imagetools-mongo.txt
+
+      - name: Validate multi-arch manifest (GHCR, mongo-only)
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "${{ startsWith(github.ref, 'refs/tags/') }}" == "true" ]]; then
+            tag="${{ env.IMAGE_VERSION }}-mongo-only"
+          else
+            tag="latest-mongo-only"
+          fi
+
+          image="ghcr.io/${{ github.repository_owner }}/oauth2-server:${tag}"
+          echo "Inspecting manifest for: $image"
+
+          docker buildx imagetools inspect "$image" | tee /tmp/imagetools-mongo-only.txt
+          grep -Eqi 'linux/amd64' /tmp/imagetools-mongo-only.txt
+          grep -Eqi 'linux/arm64' /tmp/imagetools-mongo-only.txt
+
+      - name: Validate multi-arch manifest (Docker Hub)
+        if: steps.publish.outputs.dockerhub == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "${{ startsWith(github.ref, 'refs/tags/') }}" == "true" ]]; then
+            tag="${{ env.IMAGE_VERSION }}"
+          else
+            tag="latest"
+          fi
+
+          image="docker.io/${{ secrets.DOCKER_USERNAME }}/oauth2-server:${tag}"
+          echo "Inspecting manifest for: $image"
+
+          docker buildx imagetools inspect "$image" | tee /tmp/imagetools-dockerhub.txt
+          grep -Eqi 'linux/amd64' /tmp/imagetools-dockerhub.txt
+          grep -Eqi 'linux/arm64' /tmp/imagetools-dockerhub.txt
+
+      - name: Validate multi-arch manifest (Docker Hub, mongo)
+        if: steps.publish.outputs.dockerhub == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "${{ startsWith(github.ref, 'refs/tags/') }}" == "true" ]]; then
+            tag="${{ env.IMAGE_VERSION }}-mongo"
+          else
+            tag="latest-mongo"
+          fi
+
+          image="docker.io/${{ secrets.DOCKER_USERNAME }}/oauth2-server:${tag}"
+          echo "Inspecting manifest for: $image"
+
+          docker buildx imagetools inspect "$image" | tee /tmp/imagetools-dockerhub-mongo.txt
+          grep -Eqi 'linux/amd64' /tmp/imagetools-dockerhub-mongo.txt
+          grep -Eqi 'linux/arm64' /tmp/imagetools-dockerhub-mongo.txt
+
+      - name: Validate multi-arch manifest (Docker Hub, mongo-only)
+        if: steps.publish.outputs.dockerhub == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "${{ startsWith(github.ref, 'refs/tags/') }}" == "true" ]]; then
+            tag="${{ env.IMAGE_VERSION }}-mongo-only"
+          else
+            tag="latest-mongo-only"
+          fi
+
+          image="docker.io/${{ secrets.DOCKER_USERNAME }}/oauth2-server:${tag}"
+          echo "Inspecting manifest for: $image"
+
+          docker buildx imagetools inspect "$image" | tee /tmp/imagetools-dockerhub-mongo-only.txt
+          grep -Eqi 'linux/amd64' /tmp/imagetools-dockerhub-mongo-only.txt
+          grep -Eqi 'linux/arm64' /tmp/imagetools-dockerhub-mongo-only.txt
 
       - name: Job summary (final)
         if: always()

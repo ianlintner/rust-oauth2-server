@@ -28,14 +28,14 @@ members = [
 # Extracted reusable crates
 oauth2-actix = { path = "crates/oauth2-actix" }
 oauth2-config = { path = "crates/oauth2-config" }
-oauth2-core = { path = "crates/oauth2-core", features = ["actix", "sqlx", "openapi"] }
+oauth2-core = { path = "crates/oauth2-core", features = ["actix", "openapi"] }
 oauth2-events = { path = "crates/oauth2-events" }
 oauth2-openapi = { path = "crates/oauth2-openapi" }
 oauth2-observability = { path = "crates/oauth2-observability", features = ["actix"] }
 oauth2-ports = { path = "crates/oauth2-ports" }
 oauth2-social-login = { path = "crates/oauth2-social-login" }
-oauth2-server = { path = "crates/oauth2-server" }
-oauth2-storage-factory = { path = "crates/oauth2-storage-factory" }
+oauth2-server = { path = "crates/oauth2-server", default-features = false }
+oauth2-storage-factory = { path = "crates/oauth2-storage-factory", default-features = false }
 
 # Used by `src/bin/export_openapi.rs`.
 serde_json = "1.0"
@@ -45,8 +45,13 @@ utoipa = "5"
 actix-rt = "2.9"
 
 [features]
-# Keep the default build lightweight: SQL backends only.
-default = []
+# Default behavior remains the same: SQL backends are available (SQLite/Postgres via SQLx).
+default = ["sqlx"]
+
+# SQL-backed storage (SQLite/Postgres) via SQLx.
+sqlx = ["oauth2-core/sqlx", "oauth2-server/sqlx", "oauth2-storage-factory/sqlx"]
+
+# Optional MongoDB storage backend.
 mongo = ["oauth2-server/mongo", "oauth2-storage-factory/mongo"]
 
 # Optional eventing backends (Phase 1 best-effort)

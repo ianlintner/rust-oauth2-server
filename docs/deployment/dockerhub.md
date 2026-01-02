@@ -10,7 +10,15 @@ If you’re looking for “clone + build”, see [Docker](docker.md).
 
 Examples below use:
 
-- `ianlintner/rust-oauth2-server:latest`
+- `ianlintner068/oauth2-server:latest`
+
+Mongo-enabled prebuilt image:
+
+- `ianlintner068/oauth2-server:latest-mongo`
+
+Mongo-only (no SQLx/SQL support compiled in):
+
+- `ianlintner068/oauth2-server:latest-mongo-only`
 
 If you publish under a different name, substitute accordingly.
 
@@ -27,7 +35,7 @@ docker run --rm -p 8080:8080 \
   -e OAUTH2_JWT_SECRET="$(openssl rand -hex 32)" \
   -e OAUTH2_SESSION_KEY="$(openssl rand -hex 64)" \
   -v oauth2_data:/app/data \
-  ianlintner/rust-oauth2-server:latest
+  ianlintner068/oauth2-server:latest
 ```
 
 ### Verify
@@ -70,7 +78,7 @@ openssl rand -hex 64
 ```yaml
 services:
   oauth2:
-    image: ianlintner/rust-oauth2-server:latest
+    image: ianlintner068/oauth2-server:latest
     ports:
       - "8080:8080"
     environment:
@@ -94,6 +102,39 @@ Postgres is supported, but the server expects the schema to be created by **Flyw
 If you want Postgres with migrations and _still no compiling_, use the repository’s compose stack (Postgres + Flyway) and point the server service at the Docker Hub image.
 
 Repository: https://github.com/ianlintner/rust-oauth2-server
+
+## MongoDB (prebuilt)
+
+Mongo support is feature-gated in the Rust build. Use the `*-mongo` image tag when you want to run against MongoDB.
+
+### Docker Compose example (MongoDB)
+
+```yaml
+services:
+  mongo:
+    image: mongo:7
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+
+  oauth2:
+    image: ianlintner068/oauth2-server:latest-mongo
+    ports:
+      - "8080:8080"
+    environment:
+      OAUTH2_SERVER_HOST: 0.0.0.0
+      OAUTH2_SERVER_PORT: 8080
+      OAUTH2_DATABASE_URL: mongodb://mongo:27017/oauth2
+      OAUTH2_JWT_SECRET: ${OAUTH2_JWT_SECRET}
+      OAUTH2_SESSION_KEY: ${OAUTH2_SESSION_KEY}
+      RUST_LOG: info
+    depends_on:
+      - mongo
+
+volumes:
+  mongo_data:
+```
 
 ## Optional: config file (`application.conf`)
 

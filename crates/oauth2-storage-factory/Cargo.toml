@@ -7,12 +7,15 @@ license = "MIT OR Apache-2.0"
 description = "Storage backend factory and adapter selection for the OAuth2 server"
 
 [dependencies]
-oauth2-core = { path = "../oauth2-core", features = ["sqlx"] }
+oauth2-core = { path = "../oauth2-core" }
 oauth2-ports = { path = "../oauth2-ports" }
 oauth2-observability = { path = "../oauth2-observability" }
-oauth2-storage-sqlx = { path = "../oauth2-storage-sqlx" }
+oauth2-storage-sqlx = { path = "../oauth2-storage-sqlx", optional = true }
 oauth2-storage-mongo = { path = "../oauth2-storage-mongo", optional = true }
 
 [features]
-default = []
+default = ["sqlx"]
+
+# SQL-backed storage (SQLite/Postgres) via SQLx.
+sqlx = ["dep:oauth2-storage-sqlx", "oauth2-core/sqlx"]
 mongo = ["dep:oauth2-storage-mongo"]

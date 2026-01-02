@@ -4,7 +4,7 @@ A production-ready OAuth2 authorization server built with Rust + Actix-web.
 
 This page is written for **Docker Hub users** who want to run the server **without compiling**.
 
-> Image name used in examples: `ianlintner/rust-oauth2-server`
+> Image name used in examples: `ianlintner068/oauth2-server`
 >
 > If you publish under a different namespace/name, replace it everywhere below.
 
@@ -40,7 +40,7 @@ docker run --rm -p 8080:8080 \
   -e RUST_LOG=info \
   -v oauth2_data:/app/data \
   --name rust-oauth2-server \
-  ianlintner/rust-oauth2-server:latest
+  ianlintner068/oauth2-server:latest
 ```
 
 The first start will create `/app/data/oauth2.db` automatically.
@@ -50,7 +50,7 @@ The first start will create `/app/data/oauth2.db` automatically.
 ```yaml
 services:
   oauth2:
-    image: ianlintner/rust-oauth2-server:latest
+    image: ianlintner068/oauth2-server:latest
     ports:
       - "8080:8080"
     environment:
@@ -103,7 +103,7 @@ If you prefer a config file, mount one to `/app/application.conf`:
 docker run --rm -p 8080:8080 \
   -v "$PWD/application.conf:/app/application.conf:ro" \
   -e OAUTH2_JWT_SECRET="$(openssl rand -hex 32)" \
-  ianlintner/rust-oauth2-server:latest
+  ianlintner068/oauth2-server:latest
 ```
 
 The `application.conf` format is HOCON and supports environment substitution.
@@ -127,7 +127,45 @@ Repository: https://github.com/ianlintner/rust-oauth2-server
 - **JWT secret warnings**: if you don’t set `OAUTH2_JWT_SECRET`, the server will start with an insecure default intended only for testing.
 - **Session key format**: `OAUTH2_SESSION_KEY` must be hex. Use `openssl rand -hex 64`.
 - **SQLite persistence**: mount `/app/data` (or another directory) and point `OAUTH2_DATABASE_URL` at that path.
-- **MongoDB**: Mongo support is feature-gated in the Rust build. The default prebuilt image is typically built **without** Mongo; use SQLite or Postgres.
+- **MongoDB**: Mongo support is feature-gated in the Rust build.
+  - Default image (no Mongo): `:latest` (or `:<version>`)
+  - Mongo-enabled image: `:latest-mongo` (or `:<version>-mongo`)
+  - Mongo-only image (no SQLx/SQL support): `:latest-mongo-only` (or `:<version>-mongo-only`)
+
+## MongoDB (prebuilt image)
+
+Use the mongo-enabled tag and point `OAUTH2_DATABASE_URL` at a MongoDB connection string.
+
+If you specifically want a build with **no SQLx/SQL support compiled in**, use the `*-mongo-only` tag.
+
+### Docker Compose (MongoDB)
+
+```yaml
+services:
+  mongo:
+    image: mongo:7
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+
+  oauth2:
+    image: ianlintner068/oauth2-server:latest-mongo
+    ports:
+      - "8080:8080"
+    environment:
+      OAUTH2_SERVER_HOST: 0.0.0.0
+      OAUTH2_SERVER_PORT: 8080
+      OAUTH2_DATABASE_URL: mongodb://mongo:27017/oauth2
+      OAUTH2_JWT_SECRET: ${OAUTH2_JWT_SECRET}
+      OAUTH2_SESSION_KEY: ${OAUTH2_SESSION_KEY}
+      RUST_LOG: info
+    depends_on:
+      - mongo
+
+volumes:
+  mongo_data:
+```
 
 ## Source
 
