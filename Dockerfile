@@ -23,6 +23,7 @@ FROM chef AS planner
 
 # Only copy the manifests first so changes to app source don't bust the dependency cache.
 COPY Cargo.toml Cargo.lock ./
+COPY crates ./crates
 COPY tests ./tests
 RUN cargo chef prepare --recipe-path recipe.json
 
