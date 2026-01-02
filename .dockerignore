@@ -5,6 +5,10 @@ target/release/*
 !target/release/rust_oauth2_server
 !target/release/rust_oauth2_server-amd64
 !target/release/rust_oauth2_server-arm64
+!target/release/rust_oauth2_server-mongo-amd64
+!target/release/rust_oauth2_server-mongo-arm64
+!target/release/rust_oauth2_server-mongo-only-amd64
+!target/release/rust_oauth2_server-mongo-only-arm64
 **/*.rs.bk
 
 # Git / CI
