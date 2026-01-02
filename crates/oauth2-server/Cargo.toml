@@ -14,7 +14,7 @@ oauth2-events = { path = "../oauth2-events" }
 oauth2-observability = { path = "../oauth2-observability", features = ["actix"] }
 oauth2-openapi = { path = "../oauth2-openapi" }
 oauth2-social-login = { path = "../oauth2-social-login" }
-oauth2-storage-factory = { path = "../oauth2-storage-factory" }
+oauth2-storage-factory = { path = "../oauth2-storage-factory", default-features = false }
 
 # Actix runtime + web
 actix-web = "4.4"
@@ -37,7 +37,10 @@ env_logger = "0.11"
 hex = "0.4"
 
 [features]
-default = []
+default = ["sqlx"]
+
+# SQL-backed storage (SQLite/Postgres) via SQLx.
+sqlx = ["oauth2-storage-factory/sqlx"]
 
 mongo = ["oauth2-storage-factory/mongo"]
 
