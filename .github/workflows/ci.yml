@@ -327,6 +327,9 @@ jobs:
     timeout-minutes: 35
     permissions:
       contents: read
+    env:
+      # Persist kubeconfig across steps so kubectl never falls back to http://localhost:8080.
+      KUBECONFIG: ${{ runner.temp }}/kubeconfig-kind-oauth2
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -374,6 +377,11 @@ jobs:
           chmod +x kind
           sudo mv kind /usr/local/bin/kind
           kind version
+
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: v1.29.0
 
       - name: Job summary
         run: echo "- ✅ KIND installed (5/8)" >> "$GITHUB_STEP_SUMMARY"
@@ -428,8 +436,17 @@ jobs:
       - name: Export cluster logs
         if: failure()
         run: |
-          kubectl logs deployment/oauth2-server -n oauth2-server --tail=200 > oauth2-server.log || echo "No oauth2-server logs"
-          kubectl describe pods -n oauth2-server > pods-describe.log
+          set -euo pipefail
+          # Prefer KIND-native log export (does not depend on kubectl context).
+          if kind get clusters | grep -qx oauth2-test; then
+            kind export logs ./kind-logs --name oauth2-test || true
+          fi
+
+          # Use explicit kubeconfig/context to avoid kubectl defaulting to localhost:8080.
+          kubectl --kubeconfig "${KUBECONFIG}" --context kind-oauth2-test \
+            logs deployment/oauth2-server -n oauth2-server --tail=200 > oauth2-server.log || echo "No oauth2-server logs"
+          kubectl --kubeconfig "${KUBECONFIG}" --context kind-oauth2-test \
+            describe pods -n oauth2-server > pods-describe.log || true
 
       - name: Upload logs
         if: failure()
@@ -439,12 +456,13 @@ jobs:
           path: |
             oauth2-server.log
             pods-describe.log
+            kind-logs
           retention-days: 7
 
       - name: Cleanup
         if: always()
         run: |
-          kubectl delete namespace oauth2-server || true
+          kubectl --kubeconfig "${KUBECONFIG}" --context kind-oauth2-test delete namespace oauth2-server || true
           kind delete cluster --name oauth2-test || true
 
   # Docker Build
