@@ -109,6 +109,13 @@ pub struct ValidateAuthorizationCode {
     pub span: tracing::Span,
 }
 
+#[derive(Message)]
+#[rtype(result = "Result<(), OAuth2Error>")]
+pub struct MarkAuthorizationCodeUsed {
+    pub code: String,
+    pub span: tracing::Span,
+}
+
 impl Handler<ValidateAuthorizationCode> for AuthActor {
     type Result = ResponseFuture<Result<AuthorizationCode, OAuth2Error>>;
 
@@ -177,10 +184,44 @@ impl Handler<ValidateAuthorizationCode> for AuthActor {
                     }
                 }
 
-                // Mark as used
+                Ok(auth_code)
+            }
+            .instrument(actor_span),
+        )
+    }
+}
+
+impl Handler<MarkAuthorizationCodeUsed> for AuthActor {
+    type Result = ResponseFuture<Result<(), OAuth2Error>>;
+
+    fn handle(&mut self, msg: MarkAuthorizationCodeUsed, _: &mut Self::Context) -> Self::Result {
+        let db = self.db.clone();
+        let event_bus = self.event_bus.clone();
+
+        let parent_span = msg.span.clone();
+        let code_prefix = msg.code.chars().take(12).collect::<String>();
+        let actor_span = tracing::info_span!(
+            parent: &parent_span,
+            "actor.auth.mark_authorization_code_used",
+            trace_id = tracing::field::Empty,
+            span_id = tracing::field::Empty,
+            code_prefix = %code_prefix,
+            code_len = msg.code.len()
+        );
+        annotate_span_with_trace_ids(&actor_span);
+
+        Box::pin(
+            async move {
+                // Idempotent in storage implementations: marking an already-used code used again
+                // should be safe.
+                let auth_code = db
+                    .get_authorization_code(&msg.code)
+                    .await?
+                    .ok_or_else(|| OAuth2Error::invalid_grant("Authorization code not found"))?;
+
                 db.mark_authorization_code_used(&msg.code).await?;
 
-                // Emit validated event
+                // Emit validated/consumed event
                 if let Some(event_bus) = event_bus {
                     let event = AuthEvent::new(
                         EventType::AuthorizationCodeValidated,
@@ -192,7 +233,7 @@ impl Handler<ValidateAuthorizationCode> for AuthActor {
                     event_bus.publish_best_effort(envelope);
                 }
 
-                Ok(auth_code)
+                Ok(())
             }
             .instrument(actor_span),
         )

@@ -6,7 +6,7 @@ use oauth2_observability::Metrics;
 
 use crate::actors::{
     AuthActor, ClientActor, CreateAuthorizationCode, CreateToken, GetClient, TokenActor,
-    ValidateAuthorizationCode, ValidateClient,
+    MarkAuthorizationCodeUsed, ValidateAuthorizationCode, ValidateClient,
 };
 use oauth2_core::{OAuth2Error, TokenResponse};
 
@@ -190,7 +190,7 @@ async fn handle_authorization_code_grant(
     // Validate authorization code
     let auth_code = auth_actor
         .send(ValidateAuthorizationCode {
-            code,
+            code: code.clone(),
             client_id: req.client_id.clone(),
             redirect_uri,
             code_verifier: req.code_verifier,
@@ -236,6 +236,16 @@ async fn handle_authorization_code_grant(
             }
         }
     }
+
+    // Only consume (burn) the authorization code after we've authenticated/authorized the client.
+    // This prevents invalid_client errors from exhausting valid codes.
+    auth_actor
+        .send(MarkAuthorizationCodeUsed {
+            code,
+            span: tracing::Span::current(),
+        })
+        .await
+        .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))??;
 
     // Create token
     let token = token_actor
