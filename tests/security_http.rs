@@ -1,8 +1,9 @@
 use actix::{Actor, Addr};
 use actix_web::{test, web, App};
 
-use oauth2_core::{Client, OAuth2Error, TokenResponse};
+use oauth2_core::{Client, OAuth2Error, TokenResponse, User};
 use oauth2_observability::Metrics;
+use oauth2_ports::Storage;
 
 fn extract_query_param(url: &str, key: &str) -> Option<String> {
     // Very small helper for test-only parsing.
@@ -32,6 +33,21 @@ async fn setup_context(
         .expect("create storage");
     storage.init().await.expect("init storage");
     storage.save_client(&client).await.expect("save client");
+
+    // The authorize endpoint currently auto-approves with a fixed mock user_id ("user_123").
+    // SQL backends enforce an FK from authorization_codes.user_id -> users.id, so we must ensure
+    // this user exists for authorize() to succeed.
+    let now = chrono::Utc::now();
+    let user = User {
+        id: "user_123".to_string(),
+        username: "user_123".to_string(),
+        password_hash: "not_used_in_security_http_tests".to_string(),
+        email: "user_123@example.test".to_string(),
+        enabled: true,
+        created_at: now,
+        updated_at: now,
+    };
+    storage.save_user(&user).await.expect("save user");
 
     let jwt_secret = "test_jwt_secret".to_string();
     let metrics = Metrics::new().expect("metrics");
