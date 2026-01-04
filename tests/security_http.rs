@@ -47,9 +47,7 @@ async fn setup_context(
 #[actix_web::test]
 async fn authorize_rejects_unregistered_redirect_uri() {
     let client = Client::new(
-    // NOTE: percent-encode redirect_uri so the request URI is always valid and decodes back to the
-    // exact string stored for the client.
-    let req = test::TestRequest::get().uri("/oauth/authorize?response_type=code&client_id=client_a&redirect_uri=https%3A%2F%2Fevil.example%2Fcb&scope=read").to_request();
+        "client_a".to_string(),
         "secret_a".to_string(),
         vec!["https://good.example/cb".to_string()],
         vec!["authorization_code".to_string()],
@@ -93,7 +91,11 @@ async fn authorize_rejects_unregistered_redirect_uri() {
     )
     .await;
 
-    let req = test::TestRequest::get().uri("/oauth/authorize?response_type=code&client_id=client_a&redirect_uri=https://evil.example/cb&scope=read").to_request();
+    // NOTE: percent-encode redirect_uri so the request URI is always valid and decodes back to the
+    // exact string stored for the client.
+    let req = test::TestRequest::get()
+        .uri("/oauth/authorize?response_type=code&client_id=client_a&redirect_uri=https%3A%2F%2Fevil.example%2Fcb&scope=read")
+        .to_request();
     let resp = test::call_service(&app, req).await;
 
     assert_eq!(resp.status(), 400);
@@ -102,7 +104,7 @@ async fn authorize_rejects_unregistered_redirect_uri() {
 }
 
 #[actix_web::test]
-        let req = test::TestRequest::get().uri("/oauth/authorize?response_type=token&client_id=client_a&redirect_uri=https%3A%2F%2Fgood.example%2Fcb&scope=read").to_request();
+async fn authorize_rejects_implicit_response_type() {
     let client = Client::new(
         "client_a".to_string(),
         "secret_a".to_string(),
@@ -148,7 +150,9 @@ async fn authorize_rejects_unregistered_redirect_uri() {
     )
     .await;
 
-    let req = test::TestRequest::get().uri("/oauth/authorize?response_type=token&client_id=client_a&redirect_uri=https://good.example/cb&scope=read").to_request();
+    let req = test::TestRequest::get()
+        .uri("/oauth/authorize?response_type=token&client_id=client_a&redirect_uri=https%3A%2F%2Fgood.example%2Fcb&scope=read")
+        .to_request();
     let resp = test::call_service(&app, req).await;
 
     assert_eq!(resp.status(), 400);
