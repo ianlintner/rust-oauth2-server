@@ -1,9 +1,8 @@
-use actix::Actor;
-use actix_web::{dev::Service, dev::ServiceRequest, test, web, App};
+use actix::{Actor, Addr};
+use actix_web::{test, web, App};
 
 use oauth2_core::{Client, OAuth2Error, TokenResponse};
 use oauth2_observability::Metrics;
-use oauth2_ports::Storage;
 
 fn extract_query_param(url: &str, key: &str) -> Option<String> {
     // Very small helper for test-only parsing.
@@ -19,11 +18,15 @@ fn extract_query_param(url: &str, key: &str) -> Option<String> {
     None
 }
 
-async fn setup_app_with_client(client: Client) -> impl Service<
-    ServiceRequest,
-    Response = actix_web::dev::ServiceResponse,
-    Error = actix_web::Error,
-> {
+async fn setup_context(
+    client: Client,
+) -> (
+    Addr<oauth2_actix::actors::TokenActor>,
+    Addr<oauth2_actix::actors::ClientActor>,
+    Addr<oauth2_actix::actors::AuthActor>,
+    String,
+    Metrics,
+) {
     let storage = oauth2_storage_factory::create_storage("sqlite::memory:")
         .await
         .expect("create storage");
@@ -38,7 +41,22 @@ async fn setup_app_with_client(client: Client) -> impl Service<
     let client_actor = oauth2_actix::actors::ClientActor::new(storage.clone()).start();
     let auth_actor = oauth2_actix::actors::AuthActor::new(storage.clone()).start();
 
-    test::init_service(
+    (token_actor, client_actor, auth_actor, jwt_secret, metrics)
+}
+
+#[actix_web::test]
+async fn authorize_rejects_unregistered_redirect_uri() {
+    let client = Client::new(
+        "client_a".to_string(),
+        "secret_a".to_string(),
+        vec!["https://good.example/cb".to_string()],
+        vec!["authorization_code".to_string()],
+        "read".to_string(),
+        "test".to_string(),
+    );
+
+    let (token_actor, client_actor, auth_actor, jwt_secret, metrics) = setup_context(client).await;
+    let app = test::init_service(
         App::new()
             .app_data(web::Data::new(token_actor))
             .app_data(web::Data::new(client_actor))
@@ -71,23 +89,9 @@ async fn setup_app_with_client(client: Client) -> impl Service<
                 ),
             ),
     )
-    .await
-}
+    .await;
 
-#[actix_web::test]
-async fn authorize_rejects_unregistered_redirect_uri() {
-    let client = Client::new(
-        "client_a".to_string(),
-        "secret_a".to_string(),
-        vec!["https://good.example/cb".to_string()],
-        vec!["authorization_code".to_string()],
-        "read".to_string(),
-        "test".to_string(),
-    );
-
-    let app = setup_app_with_client(client).await;
-
-    let req = test::TestRequest::get().uri("/oauth/authorize?response_type=code&client_id=client_a&redirect_uri=https://evil.example/cb&scope=read").to_srv_request();
+    let req = test::TestRequest::get().uri("/oauth/authorize?response_type=code&client_id=client_a&redirect_uri=https://evil.example/cb&scope=read").to_request();
     let resp = test::call_service(&app, req).await;
 
     assert_eq!(resp.status(), 400);
@@ -106,9 +110,43 @@ async fn authorize_rejects_implicit_response_type() {
         "test".to_string(),
     );
 
-    let app = setup_app_with_client(client).await;
+    let (token_actor, client_actor, auth_actor, jwt_secret, metrics) = setup_context(client).await;
+    let app = test::init_service(
+        App::new()
+            .app_data(web::Data::new(token_actor))
+            .app_data(web::Data::new(client_actor))
+            .app_data(web::Data::new(auth_actor))
+            .app_data(web::Data::new(jwt_secret))
+            .app_data(web::Data::new(metrics))
+            .service(
+                web::scope("/oauth")
+                    .route(
+                        "/authorize",
+                        web::get().to(oauth2_actix::handlers::oauth::authorize),
+                    )
+                    .route(
+                        "/token",
+                        web::post().to(oauth2_actix::handlers::oauth::token),
+                    )
+                    .route(
+                        "/introspect",
+                        web::post().to(oauth2_actix::handlers::token::introspect),
+                    )
+                    .route(
+                        "/revoke",
+                        web::post().to(oauth2_actix::handlers::token::revoke),
+                    ),
+            )
+            .service(
+                web::scope("/.well-known").route(
+                    "/openid-configuration",
+                    web::get().to(oauth2_actix::handlers::wellknown::openid_configuration),
+                ),
+            ),
+    )
+    .await;
 
-    let req = test::TestRequest::get().uri("/oauth/authorize?response_type=token&client_id=client_a&redirect_uri=https://good.example/cb&scope=read").to_srv_request();
+    let req = test::TestRequest::get().uri("/oauth/authorize?response_type=token&client_id=client_a&redirect_uri=https://good.example/cb&scope=read").to_request();
     let resp = test::call_service(&app, req).await;
 
     assert_eq!(resp.status(), 400);
@@ -127,7 +165,41 @@ async fn token_client_credentials_rejects_invalid_secret() {
         "test".to_string(),
     );
 
-    let app = setup_app_with_client(client).await;
+    let (token_actor, client_actor, auth_actor, jwt_secret, metrics) = setup_context(client).await;
+    let app = test::init_service(
+        App::new()
+            .app_data(web::Data::new(token_actor))
+            .app_data(web::Data::new(client_actor))
+            .app_data(web::Data::new(auth_actor))
+            .app_data(web::Data::new(jwt_secret))
+            .app_data(web::Data::new(metrics))
+            .service(
+                web::scope("/oauth")
+                    .route(
+                        "/authorize",
+                        web::get().to(oauth2_actix::handlers::oauth::authorize),
+                    )
+                    .route(
+                        "/token",
+                        web::post().to(oauth2_actix::handlers::oauth::token),
+                    )
+                    .route(
+                        "/introspect",
+                        web::post().to(oauth2_actix::handlers::token::introspect),
+                    )
+                    .route(
+                        "/revoke",
+                        web::post().to(oauth2_actix::handlers::token::revoke),
+                    ),
+            )
+            .service(
+                web::scope("/.well-known").route(
+                    "/openid-configuration",
+                    web::get().to(oauth2_actix::handlers::wellknown::openid_configuration),
+                ),
+            ),
+    )
+    .await;
 
     let req = test::TestRequest::post()
         .uri("/oauth/token")
@@ -137,7 +209,7 @@ async fn token_client_credentials_rejects_invalid_secret() {
             ("client_secret", "wrong"),
             ("scope", "read"),
         ])
-        .to_srv_request();
+        .to_request();
 
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 401);
@@ -157,7 +229,41 @@ async fn token_response_has_no_store_headers() {
         "test".to_string(),
     );
 
-    let app = setup_app_with_client(client).await;
+    let (token_actor, client_actor, auth_actor, jwt_secret, metrics) = setup_context(client).await;
+    let app = test::init_service(
+        App::new()
+            .app_data(web::Data::new(token_actor))
+            .app_data(web::Data::new(client_actor))
+            .app_data(web::Data::new(auth_actor))
+            .app_data(web::Data::new(jwt_secret))
+            .app_data(web::Data::new(metrics))
+            .service(
+                web::scope("/oauth")
+                    .route(
+                        "/authorize",
+                        web::get().to(oauth2_actix::handlers::oauth::authorize),
+                    )
+                    .route(
+                        "/token",
+                        web::post().to(oauth2_actix::handlers::oauth::token),
+                    )
+                    .route(
+                        "/introspect",
+                        web::post().to(oauth2_actix::handlers::token::introspect),
+                    )
+                    .route(
+                        "/revoke",
+                        web::post().to(oauth2_actix::handlers::token::revoke),
+                    ),
+            )
+            .service(
+                web::scope("/.well-known").route(
+                    "/openid-configuration",
+                    web::get().to(oauth2_actix::handlers::wellknown::openid_configuration),
+                ),
+            ),
+    )
+    .await;
 
     let req = test::TestRequest::post()
         .uri("/oauth/token")
@@ -167,7 +273,7 @@ async fn token_response_has_no_store_headers() {
             ("client_secret", "secret_cc"),
             ("scope", "read"),
         ])
-        .to_srv_request();
+        .to_request();
 
     let resp = test::call_service(&app, req).await;
     assert!(resp.status().is_success());
@@ -200,10 +306,44 @@ async fn authorization_code_requires_secret_unless_pkce_used() {
         "test".to_string(),
     );
 
-    let app = setup_app_with_client(client).await;
+    let (token_actor, client_actor, auth_actor, jwt_secret, metrics) = setup_context(client).await;
+    let app = test::init_service(
+        App::new()
+            .app_data(web::Data::new(token_actor))
+            .app_data(web::Data::new(client_actor))
+            .app_data(web::Data::new(auth_actor))
+            .app_data(web::Data::new(jwt_secret))
+            .app_data(web::Data::new(metrics))
+            .service(
+                web::scope("/oauth")
+                    .route(
+                        "/authorize",
+                        web::get().to(oauth2_actix::handlers::oauth::authorize),
+                    )
+                    .route(
+                        "/token",
+                        web::post().to(oauth2_actix::handlers::oauth::token),
+                    )
+                    .route(
+                        "/introspect",
+                        web::post().to(oauth2_actix::handlers::token::introspect),
+                    )
+                    .route(
+                        "/revoke",
+                        web::post().to(oauth2_actix::handlers::token::revoke),
+                    ),
+            )
+            .service(
+                web::scope("/.well-known").route(
+                    "/openid-configuration",
+                    web::get().to(oauth2_actix::handlers::wellknown::openid_configuration),
+                ),
+            ),
+    )
+    .await;
 
     // Get a code without PKCE
-    let req = test::TestRequest::get().uri("/oauth/authorize?response_type=code&client_id=client_ac&redirect_uri=https://good.example/cb&scope=read").to_srv_request();
+    let req = test::TestRequest::get().uri("/oauth/authorize?response_type=code&client_id=client_ac&redirect_uri=https://good.example/cb&scope=read").to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 302);
 
@@ -223,7 +363,7 @@ async fn authorization_code_requires_secret_unless_pkce_used() {
             ("code", code.as_str()),
             ("redirect_uri", "https://good.example/cb"),
         ])
-        .to_srv_request();
+        .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 401);
 
@@ -237,7 +377,7 @@ async fn authorization_code_requires_secret_unless_pkce_used() {
             ("code", code.as_str()),
             ("redirect_uri", "https://good.example/cb"),
         ])
-        .to_srv_request();
+        .to_request();
     let resp = test::call_service(&app, req).await;
     assert!(resp.status().is_success());
 }
@@ -253,7 +393,41 @@ async fn pkce_allows_public_exchange_and_prevents_downgrade() {
         "test".to_string(),
     );
 
-    let app = setup_app_with_client(client).await;
+    let (token_actor, client_actor, auth_actor, jwt_secret, metrics) = setup_context(client).await;
+    let app = test::init_service(
+        App::new()
+            .app_data(web::Data::new(token_actor))
+            .app_data(web::Data::new(client_actor))
+            .app_data(web::Data::new(auth_actor))
+            .app_data(web::Data::new(jwt_secret))
+            .app_data(web::Data::new(metrics))
+            .service(
+                web::scope("/oauth")
+                    .route(
+                        "/authorize",
+                        web::get().to(oauth2_actix::handlers::oauth::authorize),
+                    )
+                    .route(
+                        "/token",
+                        web::post().to(oauth2_actix::handlers::oauth::token),
+                    )
+                    .route(
+                        "/introspect",
+                        web::post().to(oauth2_actix::handlers::token::introspect),
+                    )
+                    .route(
+                        "/revoke",
+                        web::post().to(oauth2_actix::handlers::token::revoke),
+                    ),
+            )
+            .service(
+                web::scope("/.well-known").route(
+                    "/openid-configuration",
+                    web::get().to(oauth2_actix::handlers::wellknown::openid_configuration),
+                ),
+            ),
+    )
+    .await;
 
     // For S256, the server expects challenge = BASE64URL(SHA256(verifier))
     let verifier = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk";
@@ -265,7 +439,7 @@ async fn pkce_allows_public_exchange_and_prevents_downgrade() {
     };
 
     // Get a code with PKCE
-    let req = test::TestRequest::get().uri(&format!("/oauth/authorize?response_type=code&client_id=client_pkce&redirect_uri=https://good.example/cb&scope=read&code_challenge={challenge}&code_challenge_method=S256")).to_srv_request();
+    let req = test::TestRequest::get().uri(&format!("/oauth/authorize?response_type=code&client_id=client_pkce&redirect_uri=https://good.example/cb&scope=read&code_challenge={challenge}&code_challenge_method=S256")).to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 302);
 
@@ -285,7 +459,7 @@ async fn pkce_allows_public_exchange_and_prevents_downgrade() {
             ("code", code.as_str()),
             ("redirect_uri", "https://good.example/cb"),
         ])
-        .to_srv_request();
+        .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 400);
 
@@ -302,7 +476,7 @@ async fn pkce_allows_public_exchange_and_prevents_downgrade() {
             ("redirect_uri", "https://good.example/cb"),
             ("code_verifier", verifier),
         ])
-        .to_srv_request();
+        .to_request();
     let resp = test::call_service(&app, req).await;
     assert!(resp.status().is_success());
 }
@@ -318,10 +492,44 @@ async fn authorization_code_cannot_be_reused() {
         "test".to_string(),
     );
 
-    let app = setup_app_with_client(client).await;
+    let (token_actor, client_actor, auth_actor, jwt_secret, metrics) = setup_context(client).await;
+    let app = test::init_service(
+        App::new()
+            .app_data(web::Data::new(token_actor))
+            .app_data(web::Data::new(client_actor))
+            .app_data(web::Data::new(auth_actor))
+            .app_data(web::Data::new(jwt_secret))
+            .app_data(web::Data::new(metrics))
+            .service(
+                web::scope("/oauth")
+                    .route(
+                        "/authorize",
+                        web::get().to(oauth2_actix::handlers::oauth::authorize),
+                    )
+                    .route(
+                        "/token",
+                        web::post().to(oauth2_actix::handlers::oauth::token),
+                    )
+                    .route(
+                        "/introspect",
+                        web::post().to(oauth2_actix::handlers::token::introspect),
+                    )
+                    .route(
+                        "/revoke",
+                        web::post().to(oauth2_actix::handlers::token::revoke),
+                    ),
+            )
+            .service(
+                web::scope("/.well-known").route(
+                    "/openid-configuration",
+                    web::get().to(oauth2_actix::handlers::wellknown::openid_configuration),
+                ),
+            ),
+    )
+    .await;
 
     // Get a code
-    let req = test::TestRequest::get().uri("/oauth/authorize?response_type=code&client_id=client_reuse&redirect_uri=https://good.example/cb&scope=read").to_srv_request();
+    let req = test::TestRequest::get().uri("/oauth/authorize?response_type=code&client_id=client_reuse&redirect_uri=https://good.example/cb&scope=read").to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 302);
 
@@ -342,7 +550,7 @@ async fn authorization_code_cannot_be_reused() {
             ("code", code.as_str()),
             ("redirect_uri", "https://good.example/cb"),
         ])
-        .to_srv_request();
+        .to_request();
     let resp = test::call_service(&app, req).await;
     assert!(resp.status().is_success());
 
@@ -356,7 +564,7 @@ async fn authorization_code_cannot_be_reused() {
             ("code", code.as_str()),
             ("redirect_uri", "https://good.example/cb"),
         ])
-        .to_srv_request();
+        .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 400);
 
@@ -375,11 +583,45 @@ async fn well_known_metadata_matches_supported_flows() {
         "test".to_string(),
     );
 
-    let app = setup_app_with_client(client).await;
+    let (token_actor, client_actor, auth_actor, jwt_secret, metrics) = setup_context(client).await;
+    let app = test::init_service(
+        App::new()
+            .app_data(web::Data::new(token_actor))
+            .app_data(web::Data::new(client_actor))
+            .app_data(web::Data::new(auth_actor))
+            .app_data(web::Data::new(jwt_secret))
+            .app_data(web::Data::new(metrics))
+            .service(
+                web::scope("/oauth")
+                    .route(
+                        "/authorize",
+                        web::get().to(oauth2_actix::handlers::oauth::authorize),
+                    )
+                    .route(
+                        "/token",
+                        web::post().to(oauth2_actix::handlers::oauth::token),
+                    )
+                    .route(
+                        "/introspect",
+                        web::post().to(oauth2_actix::handlers::token::introspect),
+                    )
+                    .route(
+                        "/revoke",
+                        web::post().to(oauth2_actix::handlers::token::revoke),
+                    ),
+            )
+            .service(
+                web::scope("/.well-known").route(
+                    "/openid-configuration",
+                    web::get().to(oauth2_actix::handlers::wellknown::openid_configuration),
+                ),
+            ),
+    )
+    .await;
 
     let req = test::TestRequest::get()
         .uri("/.well-known/openid-configuration")
-        .to_srv_request();
+        .to_request();
 
     let resp = test::call_service(&app, req).await;
     assert!(resp.status().is_success());
