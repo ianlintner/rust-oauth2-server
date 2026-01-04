@@ -94,6 +94,14 @@ _require python3
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
+# Ensure kubectl always targets the KIND cluster explicitly.
+KUBECONFIG="${KUBECONFIG:-${ROOT_DIR}/.kube/kind-kubeconfig}"
+export KUBECONFIG
+
+_kubectl() {
+  kubectl --kubeconfig "${KUBECONFIG}" --context "kind-${CLUSTER_NAME}" "$@"
+}
+
 PORT_FWD_PID=""
 RS_PORT_FWD_PID=""
 
@@ -132,24 +140,48 @@ PY
 
 _diag() {
   echo "\n--- Diagnostics (namespace=${NAMESPACE})" >&2
-  kubectl get all -n "${NAMESPACE}" -o wide >&2 || true
+  _kubectl get all -n "${NAMESPACE}" -o wide >&2 || true
   echo "\n--- Pods describe" >&2
-  kubectl describe pods -n "${NAMESPACE}" >&2 || true
+  _kubectl describe pods -n "${NAMESPACE}" >&2 || true
+  echo "\n--- Nodes" >&2
+  _kubectl get nodes -o wide >&2 || true
+  echo "\n--- kube-system pods" >&2
+  _kubectl get pods -n kube-system -o wide >&2 || true
   echo "\n--- Flyway job logs" >&2
   local pods
-  pods=$(kubectl get pods -n "${NAMESPACE}" -l job-name=flyway-migration -o jsonpath='{.items[*].metadata.name}' 2>/dev/null || true)
+  pods=$(_kubectl get pods -n "${NAMESPACE}" -l job-name=flyway-migration -o jsonpath='{.items[*].metadata.name}' 2>/dev/null || true)
   for pod in $pods; do
     echo "--- describe pod/${pod}" >&2
-    kubectl describe pod "$pod" -n "${NAMESPACE}" >&2 || true
+    _kubectl describe pod "$pod" -n "${NAMESPACE}" >&2 || true
     echo "--- logs pod/${pod} (init: wait-for-postgres)" >&2
-    kubectl logs "$pod" -n "${NAMESPACE}" -c wait-for-postgres --tail=200 >&2 || true
+    _kubectl logs "$pod" -n "${NAMESPACE}" -c wait-for-postgres --tail=200 >&2 || true
     echo "--- logs pod/${pod} (container: flyway)" >&2
-    kubectl logs "$pod" -n "${NAMESPACE}" -c flyway --tail=400 >&2 || true
+    _kubectl logs "$pod" -n "${NAMESPACE}" -c flyway --tail=400 >&2 || true
   done
   echo "\n--- oauth2-server logs" >&2
-  kubectl logs deployment/oauth2-server -n "${NAMESPACE}" -c oauth2-server --tail=300 >&2 || true
+  _kubectl logs deployment/oauth2-server -n "${NAMESPACE}" -c oauth2-server --tail=300 >&2 || true
   echo "\n--- resource-server logs" >&2
-  kubectl logs deployment/resource-server -n "${NAMESPACE}" -c resource-server --tail=200 >&2 || true
+  _kubectl logs deployment/resource-server -n "${NAMESPACE}" -c resource-server --tail=200 >&2 || true
+}
+
+_wait_for_cluster_ready() {
+  echo "==> Waiting for KIND node readiness" >&2
+
+  # Wait for nodes to report Ready (clears the NotReady taint that blocks scheduling).
+  if ! _kubectl wait --for=condition=Ready nodes --all --timeout=180s >/dev/null 2>&1; then
+    echo "KIND nodes did not become Ready in time." >&2
+    _kubectl get nodes -o wide >&2 || true
+    _kubectl describe nodes >&2 || true
+    exit 1
+  fi
+
+  # CoreDNS is required for most in-cluster name resolution; wait for it to avoid downstream flakes.
+  if ! _kubectl wait --for=condition=Ready pod -n kube-system -l k8s-app=kube-dns --timeout=180s >/dev/null 2>&1; then
+    echo "CoreDNS did not become ready in time." >&2
+    _kubectl get pods -n kube-system -o wide >&2 || true
+    _kubectl describe pods -n kube-system >&2 || true
+    exit 1
+  fi
 }
 
 echo "==> Ensuring a clean KIND cluster (${CLUSTER_NAME})"
@@ -158,7 +190,27 @@ if kind get clusters | grep -qx "${CLUSTER_NAME}"; then
   kind delete cluster --name "${CLUSTER_NAME}"
 fi
 
-kind create cluster --name "${CLUSTER_NAME}"
+mkdir -p "$(dirname "${KUBECONFIG}")"
+kind create cluster --name "${CLUSTER_NAME}" --kubeconfig "${KUBECONFIG}"
+
+echo "==> Verifying kubectl context (kind-${CLUSTER_NAME})"
+kubectl --kubeconfig "${KUBECONFIG}" config use-context "kind-${CLUSTER_NAME}" >/dev/null
+
+for _ in {1..30}; do
+  if _kubectl cluster-info >/dev/null 2>&1; then
+    break
+  fi
+  sleep 1
+done
+if ! _kubectl cluster-info >/dev/null 2>&1; then
+  echo "kubectl cannot reach the KIND API server (context=kind-${CLUSTER_NAME})." >&2
+  echo "KUBECONFIG=${KUBECONFIG}" >&2
+  kubectl --kubeconfig "${KUBECONFIG}" config get-contexts >&2 || true
+  kind get clusters >&2 || true
+  exit 1
+fi
+
+_wait_for_cluster_ready
 
 if [[ "${SKIP_IMAGE_BUILD}" == "1" ]]; then
   echo "==> Skipping oauth2-server image build (SKIP_IMAGE_BUILD=1); verifying image exists: ${IMAGE_REF}"
@@ -179,35 +231,35 @@ kind load docker-image "${IMAGE_REF}" --name "${CLUSTER_NAME}"
 kind load docker-image "${RESOURCE_IMAGE_REF}" --name "${CLUSTER_NAME}"
 
 echo "==> Resetting namespace (${NAMESPACE})"
-kubectl delete namespace "${NAMESPACE}" --ignore-not-found || true
-kubectl create namespace "${NAMESPACE}"
+_kubectl delete namespace "${NAMESPACE}" --ignore-not-found || true
+_kubectl create namespace "${NAMESPACE}"
 
 echo "==> Deploying manifests via kustomize (${KUSTOMIZE_DIR})"
-kustomize build "${KUSTOMIZE_DIR}" | kubectl apply -n "${NAMESPACE}" -f -
+kustomize build "${KUSTOMIZE_DIR}" | _kubectl apply -n "${NAMESPACE}" -f -
 
 # Ensure migration job is fresh for each run.
-kubectl delete job flyway-migration -n "${NAMESPACE}" --ignore-not-found || true
-kustomize build "${KUSTOMIZE_DIR}" | kubectl apply -n "${NAMESPACE}" -f -
+_kubectl delete job flyway-migration -n "${NAMESPACE}" --ignore-not-found || true
+kustomize build "${KUSTOMIZE_DIR}" | _kubectl apply -n "${NAMESPACE}" -f -
 
 echo "==> Waiting for Postgres readiness"
-kubectl wait --for=condition=ready pod -l app=postgres -n "${NAMESPACE}" --timeout=180s
+_kubectl wait --for=condition=ready pod -l app=postgres -n "${NAMESPACE}" --timeout=180s
 
 echo "==> Waiting for Flyway migrations"
-if ! kubectl wait --for=condition=complete job/flyway-migration -n "${NAMESPACE}" --timeout=360s; then
+if ! _kubectl wait --for=condition=complete job/flyway-migration -n "${NAMESPACE}" --timeout=360s; then
   echo "Flyway migration job did not complete in time." >&2
   _diag
   exit 1
 fi
 
 echo "==> Waiting for oauth2-server rollout"
-if ! kubectl rollout status deployment/oauth2-server -n "${NAMESPACE}" --timeout=240s; then
+if ! _kubectl rollout status deployment/oauth2-server -n "${NAMESPACE}" --timeout=240s; then
   echo "OAuth2 server did not become ready in time." >&2
   _diag
   exit 1
 fi
 
 echo "==> Waiting for resource-server rollout (initial)"
-if ! kubectl rollout status deployment/resource-server -n "${NAMESPACE}" --timeout=180s; then
+if ! _kubectl rollout status deployment/resource-server -n "${NAMESPACE}" --timeout=180s; then
   echo "resource-server did not become ready in time." >&2
   _diag
   exit 1
@@ -224,11 +276,11 @@ fi
 RS_URL="http://127.0.0.1:${RESOURCE_PORT}"
 
 echo "==> Port-forwarding svc/oauth2-server ${PORT}:80"
-kubectl -n "${NAMESPACE}" port-forward svc/oauth2-server "${PORT}:80" >/tmp/oauth2-port-forward.log 2>&1 &
+_kubectl -n "${NAMESPACE}" port-forward svc/oauth2-server "${PORT}:80" >/tmp/oauth2-port-forward.log 2>&1 &
 PORT_FWD_PID=$!
 
 echo "==> Port-forwarding svc/resource-server ${RESOURCE_PORT}:80"
-kubectl -n "${NAMESPACE}" port-forward svc/resource-server "${RESOURCE_PORT}:80" >/tmp/resource-server-port-forward.log 2>&1 &
+_kubectl -n "${NAMESPACE}" port-forward svc/resource-server "${RESOURCE_PORT}:80" >/tmp/resource-server-port-forward.log 2>&1 &
 RS_PORT_FWD_PID=$!
 
 echo "==> Waiting for oauth2-server /health"

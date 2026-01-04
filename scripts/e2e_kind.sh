@@ -136,6 +136,10 @@ _diag() {
   _kubectl get all -n "${NAMESPACE}" -o wide >&2 || true
   echo "\n--- Pods describe" >&2
   _kubectl describe pods -n "${NAMESPACE}" >&2 || true
+  echo "\n--- Nodes" >&2
+  _kubectl get nodes -o wide >&2 || true
+  echo "\n--- kube-system pods" >&2
+  _kubectl get pods -n kube-system -o wide >&2 || true
   echo "\n--- Flyway job logs" >&2
   local pods
   pods=$(_kubectl get pods -n "${NAMESPACE}" -l job-name=flyway-migration -o jsonpath='{.items[*].metadata.name}' 2>/dev/null || true)
@@ -151,6 +155,26 @@ _diag() {
   done
   echo "\n--- oauth2-server logs" >&2
   _kubectl logs deployment/oauth2-server -n "${NAMESPACE}" -c oauth2-server --tail=300 >&2 || true
+}
+
+_wait_for_cluster_ready() {
+  echo "==> Waiting for KIND node readiness" >&2
+
+  # Wait for nodes to report Ready (clears the NotReady taint that blocks scheduling).
+  if ! _kubectl wait --for=condition=Ready nodes --all --timeout=180s >/dev/null 2>&1; then
+    echo "KIND nodes did not become Ready in time." >&2
+    _kubectl get nodes -o wide >&2 || true
+    _kubectl describe nodes >&2 || true
+    exit 1
+  fi
+
+  # CoreDNS is required for most in-cluster name resolution; wait for it to avoid downstream flakes.
+  if ! _kubectl wait --for=condition=Ready pod -n kube-system -l k8s-app=kube-dns --timeout=180s >/dev/null 2>&1; then
+    echo "CoreDNS did not become ready in time." >&2
+    _kubectl get pods -n kube-system -o wide >&2 || true
+    _kubectl describe pods -n kube-system >&2 || true
+    exit 1
+  fi
 }
 
 echo "==> Ensuring a clean KIND cluster (${CLUSTER_NAME})"
@@ -179,6 +203,8 @@ if ! _kubectl cluster-info >/dev/null 2>&1; then
   kind get clusters >&2 || true
   exit 1
 fi
+
+_wait_for_cluster_ready
 
 if [[ "${SKIP_IMAGE_BUILD}" == "1" ]]; then
   echo "==> Skipping image build (SKIP_IMAGE_BUILD=1); verifying image exists: ${IMAGE_REF}"
