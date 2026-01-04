@@ -351,7 +351,14 @@ async fn authorization_code_requires_secret_unless_pkce_used() {
     // Get a code without PKCE
     let req = test::TestRequest::get().uri("/oauth/authorize?response_type=code&client_id=client_ac&redirect_uri=https%3A%2F%2Fgood.example%2Fcb&scope=read").to_request();
     let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 302);
+    if resp.status() != 302 {
+        let status = resp.status();
+        let body = test::read_body(resp).await;
+        panic!(
+            "expected 302 from /oauth/authorize, got {status} body={}",
+            String::from_utf8_lossy(&body)
+        );
+    }
 
     let loc = resp
         .headers()
@@ -447,7 +454,14 @@ async fn pkce_allows_public_exchange_and_prevents_downgrade() {
     // Get a code with PKCE
     let req = test::TestRequest::get().uri(&format!("/oauth/authorize?response_type=code&client_id=client_pkce&redirect_uri=https%3A%2F%2Fgood.example%2Fcb&scope=read&code_challenge={challenge}&code_challenge_method=S256")).to_request();
     let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 302);
+    if resp.status() != 302 {
+        let status = resp.status();
+        let body = test::read_body(resp).await;
+        panic!(
+            "expected 302 from /oauth/authorize (PKCE), got {status} body={}",
+            String::from_utf8_lossy(&body)
+        );
+    }
 
     let loc = resp
         .headers()
@@ -537,7 +551,14 @@ async fn authorization_code_cannot_be_reused() {
     // Get a code
     let req = test::TestRequest::get().uri("/oauth/authorize?response_type=code&client_id=client_reuse&redirect_uri=https%3A%2F%2Fgood.example%2Fcb&scope=read").to_request();
     let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 302);
+    if resp.status() != 302 {
+        let status = resp.status();
+        let body = test::read_body(resp).await;
+        panic!(
+            "expected 302 from /oauth/authorize (reuse), got {status} body={}",
+            String::from_utf8_lossy(&body)
+        );
+    }
 
     let loc = resp
         .headers()
