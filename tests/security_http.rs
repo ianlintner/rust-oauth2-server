@@ -47,7 +47,9 @@ async fn setup_context(
 #[actix_web::test]
 async fn authorize_rejects_unregistered_redirect_uri() {
     let client = Client::new(
-        "client_a".to_string(),
+    // NOTE: percent-encode redirect_uri so the request URI is always valid and decodes back to the
+    // exact string stored for the client.
+    let req = test::TestRequest::get().uri("/oauth/authorize?response_type=code&client_id=client_a&redirect_uri=https%3A%2F%2Fevil.example%2Fcb&scope=read").to_request();
         "secret_a".to_string(),
         vec!["https://good.example/cb".to_string()],
         vec!["authorization_code".to_string()],
@@ -100,7 +102,7 @@ async fn authorize_rejects_unregistered_redirect_uri() {
 }
 
 #[actix_web::test]
-async fn authorize_rejects_implicit_response_type() {
+        let req = test::TestRequest::get().uri("/oauth/authorize?response_type=token&client_id=client_a&redirect_uri=https%3A%2F%2Fgood.example%2Fcb&scope=read").to_request();
     let client = Client::new(
         "client_a".to_string(),
         "secret_a".to_string(),
@@ -343,7 +345,7 @@ async fn authorization_code_requires_secret_unless_pkce_used() {
     .await;
 
     // Get a code without PKCE
-    let req = test::TestRequest::get().uri("/oauth/authorize?response_type=code&client_id=client_ac&redirect_uri=https://good.example/cb&scope=read").to_request();
+    let req = test::TestRequest::get().uri("/oauth/authorize?response_type=code&client_id=client_ac&redirect_uri=https%3A%2F%2Fgood.example%2Fcb&scope=read").to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 302);
 
@@ -439,7 +441,7 @@ async fn pkce_allows_public_exchange_and_prevents_downgrade() {
     };
 
     // Get a code with PKCE
-    let req = test::TestRequest::get().uri(&format!("/oauth/authorize?response_type=code&client_id=client_pkce&redirect_uri=https://good.example/cb&scope=read&code_challenge={challenge}&code_challenge_method=S256")).to_request();
+    let req = test::TestRequest::get().uri(&format!("/oauth/authorize?response_type=code&client_id=client_pkce&redirect_uri=https%3A%2F%2Fgood.example%2Fcb&scope=read&code_challenge={challenge}&code_challenge_method=S256")).to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 302);
 
@@ -529,7 +531,7 @@ async fn authorization_code_cannot_be_reused() {
     .await;
 
     // Get a code
-    let req = test::TestRequest::get().uri("/oauth/authorize?response_type=code&client_id=client_reuse&redirect_uri=https://good.example/cb&scope=read").to_request();
+    let req = test::TestRequest::get().uri("/oauth/authorize?response_type=code&client_id=client_reuse&redirect_uri=https%3A%2F%2Fgood.example%2Fcb&scope=read").to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 302);
 
