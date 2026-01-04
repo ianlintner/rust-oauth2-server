@@ -88,6 +88,43 @@ pub async fn run_storage_contract(storage: &dyn Storage) -> Result<(), Box<dyn s
 
     assert!(revoked_token.revoked);
 
+    // Parity check: multiple tokens with no refresh token should be allowed.
+    // (SQL UNIQUE allows multiple NULLs; Mongo requires omitting the field to match that behavior.)
+    let no_refresh_1 = Token::new(
+        "access_token_no_refresh_1".to_string(),
+        None,
+        client.client_id.clone(),
+        None,
+        "read".to_string(),
+        3600,
+    );
+
+    storage
+        .save_token(&no_refresh_1)
+        .await
+        .map_err(|e| std::io::Error::other(e.to_string()))?;
+
+    let no_refresh_2 = Token::new(
+        "access_token_no_refresh_2".to_string(),
+        None,
+        client.client_id.clone(),
+        None,
+        "read".to_string(),
+        3600,
+    );
+
+    storage
+        .save_token(&no_refresh_2)
+        .await
+        .map_err(|e| std::io::Error::other(e.to_string()))?;
+
+    // Uniqueness parity: saving the same access_token twice should fail.
+    let dup_access = storage.save_token(&no_refresh_2).await;
+    assert!(
+        dup_access.is_err(),
+        "saving the same access_token twice should fail"
+    );
+
     // Authorization code roundtrip + mark used
     let code = AuthorizationCode::new(
         "code_1".to_string(),

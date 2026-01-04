@@ -252,3 +252,45 @@ impl Storage for MongoStorage {
             .map_err(Self::mongo_err_to_oauth)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mongodb::bson;
+
+    #[test]
+    fn token_serde_omits_refresh_token_when_none() {
+        let token = Token::new(
+            "access".to_string(),
+            None,
+            "client".to_string(),
+            None,
+            "read".to_string(),
+            3600,
+        );
+
+        let doc = bson::to_document(&token).expect("token should serialize to bson document");
+        assert!(
+            !doc.contains_key("refresh_token"),
+            "refresh_token should be omitted when None to avoid unique+sparse collisions"
+        );
+    }
+
+    #[test]
+    fn token_serde_includes_refresh_token_when_some() {
+        let token = Token::new(
+            "access".to_string(),
+            Some("refresh".to_string()),
+            "client".to_string(),
+            None,
+            "read".to_string(),
+            3600,
+        );
+
+        let doc = bson::to_document(&token).expect("token should serialize to bson document");
+        assert!(
+            doc.contains_key("refresh_token"),
+            "refresh_token should be present when Some"
+        );
+    }
+}
