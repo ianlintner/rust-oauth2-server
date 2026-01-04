@@ -57,7 +57,10 @@ pub async fn introspect(
                 sub: claims.as_ref().map(|c| c.sub.clone()).or(user_id),
             };
 
-            Ok(HttpResponse::Ok().json(response))
+            Ok(HttpResponse::Ok()
+                .insert_header((actix_web::http::header::CACHE_CONTROL, "no-store"))
+                .insert_header((actix_web::http::header::PRAGMA, "no-cache"))
+                .json(response))
         }
         Err(err) => {
             tracing::warn!(
@@ -77,7 +80,10 @@ pub async fn introspect(
                 iat: None,
                 sub: None,
             };
-            Ok(HttpResponse::Ok().json(response))
+            Ok(HttpResponse::Ok()
+                .insert_header((actix_web::http::header::CACHE_CONTROL, "no-store"))
+                .insert_header((actix_web::http::header::PRAGMA, "no-cache"))
+                .json(response))
         }
     }
 }
@@ -103,5 +109,8 @@ pub async fn revoke(
         .await
         .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))??;
 
-    Ok(HttpResponse::Ok().finish())
+    Ok(HttpResponse::Ok()
+        .insert_header((actix_web::http::header::CACHE_CONTROL, "no-store"))
+        .insert_header((actix_web::http::header::PRAGMA, "no-cache"))
+        .finish())
 }

@@ -12,13 +12,10 @@ pub async fn openid_configuration() -> Result<HttpResponse> {
         "token_revocation_endpoint": "http://localhost:8080/oauth/revoke",
         "registration_endpoint": "http://localhost:8080/clients/register",
         "scopes_supported": ["read", "write", "admin"],
-        "response_types_supported": ["code", "token"],
-        "grant_types_supported": [
-            "authorization_code",
-            "client_credentials",
-            "password",
-            "refresh_token"
-        ],
+        // The server currently supports Authorization Code, Client Credentials, and Password grants.
+        // Implicit flow and Refresh Token grant are intentionally not advertised until implemented.
+        "response_types_supported": ["code"],
+        "grant_types_supported": ["authorization_code", "client_credentials", "password"],
         "token_endpoint_auth_methods_supported": [
             "client_secret_basic",
             "client_secret_post"
