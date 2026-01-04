@@ -24,8 +24,7 @@ fn validate_scope_subset(requested: &str, allowed: &str) -> Result<(), OAuth2Err
         return Err(OAuth2Error::invalid_scope("scope must not be empty"));
     }
 
-    let all_allowed = requested_scopes
-        .iter().all(|s| allowed_scopes.contains(s));
+    let all_allowed = requested_scopes.iter().all(|s| allowed_scopes.contains(s));
 
     if !all_allowed {
         return Err(OAuth2Error::invalid_scope(

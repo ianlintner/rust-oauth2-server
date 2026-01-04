@@ -48,7 +48,9 @@ fn validate_grant_types(grant_types: &[String]) -> Result<(), OAuth2Error> {
     const SUPPORTED: [&str; 3] = ["authorization_code", "client_credentials", "password"];
 
     if grant_types.is_empty() {
-        return Err(OAuth2Error::invalid_request("grant_types must not be empty"));
+        return Err(OAuth2Error::invalid_request(
+            "grant_types must not be empty",
+        ));
     }
 
     for gt in grant_types {

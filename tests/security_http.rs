@@ -100,7 +100,7 @@ async fn authorize_rejects_unregistered_redirect_uri() {
             .service(web::scope("/.well-known").route(
                 "/openid-configuration",
                 web::get().to(oauth2_actix::handlers::wellknown::openid_configuration),
-            ));
+            )),
     )
     .await;
 
@@ -157,7 +157,7 @@ async fn authorize_rejects_implicit_response_type() {
             .service(web::scope("/.well-known").route(
                 "/openid-configuration",
                 web::get().to(oauth2_actix::handlers::wellknown::openid_configuration),
-            ));
+            )),
     )
     .await;
 
@@ -212,7 +212,7 @@ async fn token_client_credentials_rejects_invalid_secret() {
             .service(web::scope("/.well-known").route(
                 "/openid-configuration",
                 web::get().to(oauth2_actix::handlers::wellknown::openid_configuration),
-            ));
+            )),
     )
     .await;
 
@@ -274,7 +274,7 @@ async fn token_response_has_no_store_headers() {
             .service(web::scope("/.well-known").route(
                 "/openid-configuration",
                 web::get().to(oauth2_actix::handlers::wellknown::openid_configuration),
-            ));
+            )),
     )
     .await;
 
@@ -349,7 +349,7 @@ async fn authorization_code_requires_secret_unless_pkce_used() {
             .service(web::scope("/.well-known").route(
                 "/openid-configuration",
                 web::get().to(oauth2_actix::handlers::wellknown::openid_configuration),
-            ));
+            )),
     )
     .await;
 
@@ -448,7 +448,7 @@ async fn pkce_allows_public_exchange_and_prevents_downgrade() {
             .service(web::scope("/.well-known").route(
                 "/openid-configuration",
                 web::get().to(oauth2_actix::handlers::wellknown::openid_configuration),
-            ));
+            )),
     )
     .await;
 
@@ -549,12 +549,10 @@ async fn authorization_code_cannot_be_reused() {
                         web::post().to(oauth2_actix::handlers::token::revoke),
                     ),
             )
-            .service(
-                web::scope("/.well-known").route(
-                    "/openid-configuration",
-                    web::get().to(oauth2_actix::handlers::wellknown::openid_configuration),
-                ),
-            ),
+            .service(web::scope("/.well-known").route(
+                "/openid-configuration",
+                web::get().to(oauth2_actix::handlers::wellknown::openid_configuration),
+            )),
     )
     .await;
 
@@ -647,12 +645,10 @@ async fn well_known_metadata_matches_supported_flows() {
                         web::post().to(oauth2_actix::handlers::token::revoke),
                     ),
             )
-            .service(
-                web::scope("/.well-known").route(
-                    "/openid-configuration",
-                    web::get().to(oauth2_actix::handlers::wellknown::openid_configuration),
-                ),
-            ),
+            .service(web::scope("/.well-known").route(
+                "/openid-configuration",
+                web::get().to(oauth2_actix::handlers::wellknown::openid_configuration),
+            )),
     )
     .await;
 
