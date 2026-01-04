@@ -3,7 +3,6 @@ use actix_web::{test, web, App};
 
 use oauth2_core::{Client, OAuth2Error, TokenResponse, User};
 use oauth2_observability::Metrics;
-use oauth2_ports::Storage;
 
 fn extract_query_param(url: &str, key: &str) -> Option<String> {
     // Very small helper for test-only parsing.
@@ -408,7 +407,14 @@ async fn authorization_code_requires_secret_unless_pkce_used() {
         ])
         .to_request();
     let resp = test::call_service(&app, req).await;
-    assert!(resp.status().is_success());
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body = test::read_body(resp).await;
+        panic!(
+            "expected successful token exchange, got {status} body={}",
+            String::from_utf8_lossy(&body)
+        );
+    }
 }
 
 #[actix_web::test]
