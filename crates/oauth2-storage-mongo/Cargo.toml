@@ -12,5 +12,5 @@ oauth2-ports = { path = "../oauth2-ports" }
 
 async-trait = "0.1"
 
-mongodb = "2.8"
+mongodb = "3.2"
 serde = { version = "1.0", features = ["derive"] }
