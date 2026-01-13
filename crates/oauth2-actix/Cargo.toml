@@ -7,6 +7,7 @@ description = "Actix-web HTTP layer for rust-oauth2-server (handlers + actors)"
 
 [dependencies]
 oauth2-core = { path = "../oauth2-core", features = ["actix"] }
+oauth2-config = { path = "../oauth2-config" }
 oauth2-events = { path = "../oauth2-events" }
 oauth2-observability = { path = "../oauth2-observability" }
 oauth2-ports = { path = "../oauth2-ports" }

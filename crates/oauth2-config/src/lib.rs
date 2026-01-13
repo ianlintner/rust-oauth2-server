@@ -20,6 +20,18 @@ pub struct Config {
 pub struct ServerConfig {
     pub host: String,
     pub port: u16,
+    /// Optional externally-visible base URL (scheme + host + optional path prefix).
+    ///
+    /// When set, this is used for issuer / endpoint URLs in discovery docs (e.g. OIDC well-known)
+    /// so the server can run behind a reverse proxy or local tunnel.
+    #[serde(default)]
+    pub public_base_url: Option<String>,
+
+    /// Whether to trust proxy-provided headers (e.g. Forwarded / X-Forwarded-*).
+    ///
+    /// Default is false for safety. Enable only when running behind a trusted proxy.
+    #[serde(default)]
+    pub trust_proxy_headers: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -204,6 +216,18 @@ impl Config {
                     .ok()
                     .and_then(|p| p.parse().ok())
                     .unwrap_or(8080),
+                public_base_url: std::env::var("OAUTH2_SERVER_PUBLIC_BASE_URL")
+                    .ok()
+                    .or_else(|| std::env::var("OAUTH2_PUBLIC_BASE_URL").ok())
+                    // Alias for compatibility with docs/tools that already use OAUTH2_BASE_URL
+                    .or_else(|| std::env::var("OAUTH2_BASE_URL").ok())
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty()),
+                trust_proxy_headers: std::env::var("OAUTH2_SERVER_TRUST_PROXY_HEADERS")
+                    .ok()
+                    .or_else(|| std::env::var("OAUTH2_TRUST_PROXY_HEADERS").ok())
+                    .and_then(|v| v.parse::<bool>().ok())
+                    .unwrap_or(false),
             },
             database: DatabaseConfig {
                 url: std::env::var("OAUTH2_DATABASE_URL")

@@ -344,6 +344,8 @@ pub async fn run() -> std::io::Result<()> {
     tracing::info!("Admin dashboard at http://{}/admin", bind_addr);
     tracing::info!("Metrics endpoint at http://{}/metrics", bind_addr);
 
+    let server_config = config.server.clone();
+
     // Start HTTP server
     let server = HttpServer::new(move || {
         let cors = Cors::default()
@@ -372,7 +374,9 @@ pub async fn run() -> std::io::Result<()> {
             .app_data(web::Data::new(jwt_secret.clone()))
             .app_data(web::Data::new(storage.clone()))
             .app_data(web::Data::new(metrics.clone()))
-            .app_data(web::Data::new(social_config.clone()));
+            .app_data(web::Data::new(social_config.clone()))
+            // Server/public URL settings (used by well-known discovery and other URL builders)
+            .app_data(web::Data::new(server_config.clone()));
 
         // Shared, best-effort in-memory idempotency cache for event ingest.
         app = app.app_data(web::Data::new(ingest_idempotency.clone()));

@@ -16,17 +16,21 @@ All configuration options can be set via environment variables with the `OAUTH2_
 
 ### Server Configuration
 
-| Variable                | Type    | Default     | Description              |
-| ----------------------- | ------- | ----------- | ------------------------ |
-| `OAUTH2_SERVER_HOST`    | String  | `127.0.0.1` | Server bind address      |
-| `OAUTH2_SERVER_PORT`    | Integer | `8080`      | Server port              |
-| `OAUTH2_SERVER_WORKERS` | Integer | CPU cores   | Number of worker threads |
+| Variable                            | Type    | Default     | Description                                                                                          |
+| ----------------------------------- | ------- | ----------- | ---------------------------------------------------------------------------------------------------- |
+| `OAUTH2_SERVER_HOST`                | String  | `127.0.0.1` | Server bind address                                                                                  |
+| `OAUTH2_SERVER_PORT`                | Integer | `8080`      | Server port                                                                                          |
+| `OAUTH2_SERVER_PUBLIC_BASE_URL`     | String  | _(unset)_   | Externally-visible base URL for discovery docs (issuer/endpoints). Useful behind proxies/tunnels.    |
+| `OAUTH2_SERVER_TRUST_PROXY_HEADERS` | Boolean | `false`     | Trust `Forwarded` / `X-Forwarded-*` headers when deriving URLs (enable only behind a trusted proxy). |
+| `OAUTH2_SERVER_WORKERS`             | Integer | CPU cores   | Number of worker threads                                                                             |
 
 **Example:**
 
 ```bash
 export OAUTH2_SERVER_HOST=0.0.0.0
 export OAUTH2_SERVER_PORT=8080
+export OAUTH2_SERVER_PUBLIC_BASE_URL=https://auth.example.com
+export OAUTH2_SERVER_TRUST_PROXY_HEADERS=true
 export OAUTH2_SERVER_WORKERS=4
 ```
 

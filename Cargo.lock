@@ -3615,6 +3615,7 @@ dependencies = [
  "base64 0.22.1",
  "chrono",
  "futures",
+ "oauth2-config",
  "oauth2-core",
  "oauth2-events",
  "oauth2-observability",
