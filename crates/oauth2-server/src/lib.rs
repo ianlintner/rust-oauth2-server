@@ -552,18 +552,32 @@ pub async fn run() -> std::io::Result<()> {
             }
         };
 
-        let mut app = App::new()
-            // Rate limiting (outermost middleware)
-            .wrap(Condition::new(
-                rate_limiter.is_some(),
+        // Rate limiting middleware. When disabled, rate_limiter is None and
+        // Condition::new(false, ...) ensures the middleware is never invoked.
+        // The dummy InMemoryRateLimiter below is only constructed in the
+        // disabled path for type unification and does NOT get called.
+        let rl_middleware = {
+            let (enabled, limiter) = match rate_limiter.clone() {
+                Some(l) => (true, l),
+                None => (
+                    false,
+                    Arc::new(oauth2_ratelimit::in_memory::InMemoryRateLimiter::new(1, 1))
+                        as Arc<dyn oauth2_ratelimit::RateLimiter>,
+                ),
+            };
+            Condition::new(
+                enabled,
                 oauth2_actix::middleware::rate_limit::RateLimitMiddleware::new(
-                    rate_limiter.clone().unwrap_or_else(|| {
-                        Arc::new(oauth2_ratelimit::in_memory::InMemoryRateLimiter::new(1, 1))
-                    }),
+                    limiter,
                     vec!["/health".into(), "/ready".into(), "/metrics".into()],
                     server_config.trust_proxy_headers,
                 ),
-            ))
+            )
+        };
+
+        let mut app = App::new()
+            // Rate limiting (outermost middleware)
+            .wrap(rl_middleware)
             // Middleware
             .wrap(SessionMiddleware::new(
                 CookieSessionStore::default(),

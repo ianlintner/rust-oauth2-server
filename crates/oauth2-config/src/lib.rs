@@ -180,7 +180,7 @@ pub struct RateLimitConfig {
 }
 
 fn default_rate_limit_enabled() -> bool {
-    true
+    false
 }
 fn default_max_requests() -> u32 {
     100
@@ -356,7 +356,7 @@ impl Config {
                 enabled: std::env::var("OAUTH2_RATE_LIMIT_ENABLED")
                     .ok()
                     .and_then(|v| v.parse().ok())
-                    .unwrap_or(true),
+                    .unwrap_or(false),
                 max_requests: std::env::var("OAUTH2_RATE_LIMIT_MAX_REQUESTS")
                     .ok()
                     .and_then(|v| v.parse().ok())

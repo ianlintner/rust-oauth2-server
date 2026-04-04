@@ -97,7 +97,7 @@ pub async fn jwks(
         let e = URL_SAFE_NO_PAD.encode(public_key.e().to_bytes_be());
 
         jwk_entries.push(json!({
-            "kid": key.kid,
+            "kid": &key.kid,
             "kty": "RSA",
             "use": "sig",
             "alg": "RS256",

@@ -39,17 +39,15 @@ pub async fn rotate_key(
             .parse::<Algorithm>()
             .map_err(actix_web::error::ErrorBadRequest)?
     } else {
-        // Default to the current key's algorithm
-        let ks = keyset.read().await;
-        let alg = ks.current().map(|k| k.algorithm).unwrap_or_else(|| {
-            tracing::debug!("No current key found; defaulting to HS256");
-            Algorithm::HS256
-        });
-        alg
+        // Default to RS256 for new key rotations
+        Algorithm::RS256
     };
 
     let grace_period_hours = body.grace_period_hours.unwrap_or(grace_hours.0);
-    let grace_period = Duration::from_secs(grace_period_hours * 3600);
+    let grace_period_secs = grace_period_hours
+        .checked_mul(3600)
+        .ok_or_else(|| actix_web::error::ErrorBadRequest("grace_period_hours is too large"))?;
+    let grace_period = Duration::from_secs(grace_period_secs);
 
     let timestamp = Utc::now().timestamp();
     let kid = format!("{}-{}", algorithm.to_string().to_lowercase(), timestamp);
@@ -114,6 +112,8 @@ pub async fn rotate_key(
         "algorithm": algorithm.to_string(),
         "created_at": created_at.to_rfc3339(),
         "grace_period_hours": grace_period_hours,
+        "warning": "Key rotation is in-memory only. Rotated keys will be lost on restart. \
+                    DB persistence is not yet implemented.",
     })))
 }
 
@@ -125,11 +125,11 @@ pub async fn list_keys(keyset: web::Data<Arc<RwLock<KeySet>>>) -> Result<HttpRes
         .iter()
         .map(|k| {
             json!({
-                "kid": k.kid,
+                "kid": &k.kid,
                 "algorithm": k.algorithm.to_string(),
                 "is_current": k.is_current,
                 "created_at": k.created_at.to_rfc3339(),
-                "expires_at": k.expires_at.map(|e| e.to_rfc3339()),
+                "expires_at": k.expires_at.as_ref().map(|e| e.to_rfc3339()),
             })
         })
         .collect();

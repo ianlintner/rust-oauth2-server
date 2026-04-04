@@ -16,15 +16,19 @@ impl TokenBucket {
     ///
     /// `refill_rate` = `max_tokens / window_secs` tokens per second.
     pub fn new(max_tokens: u32, window_secs: u64) -> Self {
+        if max_tokens == 0 {
+            tracing::warn!("TokenBucket created with max_tokens=0; defaulting to 1");
+        }
         if window_secs == 0 {
             tracing::warn!("TokenBucket created with window_secs=0; defaulting to 1 second");
         }
+        let tokens = max_tokens.max(1); // clamp to minimum 1 token
         let window = window_secs.max(1); // clamp to minimum 1 second
         Self {
-            tokens: max_tokens as f64,
+            tokens: tokens as f64,
             last_refill: Instant::now(),
-            max_tokens,
-            refill_rate: max_tokens as f64 / window as f64,
+            max_tokens: tokens,
+            refill_rate: tokens as f64 / window as f64,
         }
     }
 
@@ -114,5 +118,18 @@ mod tests {
         assert!(bucket.try_consume().0);
         assert!(bucket.try_consume().0);
         assert!(!bucket.try_consume().0); // should reject, not silently allow
+    }
+
+    #[test]
+    fn zero_max_tokens_clamped_to_one() {
+        let mut bucket = TokenBucket::new(0, 60);
+        // max_tokens should be clamped to 1, not 0
+        assert_eq!(bucket.max_tokens, 1);
+        assert!(bucket.try_consume().0);
+        assert!(!bucket.try_consume().0);
+        // seconds_until_refill should not be Infinity or NaN
+        let wait = bucket.seconds_until_refill();
+        assert!(wait.is_finite());
+        assert!(wait > 0.0);
     }
 }

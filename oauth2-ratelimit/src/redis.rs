@@ -5,7 +5,6 @@
 use std::time::{Duration, SystemTime};
 
 use redis::aio::ConnectionManager;
-use redis::AsyncCommands;
 
 use crate::{RateLimitError, RateLimitResult, RateLimiter};
 
@@ -50,24 +49,26 @@ impl RateLimiter for RedisRateLimiter {
         // Atomic INCR + EXPIRE via Lua script to avoid race conditions.
         // If the process crashes between INCR and EXPIRE, the key would
         // persist forever with no TTL, permanently blocking that client.
+        // We also handle pre-existing keys without TTL (e.g. leftover from
+        // a prior bug or manual Redis writes) by checking TTL inside the script.
         let script = redis::Script::new(
             r"local count = redis.call('INCR', KEYS[1])
 if count == 1 then
     redis.call('EXPIRE', KEYS[1], ARGV[1])
 end
-return count",
+local ttl = redis.call('TTL', KEYS[1])
+if ttl < 0 then
+    redis.call('EXPIRE', KEYS[1], ARGV[1])
+    ttl = redis.call('TTL', KEYS[1])
+end
+return {count, ttl}",
         );
-        let count: u32 = script
+        let (count, ttl): (u32, i64) = script
             .key(&redis_key)
             .arg(self.window_secs as i64)
             .invoke_async(&mut conn)
             .await
             .map_err(|e| RateLimitError::Backend(format!("Redis Lua script error: {e}")))?;
-
-        let ttl: i64 = conn
-            .ttl(&redis_key)
-            .await
-            .map_err(|e| RateLimitError::Backend(format!("Redis TTL error: {e}")))?;
 
         let reset_at = SystemTime::now() + Duration::from_secs(ttl.max(0) as u64);
         let allowed = count <= self.max_requests;

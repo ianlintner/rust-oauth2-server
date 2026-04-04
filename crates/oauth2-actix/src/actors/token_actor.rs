@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use actix::prelude::*;
-use oauth2_core::models::key_set::{KeySet, SigningKey};
+use oauth2_core::models::key_set::{Algorithm as KeyAlgorithm, KeySet, SigningKey};
 use oauth2_events::{AuthEvent, EventBusHandle, EventEnvelope, EventSeverity, EventType};
 use oauth2_observability::annotate_span_with_trace_ids;
 use oauth2_ports::DynStorage;
@@ -81,10 +81,15 @@ impl Handler<CreateToken> for TokenActor {
             async move {
                 let subject = msg.user_id.clone().unwrap_or_else(|| msg.client_id.clone());
 
-                // Resolve signing key once for both access and refresh tokens
+                // Resolve signing key once for both access and refresh tokens.
+                // Prefer RS256 (asymmetric) when available, then fall back to HS256
+                // from the KeySet. If neither is found, use the jwt_secret directly.
                 let signing_key: Option<SigningKey> = if let Some(ref ks_lock) = keyset {
                     let ks = ks_lock.read().await;
-                    let key = ks.current().cloned();
+                    let key = ks
+                        .current_for_alg(KeyAlgorithm::RS256)
+                        .or_else(|| ks.current_for_alg(KeyAlgorithm::HS256))
+                        .cloned();
                     if key.is_none() {
                         tracing::warn!("KeySet has no current key; falling back to jwt_secret");
                     }
