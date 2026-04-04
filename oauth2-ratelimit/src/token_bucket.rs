@@ -17,7 +17,9 @@ impl TokenBucket {
     /// `refill_rate` = `max_tokens / window_secs` tokens per second.
     pub fn new(max_tokens: u32, window_secs: u64) -> Self {
         if max_tokens == 0 {
-            tracing::warn!("TokenBucket created with max_tokens=0; defaulting to 1");
+            tracing::warn!(
+                "TokenBucket created with max_tokens=0; clamping to 1 to avoid division-by-zero"
+            );
         }
         if window_secs == 0 {
             tracing::warn!("TokenBucket created with window_secs=0; defaulting to 1 second");

@@ -112,8 +112,7 @@ pub async fn rotate_key(
         "algorithm": algorithm.to_string(),
         "created_at": created_at.to_rfc3339(),
         "grace_period_hours": grace_period_hours,
-        "warning": "Key rotation is in-memory only. Rotated keys will be lost on restart. \
-                    DB persistence is not yet implemented.",
+        "warning": "Key rotation is in-memory only. Rotated keys will be lost on restart. DB persistence is not yet implemented.",
     })))
 }
 
