@@ -713,13 +713,16 @@ impl Config {
     }
 
     /// Build a `ResilienceConfig` from environment variables.
-    /// Build a `ResilienceConfig` from environment variables.
     ///
     /// Returns `None` when `OAUTH2_RESILIENCE_ENABLED` is absent or `false`.
     /// In that case, all other `OAUTH2_RESILIENCE_*` variables are intentionally
     /// ignored — resilience is entirely disabled and the middleware is a no-op.
     /// To activate resilience, set `OAUTH2_RESILIENCE_ENABLED=true`; the
     /// remaining variables then control the individual sub-features.
+    ///
+    /// Each sub-feature (back-pressure, circuit breaker) can be independently
+    /// disabled by setting `OAUTH2_RESILIENCE_BP_ENABLED=false` or
+    /// `OAUTH2_RESILIENCE_CB_ENABLED=false`.
     fn resilience_from_env() -> Option<ResilienceConfig> {
         let enabled = std::env::var("OAUTH2_RESILIENCE_ENABLED")
             .ok()
@@ -730,31 +733,49 @@ impl Config {
             return None;
         }
 
-        let back_pressure = Some(BackPressureConfig {
-            max_concurrent: std::env::var("OAUTH2_RESILIENCE_MAX_CONCURRENT")
-                .ok()
-                .and_then(|v| v.parse().ok())
-                .unwrap_or_else(default_bp_max_concurrent),
-        });
+        // Back-pressure — disabled when OAUTH2_RESILIENCE_BP_ENABLED=false.
+        let bp_enabled = std::env::var("OAUTH2_RESILIENCE_BP_ENABLED")
+            .ok()
+            .and_then(|v| v.parse::<bool>().ok())
+            .unwrap_or(true);
+        let back_pressure = if bp_enabled {
+            Some(BackPressureConfig {
+                max_concurrent: std::env::var("OAUTH2_RESILIENCE_MAX_CONCURRENT")
+                    .ok()
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or_else(default_bp_max_concurrent),
+            })
+        } else {
+            None
+        };
 
-        let circuit_breaker = Some(CircuitBreakerConfig {
-            failure_threshold: std::env::var("OAUTH2_RESILIENCE_CB_FAILURE_THRESHOLD")
-                .ok()
-                .and_then(|v| v.parse().ok())
-                .unwrap_or_else(default_cb_failure_threshold),
-            success_threshold: std::env::var("OAUTH2_RESILIENCE_CB_SUCCESS_THRESHOLD")
-                .ok()
-                .and_then(|v| v.parse().ok())
-                .unwrap_or_else(default_cb_success_threshold),
-            open_secs: std::env::var("OAUTH2_RESILIENCE_CB_OPEN_SECS")
-                .ok()
-                .and_then(|v| v.parse().ok())
-                .unwrap_or_else(default_cb_open_secs),
-            half_open_max_probes: std::env::var("OAUTH2_RESILIENCE_CB_HALF_OPEN_MAX_PROBES")
-                .ok()
-                .and_then(|v| v.parse().ok())
-                .unwrap_or_else(default_cb_half_open_max_probes),
-        });
+        // Circuit breaker — disabled when OAUTH2_RESILIENCE_CB_ENABLED=false.
+        let cb_enabled = std::env::var("OAUTH2_RESILIENCE_CB_ENABLED")
+            .ok()
+            .and_then(|v| v.parse::<bool>().ok())
+            .unwrap_or(true);
+        let circuit_breaker = if cb_enabled {
+            Some(CircuitBreakerConfig {
+                failure_threshold: std::env::var("OAUTH2_RESILIENCE_CB_FAILURE_THRESHOLD")
+                    .ok()
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or_else(default_cb_failure_threshold),
+                success_threshold: std::env::var("OAUTH2_RESILIENCE_CB_SUCCESS_THRESHOLD")
+                    .ok()
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or_else(default_cb_success_threshold),
+                open_secs: std::env::var("OAUTH2_RESILIENCE_CB_OPEN_SECS")
+                    .ok()
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or_else(default_cb_open_secs),
+                half_open_max_probes: std::env::var("OAUTH2_RESILIENCE_CB_HALF_OPEN_MAX_PROBES")
+                    .ok()
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or_else(default_cb_half_open_max_probes),
+            })
+        } else {
+            None
+        };
 
         Some(ResilienceConfig {
             enabled,

@@ -1,14 +1,17 @@
 //! Resilience middleware.
 //!
-//! Provides three complementary layers:
+//! Provides three complementary layers applied in the following order:
 //!
-//! 1. **Back-pressure** — a global bounded semaphore; when all permits are
+//! 1. **Circuit breaker (fast-fail)** — when the circuit is fully **open**,
+//!    all requests are rejected with 503 immediately (cheapest path).
+//! 2. **Back-pressure** — a global bounded semaphore; when all permits are
 //!    taken the request is rejected with 503 immediately.
-//! 2. **Bulkheads** — per-route-group concurrency limits so a surge in one
+//! 3. **Bulkheads** — per-route-group concurrency limits so a surge in one
 //!    area (e.g. `/oauth`) cannot starve another (e.g. `/admin`).
-//! 3. **Circuit breaker** — when the server is producing too many 5xx
-//!    responses the circuit opens and subsequent requests are fast-failed
-//!    with 503 until the backend recovers.
+//! 4. **Circuit breaker (probing)** — in **half-open** state a limited
+//!    number of probe requests are forwarded.  This check runs *after*
+//!    back-pressure / bulkhead admission so a probe slot is never wasted on
+//!    a request that would have been rejected by capacity limits anyway.
 //!
 //! Requests to exempt paths (health, ready, metrics) skip all checks.
 
@@ -22,7 +25,7 @@ use actix_web::dev::{forward_ready, Service, ServiceRequest, ServiceResponse, Tr
 use actix_web::{Error, HttpResponse};
 use futures::future::LocalBoxFuture;
 use oauth2_observability::Metrics;
-use oauth2_resilience::{BulkheadRegistry, CircuitBreaker, ConcurrencyLimiter};
+use oauth2_resilience::{BulkheadRegistry, CircuitBreaker, CircuitState, ConcurrencyLimiter};
 
 /// Configures the resilience middleware.
 pub struct ResilienceMiddleware {
@@ -127,10 +130,12 @@ where
                 return Ok(res.map_into_left_body());
             }
 
-            // --- circuit breaker check (fail-fast) ---
+            // --- circuit breaker fast-fail (Open state only) ---
+            // When the circuit is fully Open, reject immediately — this is
+            // the cheapest path and doesn't consume a probe slot.
             if let Some(ref cb) = circuit_breaker {
-                if !cb.allow_request() {
-                    let state = cb.state();
+                let state = cb.state();
+                if state == CircuitState::Open {
                     tracing::warn!(
                         path = %path,
                         state = ?state,
@@ -141,11 +146,13 @@ where
                         .with_label_values(&["global"])
                         .set(state.as_gauge_value());
 
+                    let retry_secs = cb.open_duration().as_secs().max(1).to_string();
                     let response = HttpResponse::ServiceUnavailable()
-                        .insert_header(("Retry-After", "30"))
+                        .insert_header(("Retry-After", retry_secs))
                         .json(serde_json::json!({
                             "error": "service_unavailable",
-                            "error_description": "Server is temporarily unavailable. Please retry later.",
+                            "error_description":
+                                "Server is temporarily unavailable. Please retry later.",
                         }));
                     return Ok(req.into_response(response).map_into_right_body());
                 }
@@ -155,9 +162,7 @@ where
             let _global_permit = if let Some(ref lim) = concurrency {
                 match lim.try_acquire() {
                     Some(p) => {
-                        metrics
-                            .concurrent_requests_in_flight
-                            .set(lim.in_flight() as f64);
+                        metrics.concurrent_requests_in_flight.inc();
                         Some(p)
                     }
                     None => {
@@ -172,7 +177,8 @@ where
                             .insert_header(("Retry-After", "1"))
                             .json(serde_json::json!({
                                 "error": "service_unavailable",
-                                "error_description": "Server is at capacity. Please retry later.",
+                                "error_description":
+                                    "Server is at capacity. Please retry later.",
                             }));
                         return Ok(req.into_response(response).map_into_right_body());
                     }
@@ -200,11 +206,17 @@ where
                                 .bulkhead_rejected_total
                                 .with_label_values(&[name])
                                 .inc();
+                            // Decrement in-flight gauge since we acquired a
+                            // global permit but are now rejecting.
+                            if concurrency.is_some() {
+                                metrics.concurrent_requests_in_flight.dec();
+                            }
                             let response = HttpResponse::ServiceUnavailable()
                                 .insert_header(("Retry-After", "1"))
                                 .json(serde_json::json!({
                                     "error": "service_unavailable",
-                                    "error_description": "Endpoint is at capacity. Please retry later.",
+                                    "error_description":
+                                        "Endpoint is at capacity. Please retry later.",
                                 }));
                             return Ok(req.into_response(response).map_into_right_body());
                         }
@@ -214,16 +226,57 @@ where
                 None
             };
 
+            // --- circuit breaker probing (HalfOpen state) ---
+            // This runs AFTER back-pressure / bulkhead admission so a probe
+            // slot is never wasted on a request that would be rejected by
+            // capacity limits anyway.
+            let is_cb_probe = if let Some(ref cb) = circuit_breaker {
+                if cb.state() == CircuitState::HalfOpen {
+                    if !cb.allow_request() {
+                        tracing::warn!(
+                            path = %path,
+                            "Circuit breaker half-open — probe limit reached, rejecting"
+                        );
+                        if concurrency.is_some() {
+                            metrics.concurrent_requests_in_flight.dec();
+                        }
+                        let retry_secs = cb.open_duration().as_secs().max(1).to_string();
+                        let response = HttpResponse::ServiceUnavailable()
+                            .insert_header(("Retry-After", retry_secs))
+                            .json(serde_json::json!({
+                                "error": "service_unavailable",
+                                "error_description":
+                                    "Server is temporarily unavailable. Please retry later.",
+                            }));
+                        return Ok(req.into_response(response).map_into_right_body());
+                    }
+                    true
+                } else {
+                    false
+                }
+            } else {
+                false
+            };
+
             // --- forward the request ---
             let res = svc.call(req).await?;
+
+            // --- decrement in-flight gauge ---
+            if concurrency.is_some() {
+                metrics.concurrent_requests_in_flight.dec();
+            }
 
             // --- update circuit breaker based on outcome ---
             if let Some(ref cb) = circuit_breaker {
                 let status = res.status().as_u16();
-                if status >= 500 {
-                    cb.record_failure();
-                } else {
-                    cb.record_success();
+                // Only record success/failure when the CB is tracking
+                // (Closed for failure counting, HalfOpen for probes).
+                if is_cb_probe || cb.state() == CircuitState::Closed {
+                    if status >= 500 {
+                        cb.record_failure();
+                    } else {
+                        cb.record_success();
+                    }
                 }
                 // Reflect current state in the gauge.
                 let new_state = cb.state();

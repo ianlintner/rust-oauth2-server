@@ -711,26 +711,11 @@ pub async fn run() -> std::io::Result<()> {
             vec!["/health".into(), "/ready".into(), "/metrics".into()],
         );
 
+        // Actix middleware execution order: the **last** `.wrap()` is the
+        // outermost layer (runs first on incoming requests).  We want:
+        //   resilience (outermost) → rate-limiting → session → logging → …
+        // so resilience_mw is registered last.
         let mut app = App::new()
-            // Resilience (innermost to outermost: CB→BP→bulkhead→RL→session→…)
-            // Resilience sits outside rate-limiting so that a tripped circuit
-            // or a full concurrency pool returns 503 before the rate-limit is
-            // checked (cheaper path under extreme load).
-            .wrap(resilience_mw)
-            // Rate limiting (outermost middleware)
-            .wrap(rl_middleware)
-            // Middleware
-            .wrap(SessionMiddleware::new(
-                CookieSessionStore::default(),
-                session_key.clone(),
-            ))
-            .wrap(TracingLogger::<OtelRootSpanBuilder>::new())
-            .wrap(actix_middleware::Logger::default())
-            .wrap(actix_middleware::Compress::default())
-            .wrap(oauth2_observability::actix::MetricsMiddleware::new(
-                metrics.clone(),
-            ))
-            .wrap(cors)
             .wrap(
                 actix_middleware::DefaultHeaders::new()
                     .add(("X-Frame-Options", "DENY"))
@@ -738,6 +723,22 @@ pub async fn run() -> std::io::Result<()> {
                     .add(("Referrer-Policy", "no-referrer"))
                     .add(("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:")),
             )
+            .wrap(cors)
+            .wrap(oauth2_observability::actix::MetricsMiddleware::new(
+                metrics.clone(),
+            ))
+            .wrap(actix_middleware::Compress::default())
+            .wrap(actix_middleware::Logger::default())
+            .wrap(TracingLogger::<OtelRootSpanBuilder>::new())
+            .wrap(SessionMiddleware::new(
+                CookieSessionStore::default(),
+                session_key.clone(),
+            ))
+            .wrap(rl_middleware)
+            // Resilience is the outermost layer (last .wrap() call).
+            // Tripped circuit / full concurrency pool → 503 on the cheapest
+            // path, before rate-limiting, session, or logging run.
+            .wrap(resilience_mw)
             // Shared state
             .app_data(web::Data::new(token_pool.clone()))
             .app_data(web::Data::new(client_actor.clone()))

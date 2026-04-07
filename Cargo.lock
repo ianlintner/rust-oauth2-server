@@ -3815,8 +3815,6 @@ dependencies = [
 name = "oauth2-resilience"
 version = "0.1.0"
 dependencies = [
- "async-trait",
- "thiserror 2.0.17",
  "tokio",
  "tracing",
 ]

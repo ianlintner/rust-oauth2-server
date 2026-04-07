@@ -135,10 +135,16 @@ impl CircuitBreaker {
         self.inner.total_trips.load(Ordering::Relaxed)
     }
 
+    /// The configured open duration (used for deriving `Retry-After` headers).
+    pub fn open_duration(&self) -> Duration {
+        self.inner.config.open_duration
+    }
+
     /// Returns `true` if the request is allowed through.
     ///
     /// Call [`record_success`] or [`record_failure`] after the operation
-    /// completes so the circuit breaker can track outcomes.
+    /// completes so the circuit breaker can track outcomes and release the
+    /// probe slot.
     pub fn allow_request(&self) -> bool {
         self.check_transition();
         let state = CircuitState::from_u8(self.inner.state.load(Ordering::Acquire));
@@ -146,8 +152,26 @@ impl CircuitBreaker {
             CircuitState::Closed => true,
             CircuitState::Open => false,
             CircuitState::HalfOpen => {
-                let probes = self.inner.probe_count.fetch_add(1, Ordering::AcqRel);
-                probes < self.inner.config.half_open_max_probes
+                // Use a CAS loop so a rejected call never consumes a slot.
+                loop {
+                    let current = self.inner.probe_count.load(Ordering::Acquire);
+                    if current >= self.inner.config.half_open_max_probes {
+                        return false;
+                    }
+                    if self
+                        .inner
+                        .probe_count
+                        .compare_exchange_weak(
+                            current,
+                            current + 1,
+                            Ordering::AcqRel,
+                            Ordering::Relaxed,
+                        )
+                        .is_ok()
+                    {
+                        return true;
+                    }
+                }
             }
         }
     }
@@ -160,6 +184,8 @@ impl CircuitBreaker {
                 self.inner.failure_count.store(0, Ordering::Release);
             }
             CircuitState::HalfOpen => {
+                // Release the probe slot.
+                self.inner.probe_count.fetch_sub(1, Ordering::AcqRel);
                 let successes = self.inner.success_count.fetch_add(1, Ordering::AcqRel) + 1;
                 if successes >= self.inner.config.success_threshold {
                     self.transition_to(CircuitState::Closed);
@@ -180,7 +206,8 @@ impl CircuitBreaker {
                 }
             }
             CircuitState::HalfOpen => {
-                // Any failure in half-open re-opens the circuit immediately.
+                // Release the probe slot, then re-open immediately.
+                self.inner.probe_count.fetch_sub(1, Ordering::AcqRel);
                 self.transition_to(CircuitState::Open);
             }
             CircuitState::Open => {} // already open
@@ -355,5 +382,76 @@ mod tests {
         assert!(cb.allow_request()); // probe 0
         assert!(cb.allow_request()); // probe 1
         assert!(!cb.allow_request()); // probe 2 >= max_probes=2 → rejected
+    }
+
+    #[tokio::test]
+    async fn probe_slot_released_on_success() {
+        let cfg = CircuitBreakerConfig {
+            failure_threshold: 1,
+            success_threshold: 5,
+            open_duration: Duration::from_millis(50),
+            half_open_max_probes: 1,
+        };
+        let cb = CircuitBreaker::new("test", cfg);
+        cb.record_failure();
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert_eq!(cb.state(), CircuitState::HalfOpen);
+
+        // Take the only probe slot.
+        assert!(cb.allow_request());
+        assert!(!cb.allow_request()); // full
+
+        // Completing the probe frees the slot.
+        cb.record_success();
+        assert!(cb.allow_request()); // slot available again
+    }
+
+    #[tokio::test]
+    async fn probe_slot_released_on_failure() {
+        let cfg = CircuitBreakerConfig {
+            failure_threshold: 1,
+            success_threshold: 5,
+            open_duration: Duration::from_millis(50),
+            half_open_max_probes: 1,
+        };
+        let cb = CircuitBreaker::new("test", cfg);
+        cb.record_failure();
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert_eq!(cb.state(), CircuitState::HalfOpen);
+
+        // Take the only probe slot.
+        assert!(cb.allow_request());
+        assert!(!cb.allow_request()); // full
+
+        // Failure re-opens (and releases the slot via transition reset).
+        cb.record_failure();
+        assert_eq!(cb.state(), CircuitState::Open);
+    }
+
+    #[tokio::test]
+    async fn rejected_probe_does_not_consume_slot() {
+        let cfg = CircuitBreakerConfig {
+            failure_threshold: 1,
+            success_threshold: 5,
+            open_duration: Duration::from_millis(50),
+            half_open_max_probes: 1,
+        };
+        let cb = CircuitBreaker::new("test", cfg);
+        cb.record_failure();
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert_eq!(cb.state(), CircuitState::HalfOpen);
+
+        // Take the only slot.
+        assert!(cb.allow_request());
+
+        // The rejected call should NOT consume a slot.
+        assert!(!cb.allow_request());
+
+        // Complete the first probe — slot freed.
+        cb.record_success();
+
+        // Now we should be able to probe again (if rejected had consumed a slot
+        // this would fail).
+        assert!(cb.allow_request());
     }
 }
