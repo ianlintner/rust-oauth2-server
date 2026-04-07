@@ -23,6 +23,7 @@ members = [
 	"crates/oauth2-storage-mongo",
 	"crates/oauth2-storage-sqlx",
 	"oauth2-ratelimit",
+	"oauth2-resilience",
 ]
 
 [dependencies]

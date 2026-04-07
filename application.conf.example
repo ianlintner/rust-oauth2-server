@@ -150,3 +150,49 @@ debug {
   # Enable debug config logging (set to "1" to enable)
   config = ${?OAUTH2_DEBUG_CONFIG}
 }
+
+# Resilience Configuration
+# Provides back-pressure, bulkheads, and a circuit breaker for DDoS / surge protection.
+resilience {
+  # Set to true to activate all resilience middleware.
+  enabled = false
+  enabled = ${?OAUTH2_RESILIENCE_ENABLED}
+
+  # Back-pressure: global concurrency limit.
+  # Requests arriving when all permits are taken are rejected with HTTP 503.
+  back_pressure {
+    max_concurrent = 1000
+    max_concurrent = ${?OAUTH2_RESILIENCE_MAX_CONCURRENT}
+  }
+
+  # Circuit breaker: fast-fails requests with HTTP 503 when too many 5xx
+  # responses are produced, preventing cascading failures.
+  circuit_breaker {
+    # Consecutive 5xx responses before the circuit opens.
+    failure_threshold = 5
+    failure_threshold = ${?OAUTH2_RESILIENCE_CB_FAILURE_THRESHOLD}
+
+    # Consecutive 2xx/3xx/4xx responses in half-open state before closing.
+    success_threshold = 2
+    success_threshold = ${?OAUTH2_RESILIENCE_CB_SUCCESS_THRESHOLD}
+
+    # Seconds the circuit remains open before probing (half-open).
+    open_secs = 30
+    open_secs = ${?OAUTH2_RESILIENCE_CB_OPEN_SECS}
+
+    # Maximum concurrent probes allowed in half-open state.
+    half_open_max_probes = 3
+    half_open_max_probes = ${?OAUTH2_RESILIENCE_CB_HALF_OPEN_MAX_PROBES}
+  }
+
+  # Bulkheads: per-route-group concurrency limits.
+  # A surge on one route group cannot starve another.
+  # Each entry requires: name, path_prefix, max_concurrent.
+  # Example:
+  # bulkheads = [
+  #   { name = "oauth",  path_prefix = "/oauth",  max_concurrent = 500 },
+  #   { name = "admin",  path_prefix = "/admin",  max_concurrent = 50  },
+  #   { name = "events", path_prefix = "/events", max_concurrent = 100 }
+  # ]
+  bulkheads = []
+}

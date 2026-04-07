@@ -12,6 +12,7 @@ oauth2-events = { path = "../oauth2-events" }
 oauth2-observability = { path = "../oauth2-observability" }
 oauth2-ports = { path = "../oauth2-ports" }
 oauth2-ratelimit = { path = "../../oauth2-ratelimit" }
+oauth2-resilience = { path = "../../oauth2-resilience" }
 
 actix = "0.13"
 actix-web = "4.4"

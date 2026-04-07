@@ -1,6 +1,6 @@
 use prometheus::{
-    Counter, CounterVec, Histogram, HistogramOpts, HistogramVec, IntCounter, IntGauge, Opts,
-    Registry,
+    Counter, CounterVec, Gauge, GaugeVec, Histogram, HistogramOpts, HistogramVec, IntCounter,
+    IntGauge, Opts, Registry,
 };
 use std::sync::Arc;
 
@@ -53,6 +53,22 @@ pub struct Metrics {
     // Rate limiting metrics
     pub rate_limit_rejected_total: CounterVec,
     pub rate_limit_remaining: Histogram,
+
+    // Resilience metrics
+    /// Current circuit breaker state (0=Closed, 1=Open, 2=HalfOpen).
+    /// Label: `circuit` — the circuit breaker name.
+    pub circuit_breaker_state: GaugeVec,
+    /// Total number of times a circuit has tripped open.
+    /// Label: `circuit` — the circuit breaker name.
+    pub circuit_breaker_trips_total: CounterVec,
+    /// Total requests rejected because the global concurrency limit was reached
+    /// (back-pressure).
+    pub back_pressure_rejected_total: Counter,
+    /// Current number of in-flight requests across all concurrency limiters.
+    pub concurrent_requests_in_flight: Gauge,
+    /// Total requests rejected because a specific bulkhead was at capacity.
+    /// Label: `bulkhead` — the bulkhead name.
+    pub bulkhead_rejected_total: CounterVec,
 }
 
 impl Metrics {
@@ -176,6 +192,71 @@ impl Metrics {
             .register(Box::new(rate_limit_remaining.clone()))
             .expect("register rate_limit_remaining");
 
+        // --- Resilience metrics ---
+
+        let circuit_breaker_state = GaugeVec::new(
+            Opts::new(
+                "circuit_breaker_state",
+                "Current circuit breaker state (0=Closed, 1=Open, 2=HalfOpen)",
+            )
+            .namespace("oauth2_server"),
+            &["circuit"],
+        )
+        .expect("circuit_breaker_state metric");
+        registry
+            .register(Box::new(circuit_breaker_state.clone()))
+            .expect("register circuit_breaker_state");
+
+        let circuit_breaker_trips_total = CounterVec::new(
+            Opts::new(
+                "circuit_breaker_trips_total",
+                "Total number of times the circuit breaker has tripped open",
+            )
+            .namespace("oauth2_server"),
+            &["circuit"],
+        )
+        .expect("circuit_breaker_trips_total metric");
+        registry
+            .register(Box::new(circuit_breaker_trips_total.clone()))
+            .expect("register circuit_breaker_trips_total");
+
+        let back_pressure_rejected_total = Counter::with_opts(
+            Opts::new(
+                "back_pressure_rejected_total",
+                "Total requests rejected due to global concurrency limit (back-pressure)",
+            )
+            .namespace("oauth2_server"),
+        )
+        .expect("back_pressure_rejected_total metric");
+        registry
+            .register(Box::new(back_pressure_rejected_total.clone()))
+            .expect("register back_pressure_rejected_total");
+
+        let concurrent_requests_in_flight = Gauge::with_opts(
+            Opts::new(
+                "concurrent_requests_in_flight",
+                "Current number of in-flight requests",
+            )
+            .namespace("oauth2_server"),
+        )
+        .expect("concurrent_requests_in_flight metric");
+        registry
+            .register(Box::new(concurrent_requests_in_flight.clone()))
+            .expect("register concurrent_requests_in_flight");
+
+        let bulkhead_rejected_total = CounterVec::new(
+            Opts::new(
+                "bulkhead_rejected_total",
+                "Total requests rejected because a bulkhead was at capacity",
+            )
+            .namespace("oauth2_server"),
+            &["bulkhead"],
+        )
+        .expect("bulkhead_rejected_total metric");
+        registry
+            .register(Box::new(bulkhead_rejected_total.clone()))
+            .expect("register bulkhead_rejected_total");
+
         Ok(Self {
             registry: Arc::new(registry),
             http_requests_total,
@@ -192,6 +273,11 @@ impl Metrics {
             db_query_duration_seconds,
             rate_limit_rejected_total,
             rate_limit_remaining,
+            circuit_breaker_state,
+            circuit_breaker_trips_total,
+            back_pressure_rejected_total,
+            concurrent_requests_in_flight,
+            bulkhead_rejected_total,
         })
     }
 }

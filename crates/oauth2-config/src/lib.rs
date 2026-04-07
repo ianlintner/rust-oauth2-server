@@ -24,6 +24,8 @@ pub struct Config {
     pub rate_limit: Option<RateLimitConfig>,
     #[serde(default)]
     pub cache: Option<CacheConfig>,
+    #[serde(default)]
+    pub resilience: Option<ResilienceConfig>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -274,6 +276,95 @@ impl Default for RateLimitConfig {
     }
 }
 
+/// Top-level resilience configuration.
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
+pub struct ResilienceConfig {
+    /// When `false` (default) the middleware is a no-op.
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub circuit_breaker: Option<CircuitBreakerConfig>,
+    #[serde(default)]
+    pub back_pressure: Option<BackPressureConfig>,
+    /// Per-route-group concurrency limits (bulkheads).
+    #[serde(default)]
+    pub bulkheads: Vec<BulkheadEntry>,
+}
+
+/// Circuit-breaker configuration.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct CircuitBreakerConfig {
+    /// Consecutive failures before opening.
+    #[serde(default = "default_cb_failure_threshold")]
+    pub failure_threshold: u32,
+    /// Consecutive successes in half-open before closing.
+    #[serde(default = "default_cb_success_threshold")]
+    pub success_threshold: u32,
+    /// Seconds the circuit remains open before probing.
+    #[serde(default = "default_cb_open_secs")]
+    pub open_secs: u64,
+    /// Maximum concurrent probes in half-open state.
+    #[serde(default = "default_cb_half_open_max_probes")]
+    pub half_open_max_probes: u32,
+}
+
+fn default_cb_failure_threshold() -> u32 {
+    5
+}
+fn default_cb_success_threshold() -> u32 {
+    2
+}
+fn default_cb_open_secs() -> u64 {
+    30
+}
+fn default_cb_half_open_max_probes() -> u32 {
+    3
+}
+
+impl Default for CircuitBreakerConfig {
+    fn default() -> Self {
+        Self {
+            failure_threshold: default_cb_failure_threshold(),
+            success_threshold: default_cb_success_threshold(),
+            open_secs: default_cb_open_secs(),
+            half_open_max_probes: default_cb_half_open_max_probes(),
+        }
+    }
+}
+
+/// Global (server-wide) concurrency / back-pressure configuration.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct BackPressureConfig {
+    /// Maximum number of simultaneously active requests.
+    #[serde(default = "default_bp_max_concurrent")]
+    pub max_concurrent: u32,
+}
+
+fn default_bp_max_concurrent() -> u32 {
+    1000
+}
+
+impl Default for BackPressureConfig {
+    fn default() -> Self {
+        Self {
+            max_concurrent: default_bp_max_concurrent(),
+        }
+    }
+}
+
+/// A single bulkhead entry (name + path prefix + concurrency limit).
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct BulkheadEntry {
+    pub name: String,
+    pub path_prefix: String,
+    #[serde(default = "default_bulkhead_max_concurrent")]
+    pub max_concurrent: u32,
+}
+
+fn default_bulkhead_max_concurrent() -> u32 {
+    200
+}
+
 impl Default for Config {
     fn default() -> Self {
         // Try to load from HOCON file first, fall back to environment variables
@@ -458,6 +549,7 @@ impl Config {
                     .and_then(|v| v.parse().ok())
                     .unwrap_or(1),
             }),
+            resilience: Self::resilience_from_env(),
         };
 
         config.normalize_event_config();
@@ -618,5 +710,50 @@ impl Config {
                 *secret = "***MASKED***".to_string();
             }
         }
+    }
+
+    /// Build a `ResilienceConfig` from environment variables.
+    fn resilience_from_env() -> Option<ResilienceConfig> {
+        let enabled = std::env::var("OAUTH2_RESILIENCE_ENABLED")
+            .ok()
+            .and_then(|v| v.parse::<bool>().ok())
+            .unwrap_or(false);
+
+        if !enabled {
+            return None;
+        }
+
+        let back_pressure = Some(BackPressureConfig {
+            max_concurrent: std::env::var("OAUTH2_RESILIENCE_MAX_CONCURRENT")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or_else(default_bp_max_concurrent),
+        });
+
+        let circuit_breaker = Some(CircuitBreakerConfig {
+            failure_threshold: std::env::var("OAUTH2_RESILIENCE_CB_FAILURE_THRESHOLD")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or_else(default_cb_failure_threshold),
+            success_threshold: std::env::var("OAUTH2_RESILIENCE_CB_SUCCESS_THRESHOLD")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or_else(default_cb_success_threshold),
+            open_secs: std::env::var("OAUTH2_RESILIENCE_CB_OPEN_SECS")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or_else(default_cb_open_secs),
+            half_open_max_probes: std::env::var("OAUTH2_RESILIENCE_CB_HALF_OPEN_MAX_PROBES")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or_else(default_cb_half_open_max_probes),
+        });
+
+        Some(ResilienceConfig {
+            enabled,
+            circuit_breaker,
+            back_pressure,
+            bulkheads: vec![],
+        })
     }
 }
