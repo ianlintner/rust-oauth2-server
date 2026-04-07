@@ -33,7 +33,7 @@ chrono = { version = "0.4", features = ["serde"] }
 rand = "0.9"
 uuid = { version = "1.6", features = ["v4", "serde"] }
 subtle = "2.5"
-lru = "0.12"
+lru = "0.16"
 
 sha2 = "0.10"
 base64 = "0.22"
