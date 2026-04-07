@@ -1,0 +1,143 @@
+name: Weekly Documentation Reconciliation
+
+on:
+  schedule:
+    # Every Monday at 8:00 AM UTC
+    - cron: "0 8 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check-and-create-issue:
+    name: Check for weekly commits and create docs issue
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check for commits in the past 7 days
+        id: check_commits
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          since_date="$(date -u -d '7 days ago' '+%Y-%m-%dT%H:%M:%SZ')"
+          echo "Checking for commits since ${since_date} on main..."
+
+          commit_count=$(git log --oneline --since="${since_date}" --format="%H" origin/main | wc -l)
+          echo "commit_count=${commit_count}" >> "$GITHUB_OUTPUT"
+
+          if [ "${commit_count}" -gt 0 ]; then
+            echo "has_commits=true" >> "$GITHUB_OUTPUT"
+
+            # Build a markdown-friendly commit summary (most recent 50)
+            summary=$(git log --since="${since_date}" --format="- [%h](https://github.com/${{ github.repository }}/commit/%H) %s (%an, %as)" origin/main | head -50)
+            {
+              echo "commit_summary<<COMMIT_EOF"
+              echo "${summary}"
+              echo "COMMIT_EOF"
+            } >> "$GITHUB_OUTPUT"
+          else
+            echo "has_commits=false" >> "$GITHUB_OUTPUT"
+            echo "commit_summary=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create documentation reconciliation issue
+        if: steps.check_commits.outputs.has_commits == 'true'
+        uses: actions/github-script@v7
+        env:
+          COMMIT_SUMMARY: ${{ steps.check_commits.outputs.commit_summary }}
+          COMMIT_COUNT: ${{ steps.check_commits.outputs.commit_count }}
+        with:
+          script: |
+            const commitCount = process.env.COMMIT_COUNT;
+            const commitSummary = process.env.COMMIT_SUMMARY;
+            const today = new Date().toISOString().split('T')[0];
+
+            const body = [
+              `## Weekly Documentation Reconciliation — ${today}`,
+              '',
+              `There have been **${commitCount} commit(s)** to \`main\` in the past 7 days.`,
+              'Please review the changes below and reconcile the documentation to reflect',
+              'the current application state, new features, and any API changes.',
+              '',
+              '### Commits This Week',
+              '',
+              commitSummary,
+              '',
+              '### Reconciliation Checklist',
+              '',
+              '- [ ] Review each commit for user-facing or API changes',
+              '- [ ] Update `docs/` pages that are affected by the changes',
+              '- [ ] Update `README.md` if top-level features or setup steps changed',
+              '- [ ] Update `SUMMARY.md` if new documentation pages are needed',
+              '- [ ] Verify OpenAPI / Swagger docs are consistent with code (`utoipa` annotations)',
+              '- [ ] Check configuration reference (`application.conf.example`, `.env.example`)',
+              '- [ ] Update architecture docs if structural changes were made (`docs/architecture/`)',
+              '- [ ] Ensure deployment docs are current (`docs/deployment/`, `k8s/`, `docker-compose*.yml`)',
+              '- [ ] Run `mkdocs serve` locally to verify documentation builds without errors',
+              '- [ ] Open a PR with documentation updates',
+              '',
+              '### Notes',
+              '',
+              'This issue was automatically created by the **Weekly Documentation Reconciliation** workflow.',
+              `See the [workflow run](https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}) for details.`,
+            ].join('\n');
+
+            // Ensure the 'documentation' label exists before applying it
+            const labels = [];
+            try {
+              await github.rest.issues.getLabel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                name: 'documentation',
+              });
+              labels.push('documentation');
+            } catch {
+              // Label doesn't exist; create it
+              try {
+                await github.rest.issues.createLabel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  name: 'documentation',
+                  color: '0075ca',
+                  description: 'Improvements or additions to documentation',
+                });
+                labels.push('documentation');
+              } catch (createErr) {
+                core.warning(`Could not create 'documentation' label: ${createErr.message}`);
+              }
+            }
+
+            const issue = await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `docs: weekly documentation reconciliation (${today})`,
+              body: body,
+              labels: labels,
+              assignees: ['copilot'],
+            });
+
+            core.info(`Created issue #${issue.data.number}`);
+
+      - name: Job summary
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo "## Weekly Documentation Reconciliation"
+            echo
+            if [ "${{ steps.check_commits.outputs.has_commits }}" = "true" ]; then
+              echo "- **Commits found**: ${{ steps.check_commits.outputs.commit_count }}"
+              echo "- **Issue created**: ✅ Assigned to \`copilot\`"
+            else
+              echo "- No commits found in the past 7 days."
+              echo "- **Issue created**: ❌ (skipped)"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
