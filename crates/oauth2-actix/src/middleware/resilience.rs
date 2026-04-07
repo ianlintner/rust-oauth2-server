@@ -158,11 +158,16 @@ where
                 }
             }
 
+            // Track whether the in-flight gauge has been incremented so we
+            // can decrement it exactly once regardless of the exit path.
+            let mut in_flight_incremented = false;
+
             // --- global back-pressure check ---
             let _global_permit = if let Some(ref lim) = concurrency {
                 match lim.try_acquire() {
                     Some(p) => {
                         metrics.concurrent_requests_in_flight.inc();
+                        in_flight_incremented = true;
                         Some(p)
                     }
                     None => {
@@ -187,6 +192,14 @@ where
                 None
             };
 
+            // Helper: decrement the in-flight gauge exactly once.
+            let dec_in_flight = |incremented: &mut bool, m: &Metrics| {
+                if *incremented {
+                    m.concurrent_requests_in_flight.dec();
+                    *incremented = false;
+                }
+            };
+
             // --- bulkhead check ---
             let _bulkhead_permit = if let Some(ref reg) = bulkheads {
                 let (name, permit) = reg.try_acquire(&path);
@@ -206,11 +219,7 @@ where
                                 .bulkhead_rejected_total
                                 .with_label_values(&[name])
                                 .inc();
-                            // Decrement in-flight gauge since we acquired a
-                            // global permit but are now rejecting.
-                            if concurrency.is_some() {
-                                metrics.concurrent_requests_in_flight.dec();
-                            }
+                            dec_in_flight(&mut in_flight_incremented, &metrics);
                             let response = HttpResponse::ServiceUnavailable()
                                 .insert_header(("Retry-After", "1"))
                                 .json(serde_json::json!({
@@ -237,9 +246,7 @@ where
                             path = %path,
                             "Circuit breaker half-open — probe limit reached, rejecting"
                         );
-                        if concurrency.is_some() {
-                            metrics.concurrent_requests_in_flight.dec();
-                        }
+                        dec_in_flight(&mut in_flight_incremented, &metrics);
                         let retry_secs = cb.open_duration().as_secs().max(1).to_string();
                         let response = HttpResponse::ServiceUnavailable()
                             .insert_header(("Retry-After", retry_secs))
@@ -262,9 +269,7 @@ where
             let res = svc.call(req).await?;
 
             // --- decrement in-flight gauge ---
-            if concurrency.is_some() {
-                metrics.concurrent_requests_in_flight.dec();
-            }
+            dec_in_flight(&mut in_flight_incremented, &metrics);
 
             // --- update circuit breaker based on outcome ---
             if let Some(ref cb) = circuit_breaker {
