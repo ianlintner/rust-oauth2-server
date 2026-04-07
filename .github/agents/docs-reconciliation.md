@@ -28,6 +28,7 @@ This is a production-ready OAuth2 authorization server built with:
 | `docs/admin/` | Admin and management docs |
 | `docs/observability/` | Metrics, tracing, and logging |
 | `docs/flows/` | OAuth2 flow diagrams and explanations |
+| `docs/superpowers/` | Advanced features (rate limiting, resilience, etc.) |
 | `application.conf.example` | Configuration reference |
 | `.env.example` | Environment variable reference |
 | `DOCKERHUB.md` | Docker Hub image documentation |
