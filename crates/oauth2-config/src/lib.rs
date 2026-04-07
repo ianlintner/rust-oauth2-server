@@ -713,6 +713,13 @@ impl Config {
     }
 
     /// Build a `ResilienceConfig` from environment variables.
+    /// Build a `ResilienceConfig` from environment variables.
+    ///
+    /// Returns `None` when `OAUTH2_RESILIENCE_ENABLED` is absent or `false`.
+    /// In that case, all other `OAUTH2_RESILIENCE_*` variables are intentionally
+    /// ignored — resilience is entirely disabled and the middleware is a no-op.
+    /// To activate resilience, set `OAUTH2_RESILIENCE_ENABLED=true`; the
+    /// remaining variables then control the individual sub-features.
     fn resilience_from_env() -> Option<ResilienceConfig> {
         let enabled = std::env::var("OAUTH2_RESILIENCE_ENABLED")
             .ok()

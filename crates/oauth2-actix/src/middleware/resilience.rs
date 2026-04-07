@@ -233,12 +233,16 @@ where
                     .set(new_state.as_gauge_value());
 
                 // Increment the trips counter by the delta since we last checked.
-                // This correctly handles multiple worker threads sharing the CB.
+                // Use compare_exchange to ensure only one worker thread claims
+                // each increment, preventing double-counting under concurrent load.
                 let current_trips = cb.total_trips();
-                let prev = last_trips.load(Ordering::Relaxed);
-                if current_trips > prev {
+                let prev = last_trips.load(Ordering::Acquire);
+                if current_trips > prev
+                    && last_trips
+                        .compare_exchange(prev, current_trips, Ordering::AcqRel, Ordering::Relaxed)
+                        .is_ok()
+                {
                     let delta = current_trips - prev;
-                    last_trips.store(current_trips, Ordering::Relaxed);
                     metrics
                         .circuit_breaker_trips_total
                         .with_label_values(&["global"])

@@ -112,21 +112,29 @@ impl BulkheadRegistry {
         // We build a small append-only table of leaked strings.
         // The table is keyed by prefix.  Because the registry itself is
         // long-lived (typically the whole process lifetime) this is safe.
+        //
+        // Acquire RwLock first, then the INTERNED mutex — never the other
+        // way around — to avoid a deadlock with `try_acquire` which also
+        // holds the RwLock.
         use std::collections::HashMap;
         use std::sync::OnceLock;
         static INTERNED: OnceLock<std::sync::Mutex<HashMap<String, &'static str>>> =
             OnceLock::new();
+
+        // 1. Look up the human-readable name while holding the RwLock.
+        let name: String = {
+            let inner = self.inner.read().unwrap_or_else(|e| e.into_inner());
+            inner
+                .prefix_to_name
+                .get(prefix)
+                .cloned()
+                .unwrap_or_else(|| prefix.to_string())
+            // RwLock guard dropped here.
+        };
+
+        // 2. Intern the name — now no other lock is held.
         let map = INTERNED.get_or_init(|| std::sync::Mutex::new(HashMap::new()));
         let mut guard = map.lock().unwrap_or_else(|e| e.into_inner());
-
-        let inner = self.inner.read().unwrap_or_else(|e| e.into_inner());
-        let name = inner
-            .prefix_to_name
-            .get(prefix)
-            .cloned()
-            .unwrap_or_else(|| prefix.to_string());
-        drop(inner);
-
         guard
             .entry(name.clone())
             .or_insert_with(|| Box::leak(name.into_boxed_str()))
