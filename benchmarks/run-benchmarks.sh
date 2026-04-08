@@ -77,9 +77,6 @@ command -v docker >/dev/null 2>&1 || { err "docker not found"; exit 1; }
 command -v docker compose >/dev/null 2>&1 || { err "docker compose not found"; exit 1; }
 
 mkdir -p results
-# The grafana/k6 image runs as non-root uid 12345.  Make the results
-# directory world-writable so the k6 container can create output files.
-chmod 777 results
 
 log "═══════════════════════════════════════════════════════════"
 log "  OAuth2 Server Load Test Comparison"
@@ -302,7 +299,11 @@ run_k6() {
 
   log "  Running ${scenario} (iteration ${iteration}/${ITERATIONS})..."
 
+  # Run k6 as the host user so it can write to the bind-mounted results dir
+  # (the grafana/k6 image defaults to non-root uid 12345 which may lack
+  # write permission on the host-owned directory).
   docker compose run --rm \
+    --user "$(id -u):$(id -g)" \
     -e SERVER="$server" \
     -e LOAD_PROFILE="$LOAD_PROFILE" \
     -e ITERATION="$iteration" \
