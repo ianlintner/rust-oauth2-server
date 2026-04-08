@@ -25,6 +25,7 @@ FROM chef AS planner
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
 COPY oauth2-ratelimit ./oauth2-ratelimit
+COPY oauth2-resilience ./oauth2-resilience
 COPY tests ./tests
 RUN cargo chef prepare --recipe-path recipe.json
 
