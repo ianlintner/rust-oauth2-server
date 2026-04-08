@@ -247,6 +247,12 @@ if ! _kubectl wait --for=condition=complete job/flyway-migration -n "${NAMESPACE
   exit 1
 fi
 
+# Restart the deployment so that pods start fresh against the fully-migrated
+# database.  Without this, pods that started during Flyway execution may have
+# failed to seed the admin user and will not retry on their own.
+echo "==> Restarting oauth2-server to ensure post-migration clean start"
+_kubectl rollout restart deployment/oauth2-server -n "${NAMESPACE}"
+
 echo "==> Waiting for OAuth2 server rollout"
 if ! _kubectl rollout status deployment/oauth2-server -n "${NAMESPACE}" --timeout=240s; then
   echo "OAuth2 server did not become ready in time." >&2

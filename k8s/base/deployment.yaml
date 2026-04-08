@@ -23,9 +23,8 @@ spec:
             - -c
             - |
               echo "Waiting for database migrations job to complete..."
-              kubectl wait --for=condition=complete --timeout=300s job/flyway-migration -n "${KUBERNETES_NAMESPACE}" || true
-              echo "Migration job completed or timed out, checking status..."
-              kubectl get job/flyway-migration -n "${KUBERNETES_NAMESPACE}" || echo "Migration job not found, proceeding..."
+              kubectl wait --for=condition=complete --timeout=300s job/flyway-migration -n "${KUBERNETES_NAMESPACE}"
+              echo "Migration job completed successfully."
           env:
             - name: KUBERNETES_NAMESPACE
               valueFrom:
