@@ -77,6 +77,9 @@ command -v docker >/dev/null 2>&1 || { err "docker not found"; exit 1; }
 command -v docker compose >/dev/null 2>&1 || { err "docker compose not found"; exit 1; }
 
 mkdir -p results
+# The grafana/k6 image runs as non-root uid 12345.  Make the results
+# directory world-writable so the k6 container can create output files.
+chmod 777 results
 
 log "═══════════════════════════════════════════════════════════"
 log "  OAuth2 Server Load Test Comparison"
@@ -344,7 +347,7 @@ get_main_service() {
 get_health_wait() {
   local server="$1"
   case "$server" in
-    keycloak)  echo "180" ;;  # JVM startup is slow
+    keycloak)  echo "300" ;;  # JVM startup is slow, especially in CI
     authentik) echo "180" ;;  # Python + Django migrations
     *)         echo "60" ;;
   esac

@@ -149,7 +149,7 @@ services:
       resources:
         limits:
           cpus: "2"
-          memory: 512M
+          memory: 1024M
     depends_on:
       bench-postgres:
         condition: service_healthy
