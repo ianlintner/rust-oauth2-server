@@ -30,14 +30,14 @@ jobs:
           since_date="$(date -u -d '7 days ago' '+%Y-%m-%dT%H:%M:%SZ')"
           echo "Checking for commits since ${since_date} on main..."
 
-          commit_count=$(git log --oneline --since="${since_date}" --format="%H" origin/main | wc -l)
+          commit_count=$(git rev-list --count --since="${since_date}" origin/main)
           echo "commit_count=${commit_count}" >> "$GITHUB_OUTPUT"
 
           if [ "${commit_count}" -gt 0 ]; then
             echo "has_commits=true" >> "$GITHUB_OUTPUT"
 
             # Build a markdown-friendly commit summary (most recent 50)
-            summary=$(git log --since="${since_date}" --format="- [%h](https://github.com/${{ github.repository }}/commit/%H) %s (%an, %as)" origin/main | head -50)
+            summary=$(git log -n 50 --since="${since_date}" --format="- [%h](https://github.com/${{ github.repository }}/commit/%H) %s (%an, %as)" origin/main)
             {
               echo "commit_summary<<COMMIT_EOF"
               echo "${summary}"
