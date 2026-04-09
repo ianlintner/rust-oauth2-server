@@ -75,7 +75,16 @@ curl -X POST http://localhost:8080/oauth/token \
 
 ## Introspection and revocation
 
-Validate a token:
+Both endpoints require client authentication by default. Two methods are supported:
+
+| Method                | How to use it                                                                   |
+| --------------------- | ------------------------------------------------------------------------------- |
+| `client_secret_post`  | Send `client_id` and `client_secret` as form fields (shown in the examples)     |
+| `client_secret_basic` | Send credentials as an HTTP Basic `Authorization` header                        |
+
+The discovery document at `/.well-known/openid-configuration` advertises the supported methods in `introspection_endpoint_auth_methods_supported` and `revocation_endpoint_auth_methods_supported`.
+
+Validate a token (`client_secret_post`):
 
 ```bash
 curl -X POST http://localhost:8080/oauth/introspect \
@@ -83,6 +92,15 @@ curl -X POST http://localhost:8080/oauth/introspect \
   -d "token=ACCESS_TOKEN" \
   -d "client_id=YOUR_CLIENT_ID" \
   -d "client_secret=YOUR_CLIENT_SECRET"
+```
+
+Or with HTTP Basic auth (`client_secret_basic`):
+
+```bash
+curl -X POST http://localhost:8080/oauth/introspect \
+  -u "YOUR_CLIENT_ID:YOUR_CLIENT_SECRET" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "token=ACCESS_TOKEN"
 ```
 
 Revoke a token:
@@ -94,6 +112,9 @@ curl -X POST http://localhost:8080/oauth/revoke \
   -d "client_id=YOUR_CLIENT_ID" \
   -d "client_secret=YOUR_CLIENT_SECRET"
 ```
+
+!!! note
+    If your deployment intentionally allows unauthenticated introspection, set `OAUTH2_PUBLIC_INTROSPECTION=true`. When enabled, the discovery document adds `none` to the list of supported auth methods. This is not recommended for production.
 
 ## Discovery, JWKS, and UserInfo
 

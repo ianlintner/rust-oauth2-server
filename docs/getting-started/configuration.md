@@ -45,6 +45,18 @@ Generate a session key with:
 openssl rand -hex 64
 ```
 
+## Database pool tuning
+
+These settings control the SQLx connection pool when using SQLite or PostgreSQL:
+
+| Variable                              | Default | Purpose                                  |
+| ------------------------------------- | ------- | ---------------------------------------- |
+| `OAUTH2_DATABASE_MAX_CONNECTIONS`     | `50`    | Maximum number of connections in the pool |
+| `OAUTH2_DATABASE_MIN_CONNECTIONS`     | `1`     | Minimum idle connections to keep open    |
+| `OAUTH2_DATABASE_ACQUIRE_TIMEOUT_SECS`| `30`    | Seconds to wait when acquiring a connection |
+| `OAUTH2_DATABASE_IDLE_TIMEOUT_SECS`   | `600`   | Seconds before an idle connection is closed |
+| `OAUTH2_DATABASE_READ_URL`            | —       | Optional read-replica URL for read traffic |
+
 ## URL, proxy, and browser settings
 
 These matter when the bind address is not the same as the public address clients use.
@@ -71,6 +83,7 @@ These are worth calling out because startup and auth flows depend on them.
 | `OAUTH2_SEED_PASSWORD`            | Required in normal mode; the server aborts on `changeme`.   |
 | `OAUTH2_ALLOW_INSECURE_DEFAULTS`  | Development-only escape hatch. Never set in production.     |
 | `OAUTH2_JWT_STATELESS_VALIDATION` | Skips DB-backed introspection checks for higher throughput. |
+| `OAUTH2_PUBLIC_INTROSPECTION`     | Allows unauthenticated callers to use introspection. Default `false`. |
 
 ## Social login
 
@@ -114,6 +127,13 @@ Runtime defaults:
 - `OAUTH2_EVENTS_ENABLED=true`
 - `OAUTH2_EVENTS_BACKEND=in_memory`
 - `OAUTH2_EVENTS_FILTER_MODE=allow_all`
+
+Event ingest authentication:
+
+| Variable                          | Purpose                                                                                |
+| --------------------------------- | -------------------------------------------------------------------------------------- |
+| `OAUTH2_EVENTS_PUBLIC_INGEST`     | Allow unauthenticated callers to `POST /events/ingest`. Default `false`.               |
+| `OAUTH2_EVENTS_INGEST_BEARER_TOKEN` | Shared bearer token required when `public_ingest=false`. Callers send `Authorization: Bearer <token>`. |
 
 Feature-gated broker backends:
 

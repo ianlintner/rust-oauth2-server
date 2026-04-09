@@ -37,6 +37,7 @@ The server exposes Prometheus metrics for:
 - actor- and route-level behavior
 - cache efficiency when cache features are enabled
 - rate-limit rejections when rate limiting is enabled
+- resilience middleware state (circuit breaker transitions, back-pressure rejections, bulkhead utilization) when `OAUTH2_RESILIENCE_ENABLED=true`
 
 Use `/metrics` directly for raw output, or wire the bundled observability stack.
 

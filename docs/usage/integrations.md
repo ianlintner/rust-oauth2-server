@@ -42,6 +42,25 @@ Runtime defaults:
 - health probe: `GET /events/health`
 - external ingest: `POST /events/ingest`
 
+### Event ingest authentication
+
+By default, `POST /events/ingest` requires a bearer token. Configure the shared
+secret with `OAUTH2_EVENTS_INGEST_BEARER_TOKEN` and include it in the
+`Authorization` header:
+
+```bash
+curl -X POST http://localhost:8080/events/ingest \
+  -H "Authorization: Bearer YOUR_INGEST_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{ "event": { ... } }'
+```
+
+If the token is missing or does not match, the endpoint returns HTTP `401`.
+If the token variable is not configured at all, the endpoint returns HTTP `503`.
+
+To allow unauthenticated callers (not recommended for production), set
+`OAUTH2_EVENTS_PUBLIC_INGEST=true`.
+
 Feature-gated broker backends:
 
 | Backend       | Build requirement          |

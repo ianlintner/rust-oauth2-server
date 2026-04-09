@@ -66,7 +66,7 @@ curl -X POST http://localhost:8080/admin/clients/register \
 | `/ready`         | `GET`  | Readiness check. Confirms storage health.                   |
 | `/metrics`       | `GET`  | Prometheus metrics.                                         |
 | `/events/health` | `GET`  | Event subsystem status when eventing is enabled.            |
-| `/events/ingest` | `POST` | Accept externally produced event envelopes.                 |
+| `/events/ingest` | `POST` | Accept externally produced event envelopes. Requires a bearer token by default (see [Integrations](integrations.md#event-ingest-authentication)). |
 
 Example readiness response:
 
