@@ -133,7 +133,7 @@ Event ingest authentication:
 | Variable                          | Purpose                                                                                |
 | --------------------------------- | -------------------------------------------------------------------------------------- |
 | `OAUTH2_EVENTS_PUBLIC_INGEST`     | Allow unauthenticated callers to `POST /events/ingest`. Default `false`.               |
-| `OAUTH2_EVENTS_INGEST_BEARER_TOKEN` | Shared bearer token required when `public_ingest=false`. Callers send `Authorization: Bearer <token>`. |
+| `OAUTH2_EVENTS_INGEST_BEARER_TOKEN` | Shared bearer token required when `OAUTH2_EVENTS_PUBLIC_INGEST=false`. Callers send `Authorization: Bearer <token>`. |
 
 Feature-gated broker backends:
 

@@ -79,7 +79,7 @@ Both endpoints require client authentication by default. Two methods are support
 
 | Method                | How to use it                                                                   |
 | --------------------- | ------------------------------------------------------------------------------- |
-| `client_secret_post`  | Send `client_id` and `client_secret` as form fields (shown in the examples)     |
+| `client_secret_post`  | Send `client_id` and `client_secret` as form fields (shown in the examples) |
 | `client_secret_basic` | Send credentials as an HTTP Basic `Authorization` header                        |
 
 The discovery document at `/.well-known/openid-configuration` advertises the supported methods in `introspection_endpoint_auth_methods_supported` and `revocation_endpoint_auth_methods_supported`.
