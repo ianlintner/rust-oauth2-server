@@ -103,7 +103,7 @@ curl -X POST http://localhost:8080/oauth/introspect \
   -d "token=ACCESS_TOKEN"
 ```
 
-Revoke a token:
+Revoke a token (`client_secret_post`):
 
 ```bash
 curl -X POST http://localhost:8080/oauth/revoke \
@@ -111,6 +111,15 @@ curl -X POST http://localhost:8080/oauth/revoke \
   -d "token=ACCESS_TOKEN" \
   -d "client_id=YOUR_CLIENT_ID" \
   -d "client_secret=YOUR_CLIENT_SECRET"
+```
+
+Or with HTTP Basic auth (`client_secret_basic`):
+
+```bash
+curl -X POST http://localhost:8080/oauth/revoke \
+  -u "YOUR_CLIENT_ID:YOUR_CLIENT_SECRET" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "token=ACCESS_TOKEN"
 ```
 
 !!! note

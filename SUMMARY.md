@@ -49,6 +49,8 @@ When docs and assumptions disagree, check these files first:
 - rate limiting is implemented and configurable
 - the root route redirects to `/profile`
 - admin routes live under `/admin/*` and are protected by `AdminGuard`
+- `POST /oauth/introspect` and `POST /oauth/revoke` require client authentication by default (`client_secret_post` or `client_secret_basic`); set `OAUTH2_PUBLIC_INTROSPECTION=true` only for deployments that intentionally expose public introspection
+- `POST /events/ingest` requires a bearer token by default (`OAUTH2_EVENTS_INGEST_BEARER_TOKEN`); set `OAUTH2_EVENTS_PUBLIC_INGEST=true` to allow unauthenticated callers (not recommended for production)
 
 ## Contributor gate
 

@@ -95,4 +95,6 @@ Start with:
 
 Keep benchmark instructions in the benchmark repo files, not duplicated across the docs site.
 
+The repository also includes a **Weekly Benchmarks** GitHub Actions workflow (`.github/workflows/weekly-benchmarks.yml`) that runs overnight on Mondays and auto-selects which servers to re-benchmark based on recent changes to `main`. Trigger it manually from the GitHub Actions tab when needed.
+
 Repo-local guide: [benchmarks/README.md](https://github.com/ianlintner/rust-oauth2-server/blob/main/benchmarks/README.md)
