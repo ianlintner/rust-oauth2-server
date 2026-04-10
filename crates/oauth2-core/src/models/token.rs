@@ -36,7 +36,9 @@ pub struct IdTokenClaims {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub nonce: Option<String>, // Nonce from authorize request
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub at_hash: Option<String>, // Access token hash
+    pub at_hash: Option<String>, // Access token hash (OIDC Core §3.3.2.11)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub c_hash: Option<String>, // Authorization code hash (OIDC Core §3.3.2.11)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub email: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -70,6 +72,7 @@ impl IdTokenClaims {
             iat: now.timestamp(),
             nonce: None,
             at_hash,
+            c_hash: None,
             email: None,
             preferred_username: None,
         }

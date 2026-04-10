@@ -501,6 +501,13 @@ async fn handle_authorization_code_grant(
             Some(&token.access_token),
         );
         id_claims.nonce = auth_code.nonce.clone();
+        // Compute c_hash: left half of SHA-256 of the authorization code, base64url-encoded
+        // (OIDC Core §3.3.2.11)
+        {
+            use sha2::{Digest, Sha256};
+            let hash = Sha256::digest(auth_code.code.as_bytes());
+            id_claims.c_hash = Some(general_purpose::URL_SAFE_NO_PAD.encode(&hash[..16]));
+        }
 
         let id_token = if oidc_config.id_token_alg.eq_ignore_ascii_case("RS256") {
             let pem = oidc_config

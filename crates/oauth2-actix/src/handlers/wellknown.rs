@@ -77,7 +77,7 @@ pub async fn openid_configuration(
             "client_secret_basic",
             "client_secret_post"
         ],
-        "claims_supported": ["sub", "iss", "aud", "exp", "iat", "nonce", "email", "preferred_username"],
+        "claims_supported": ["sub", "iss", "aud", "exp", "iat", "nonce", "at_hash", "c_hash", "email", "preferred_username"],
         "code_challenge_methods_supported": ["S256"],
         "service_documentation": format!("{}/docs", base)
     });
