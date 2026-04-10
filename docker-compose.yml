@@ -13,6 +13,11 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    # nosemgrep: yaml.docker-compose.security.writable-filesystem-service
+    # PostgreSQL requires a writable filesystem for /var/run/postgresql and /tmp;
+    # data persistence is already constrained to the named volume above.
+    security_opt:
+      - no-new-privileges:true
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U oauth2_user"]
       interval: 10s
@@ -27,6 +32,11 @@ services:
       - "27017:27017"
     volumes:
       - mongo_data:/data/db
+    # nosemgrep: yaml.docker-compose.security.writable-filesystem-service
+    # MongoDB requires a writable filesystem for /tmp and socket files;
+    # data persistence is already constrained to the named volume above.
+    security_opt:
+      - no-new-privileges:true
     healthcheck:
       test: ["CMD", "mongosh", "--quiet", "localhost/admin", "--eval", "db.runCommand({ ping: 1 }).ok"]
       interval: 10s
@@ -47,6 +57,10 @@ services:
       - FLYWAY_PASSWORD=oauth2_password
       - FLYWAY_SCHEMAS=public
       - FLYWAY_LOCATIONS=filesystem:/flyway/sql
+    # nosemgrep: yaml.docker-compose.security.writable-filesystem-service
+    # Flyway writes temporary files during migration execution.
+    security_opt:
+      - no-new-privileges:true
     depends_on:
       postgres:
         condition: service_healthy
@@ -67,6 +81,8 @@ services:
       - OTEL_EXPORTER_OTLP_PROTOCOL=grpc
       - OTEL_SERVICE_NAME=oauth2_server
       - RUST_LOG=${RUST_LOG:-info}
+    security_opt:
+      - no-new-privileges:true
     depends_on:
       flyway:
         condition: service_completed_successfully

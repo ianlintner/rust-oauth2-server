@@ -25,6 +25,10 @@ spec:
                 secretKeyRef:
                   name: oauth2-server-secret
                   key: POSTGRES_PASSWORD
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 1000
       containers:
         - name: flyway
           image: flyway/flyway:10-alpine
@@ -51,6 +55,10 @@ spec:
                   key: POSTGRES_PASSWORD
             - name: FLYWAY_SCHEMAS
               value: "public"
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 1000
           volumeMounts:
             - name: migrations
               mountPath: /flyway/sql

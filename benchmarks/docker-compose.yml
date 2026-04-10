@@ -46,8 +46,8 @@ services:
       OAUTH2_SERVER_HOST: "0.0.0.0"
       OAUTH2_SERVER_PORT: "8080"
       OAUTH2_DATABASE_URL: "postgresql://postgres:postgres@bench-postgres:5432/oauth2_rust"
-      OAUTH2_JWT_SECRET: "benchmarksecretkey1234567890abcdef"
-      OAUTH2_SESSION_KEY: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      OAUTH2_JWT_SECRET: "benchmarksecretkey1234567890abcdef"  # nosemgrep: generic.secrets.security.detected-generic-secret
+      OAUTH2_SESSION_KEY: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"  # nosemgrep: generic.secrets.security.detected-generic-secret
       OAUTH2_SEED_PASSWORD: "BenchP@ssw0rd!Secure123"
       OAUTH2_ALLOW_INSECURE_DEFAULTS: "0"
       RUST_LOG: "warn"
@@ -105,8 +105,8 @@ services:
       OAUTH2_SERVER_HOST: "0.0.0.0"
       OAUTH2_SERVER_PORT: "8080"
       OAUTH2_DATABASE_URL: "mongodb://bench-mongo:27017/oauth2_bench"
-      OAUTH2_JWT_SECRET: "benchmarksecretkey1234567890abcdef"
-      OAUTH2_SESSION_KEY: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      OAUTH2_JWT_SECRET: "benchmarksecretkey1234567890abcdef"  # nosemgrep: generic.secrets.security.detected-generic-secret
+      OAUTH2_SESSION_KEY: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"  # nosemgrep: generic.secrets.security.detected-generic-secret
       OAUTH2_SEED_PASSWORD: "BenchP@ssw0rd!Secure123"
       OAUTH2_ALLOW_INSECURE_DEFAULTS: "0"
       RUST_LOG: "warn"

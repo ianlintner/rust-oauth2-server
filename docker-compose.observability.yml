@@ -9,6 +9,10 @@ services:
     ports:
       - "16686:16686" # Jaeger UI
       - "4317:4317"   # OTLP gRPC
+    security_opt:
+      - no-new-privileges:true
+    # nosemgrep: yaml.docker-compose.security.writable-filesystem-service
+    # Jaeger writes span data to memory/tmp; read_only would require tmpfs mounts.
     restart: unless-stopped
 
   otel_collector:
@@ -19,6 +23,10 @@ services:
       - ./observability/otel/otel-collector.yml:/etc/otelcol/config.yml:ro
     ports:
       - "4318:4318" # OTLP HTTP (optional)
+    security_opt:
+      - no-new-privileges:true
+    # nosemgrep: yaml.docker-compose.security.writable-filesystem-service
+    # OTel collector writes temporary pipeline buffers; read_only would require tmpfs mounts.
     depends_on:
       - jaeger
     restart: unless-stopped
@@ -35,6 +43,10 @@ services:
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'
+    security_opt:
+      - no-new-privileges:true
+    # nosemgrep: yaml.docker-compose.security.writable-filesystem-service
+    # Prometheus writes TSDB data; persistence is constrained to the named volume above.
     restart: unless-stopped
 
   grafana:
@@ -52,6 +64,10 @@ services:
       - ./observability/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
       - ./observability/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
       - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    security_opt:
+      - no-new-privileges:true
+    # nosemgrep: yaml.docker-compose.security.writable-filesystem-service
+    # Grafana writes session/plugin data; persistence is constrained to the named volume above.
     depends_on:
       - prometheus
     restart: unless-stopped

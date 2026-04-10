@@ -44,9 +44,11 @@ jobs:
       - name: Normalize + validate version
         id: ver
         shell: bash
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
-          input='${{ inputs.version }}'
+          input="$INPUT_VERSION"
           version="${input#v}"
 
           # Semver-ish: 1.2.3, optionally with -rc.1 or +build.7 etc.

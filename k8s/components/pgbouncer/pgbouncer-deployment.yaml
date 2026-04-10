@@ -24,6 +24,10 @@ spec:
             - name: pgbouncer-config
               mountPath: /etc/pgbouncer
               readOnly: true
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 1000
           resources:
             requests:
               memory: "32Mi"

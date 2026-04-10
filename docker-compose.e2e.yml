@@ -82,7 +82,7 @@ services:
       - --redirect-url=http://localhost:4180/_oauth2/callback
       - --scope=openid profile email read
       - --email-domain=*
-      - --cookie-secret=ZTEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDE=
+      - --cookie-secret=ZTEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDE=  # nosemgrep: generic.secrets.security.detected-generic-secret
       - --cookie-secure=false
       - --cookie-samesite=lax
       - --skip-provider-button=true

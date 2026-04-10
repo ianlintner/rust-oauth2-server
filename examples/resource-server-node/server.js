@@ -97,6 +97,9 @@ async function introspectToken(token) {
   return { ok: true, status: 200, introspection: data };
 }
 
+// nosemgrep: problem-based-packs.insecure-transport.js-node.using-http-server
+// This is a minimal example resource server used in local/CI E2E tests only.
+// TLS termination is handled by the ingress/load-balancer layer in production deployments.
 const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);

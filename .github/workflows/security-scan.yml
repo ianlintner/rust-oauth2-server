@@ -166,6 +166,8 @@ jobs:
 
       - name: Run security scan
         shell: bash
+        env:
+          SCAN_MATRIX: ${{ github.event.inputs.matrix || 'all' }}
         run: |
           set -euo pipefail
           SKIP_IMAGE_BUILD=1 \
@@ -173,7 +175,7 @@ jobs:
           NAMESPACE=security-scan \
           IMAGE_REF='docker.io/ianlintner068/oauth2-server:test' \
           bash tests/security-scan/scripts/security-scan.sh \
-            --matrix "${{ github.event.inputs.matrix || 'all' }}" \
+            --matrix "$SCAN_MATRIX" \
             --budget 35m
 
       - name: Upload scan report

@@ -28,6 +28,10 @@ spec:
             - name: otel-config
               mountPath: /etc/otelcol
               readOnly: true
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 1000
       volumes:
         - name: otel-config
           configMap:

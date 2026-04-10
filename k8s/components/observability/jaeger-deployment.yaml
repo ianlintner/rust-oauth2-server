@@ -25,3 +25,7 @@ spec:
               containerPort: 16686
             - name: otlp-grpc
               containerPort: 4317
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 1000

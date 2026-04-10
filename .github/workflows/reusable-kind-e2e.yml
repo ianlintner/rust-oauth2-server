@@ -136,6 +136,9 @@ jobs:
 
       - name: Run KIND E2E suite
         shell: bash
+        env:
+          E2E_IMAGE_REF: ${{ inputs.image_ref }}
+          E2E_SCRIPT_PATH: ${{ inputs.script_path }}
         run: |
           set -euo pipefail
           SKIP_IMAGE_BUILD=1 \
@@ -143,8 +146,8 @@ jobs:
           KEEP_NAMESPACE=1 \
           CLUSTER_NAME=oauth2-test \
           NAMESPACE=oauth2-server \
-          IMAGE_REF='${{ inputs.image_ref }}' \
-          bash '${{ inputs.script_path }}'
+          IMAGE_REF="$E2E_IMAGE_REF" \
+          bash "$E2E_SCRIPT_PATH"
 
       - name: Export cluster logs
         if: failure()

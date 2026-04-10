@@ -32,6 +32,10 @@ spec:
               readOnly: true
             - name: prometheus-data
               mountPath: /prometheus
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 65534
       volumes:
         - name: prometheus-config
           configMap:

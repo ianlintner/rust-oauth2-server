@@ -118,6 +118,9 @@ async function main() {
     cookies: { keys: ["benchmarksecretkey1234567890"] },
   });
 
+  // nosemgrep: javascript.express.security.audit.express-check-csurf-middleware-usage
+  // This is a benchmark-only OIDC provider. CSRF protection is not required here since
+  // it is an internal service with no user-facing forms that could be targeted cross-site.
   const app = express();
 
   // Health check endpoint

@@ -39,6 +39,10 @@ spec:
             - name: grafana-dashboards
               mountPath: /var/lib/grafana/dashboards
               readOnly: true
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 472
       volumes:
         - name: grafana-datasources
           configMap:
