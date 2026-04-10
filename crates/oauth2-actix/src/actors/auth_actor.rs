@@ -41,6 +41,7 @@ pub struct CreateAuthorizationCode {
     pub scope: String,
     pub code_challenge: Option<String>,
     pub code_challenge_method: Option<String>,
+    pub nonce: Option<String>,
     pub span: tracing::Span,
 }
 
@@ -73,6 +74,7 @@ impl Handler<CreateAuthorizationCode> for AuthActor {
                     msg.scope.clone(),
                     msg.code_challenge,
                     msg.code_challenge_method,
+                    msg.nonce,
                 );
 
                 db.save_authorization_code(&auth_code).await?;

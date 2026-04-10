@@ -20,6 +20,8 @@ pub struct AuthorizationCode {
     pub code_challenge: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub code_challenge_method: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub nonce: Option<String>,
 }
 
 impl AuthorizationCode {
@@ -31,6 +33,7 @@ impl AuthorizationCode {
         scope: String,
         code_challenge: Option<String>,
         code_challenge_method: Option<String>,
+        nonce: Option<String>,
     ) -> Self {
         let now = Utc::now();
         let expires_at = now + Duration::minutes(10);
@@ -47,6 +50,7 @@ impl AuthorizationCode {
             used: false,
             code_challenge,
             code_challenge_method,
+            nonce,
         }
     }
 

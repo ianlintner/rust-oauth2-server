@@ -171,6 +171,7 @@ pub struct AuthorizeQuery {
     state: Option<String>,
     code_challenge: Option<String>,
     code_challenge_method: Option<String>,
+    nonce: Option<String>,
 }
 
 /// OAuth2 authorize endpoint
@@ -264,6 +265,7 @@ pub async fn authorize(
             scope,
             code_challenge: query.code_challenge.clone(),
             code_challenge_method: query.code_challenge_method.clone(),
+            nonce: query.nonce.clone(),
             span: tracing::Span::current(),
         })
         .await
@@ -491,13 +493,14 @@ async fn handle_authorization_code_grant(
 
     // Generate OIDC id_token when `openid` scope was requested
     if auth_code.scope.split_whitespace().any(|s| s == "openid") {
-        let id_claims = IdTokenClaims::new(
+        let mut id_claims = IdTokenClaims::new(
             &oidc_config.issuer,
             auth_code.user_id,
             auth_code.client_id,
             3600, // same lifetime as access token
             Some(&token.access_token),
         );
+        id_claims.nonce = auth_code.nonce.clone();
 
         let id_token = if oidc_config.id_token_alg.eq_ignore_ascii_case("RS256") {
             let pem = oidc_config

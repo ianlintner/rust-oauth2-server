@@ -2584,3 +2584,133 @@ async fn refresh_token_grant_rejects_wrong_client_secret() {
         "error code should be invalid_client"
     );
 }
+
+// ── OIDC Nonce Validation Tests ───────────────────────────────────────────────
+
+/// OIDC Core §3.1.2.1: the `nonce` value sent in the authorization request MUST
+/// be echoed verbatim as a `nonce` claim in the resulting ID token.
+#[actix_web::test]
+async fn id_token_echoes_nonce_from_authorize_request() {
+    let client = Client::new(
+        "nonce_test_client".to_string(),
+        "nonce_secret".to_string(),
+        vec!["http://localhost/callback".to_string()],
+        vec!["authorization_code".to_string()],
+        "openid".to_string(),
+        "Nonce Test".to_string(),
+    );
+
+    let (token_actor, client_actor, auth_actor, jwt_secret, metrics, oidc_config) =
+        setup_context(client).await;
+    let config = test_runtime_config(&jwt_secret);
+
+    let app = test::init_service(
+        App::new()
+            .wrap(SessionMiddleware::new(
+                CookieSessionStore::default(),
+                Key::generate(),
+            ))
+            .route("/test/login", web::get().to(test_set_session))
+            .app_data(web::Data::new(token_actor))
+            .app_data(web::Data::new(client_actor))
+            .app_data(web::Data::new(auth_actor))
+            .app_data(web::Data::new(jwt_secret.clone()))
+            .app_data(web::Data::new(metrics))
+            .app_data(web::Data::new(oidc_config))
+            .app_data(web::Data::new(config))
+            .app_data(web::Data::new(false))
+            .service(
+                web::scope("/oauth")
+                    .route(
+                        "/authorize",
+                        web::get().to(oauth2_actix::handlers::oauth::authorize),
+                    )
+                    .route(
+                        "/token",
+                        web::post().to(oauth2_actix::handlers::oauth::token),
+                    ),
+            ),
+    )
+    .await;
+
+    // 1. Establish authenticated session
+    let login_resp = test::call_service(
+        &app,
+        test::TestRequest::get().uri("/test/login").to_request(),
+    )
+    .await;
+    let session_cookie = extract_session_cookie(&login_resp);
+
+    // 2. Authorize with nonce — the nonce must survive the code-exchange round-trip
+    let verifier = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk";
+    let challenge = s256_challenge(verifier);
+    let nonce = "test-nonce-abc123";
+    let authorize_resp = test::call_service(
+        &app,
+        test::TestRequest::get()
+            .uri(&format!(
+                "/oauth/authorize?response_type=code\
+                 &client_id=nonce_test_client\
+                 &redirect_uri=http%3A%2F%2Flocalhost%2Fcallback\
+                 &scope=openid\
+                 &code_challenge={challenge}\
+                 &code_challenge_method=S256\
+                 &nonce={nonce}"
+            ))
+            .insert_header(("Cookie", session_cookie.as_str()))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(authorize_resp.status(), 302, "authorize should redirect");
+    let loc = authorize_resp
+        .headers()
+        .get(actix_web::http::header::LOCATION)
+        .and_then(|h| h.to_str().ok())
+        .unwrap();
+    let code = extract_query_param(loc, "code").expect("code param missing from redirect");
+
+    // 3. Exchange authorization code for tokens
+    let token_resp = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri("/oauth/token")
+            .set_form([
+                ("grant_type", "authorization_code"),
+                ("client_id", "nonce_test_client"),
+                ("client_secret", "nonce_secret"),
+                ("code", code.as_str()),
+                ("redirect_uri", "http://localhost/callback"),
+                ("code_verifier", verifier),
+            ])
+            .to_request(),
+    )
+    .await;
+    assert!(
+        token_resp.status().is_success(),
+        "auth code exchange should succeed, got {}",
+        token_resp.status()
+    );
+
+    let token_body: serde_json::Value = test::read_body_json(token_resp).await;
+    let id_token_str = token_body
+        .get("id_token")
+        .and_then(|v| v.as_str())
+        .expect("response should include id_token for openid scope");
+
+    // 4. Decode JWT payload (base64url, no signature verification needed here)
+    use base64::{engine::general_purpose, Engine as _};
+    let parts: Vec<&str> = id_token_str.split('.').collect();
+    assert_eq!(parts.len(), 3, "id_token should be a three-part JWT");
+    let payload_bytes = general_purpose::URL_SAFE_NO_PAD
+        .decode(parts[1])
+        .expect("id_token payload should be valid base64url");
+    let claims: serde_json::Value =
+        serde_json::from_slice(&payload_bytes).expect("id_token payload should be valid JSON");
+
+    // 5. The nonce claim must match exactly what was sent at authorize time
+    assert_eq!(
+        claims.get("nonce").and_then(|v| v.as_str()),
+        Some(nonce),
+        "id_token nonce claim must equal the nonce from the authorize request (OIDC Core §3.1.2.1)"
+    );
+}
