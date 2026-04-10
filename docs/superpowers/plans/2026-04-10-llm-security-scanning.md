@@ -9,6 +9,7 @@
 ## Scope
 
 MVP implementation of the security scanning framework covering:
+
 - 5 kustomize overlay configs (prod-hardened, dev-relaxed, misconfig-cors, misconfig-auth, edge-empty)
 - Core orchestration scripts (deploy, scan, analyze)
 - 4 scanner implementations (OAuth2 flow tester, timing analyzer, error leakage, token entropy)
@@ -24,6 +25,7 @@ MVP implementation of the security scanning framework covering:
 ### Task 1: Directory scaffolding and .gitignore
 
 **Files:**
+
 - `tests/security-scan/.gitkeep` (marker)
 - `tests/security-scan/configs/.gitkeep`
 - `tests/security-scan/scenarios/.gitkeep`
@@ -34,6 +36,7 @@ MVP implementation of the security scanning framework covering:
 **Test:** `ls tests/security-scan/{configs,scenarios,scanners,scripts}` succeeds. `git check-ignore reports/foo.json` returns match.
 
 **Steps:**
+
 1. Create directory tree with .gitkeep files
 2. Append `reports/` to .gitignore if not already present
 
@@ -44,6 +47,7 @@ MVP implementation of the security scanning framework covering:
 **Purpose:** Baseline secure config. Strong JWT, strict CORS (explicit origin), admin auth required, Postgres.
 
 **Files:**
+
 - `tests/security-scan/configs/prod-hardened/kustomization.yaml`
 - `tests/security-scan/configs/prod-hardened/patches/secret-prod.yaml`
 - `tests/security-scan/configs/prod-hardened/patches/deployment-prod.yaml`
@@ -130,6 +134,7 @@ Reuse existing patches for delete-ingress, delete-hpa, delete-postgres-pvc, post
 **Purpose:** Relaxed dev config. Short JWT secret, insecure defaults allowed, permissive CORS.
 
 **Files:**
+
 - `tests/security-scan/configs/dev-relaxed/kustomization.yaml`
 - `tests/security-scan/configs/dev-relaxed/patches/secret-dev.yaml`
 - `tests/security-scan/configs/dev-relaxed/patches/deployment-dev.yaml`
@@ -275,6 +280,7 @@ spec:
 To avoid duplicating delete-ingress, delete-hpa, delete-postgres-pvc, postgres-ephemeral, deployment-replicas across all 5 configs, create a `_shared/` directory and a setup script that copies or symlinks them.
 
 **Files:**
+
 - `tests/security-scan/configs/_shared/delete-ingress.yaml`
 - `tests/security-scan/configs/_shared/delete-hpa.yaml`
 - `tests/security-scan/configs/_shared/delete-postgres-pvc.yaml`
@@ -292,6 +298,7 @@ Each config's kustomization.yaml references `../_shared/<file>` for shared patch
 **File:** `tests/security-scan/scripts/deploy-config.sh`
 
 Adapts `scripts/e2e_kind.sh` but:
+
 - Takes `--config <name>` to pick the kustomize overlay
 - Reuses existing cluster if present (no delete-recreate)
 - Outputs the port-forwarded BASE_URL
@@ -1182,6 +1189,7 @@ echo "Elapsed: $((elapsed / 60))m $((elapsed % 60))s"
 ### Task 16: `.gitignore` update for reports/
 
 Append to root `.gitignore`:
+
 ```
 # Security scan reports (generated, not committed)
 reports/
@@ -1192,6 +1200,7 @@ reports/
 ### Task 17: Validate all kustomize overlays build
 
 **Test script** (not committed, run locally):
+
 ```bash
 for config in prod-hardened dev-relaxed misconfig-cors misconfig-auth edge-empty; do
   echo "Building: $config"
