@@ -3870,12 +3870,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "oauth2-storage-cassandra"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "oauth2-core",
+ "oauth2-ports",
+]
+
+[[package]]
+name = "oauth2-storage-cosmosdb"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "oauth2-core",
+ "oauth2-ports",
+]
+
+[[package]]
 name = "oauth2-storage-factory"
 version = "0.1.0"
 dependencies = [
  "oauth2-core",
  "oauth2-observability",
  "oauth2-ports",
+ "oauth2-storage-cassandra",
+ "oauth2-storage-cosmosdb",
  "oauth2-storage-mongo",
  "oauth2-storage-sqlx",
 ]

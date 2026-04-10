@@ -1,0 +1,12 @@
+[package]
+name = "oauth2-storage-cosmosdb"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "Cosmos DB storage adapter for rust-oauth2-server (scaffold)"
+repository = "https://github.com/ianlintner/rust_oauth2_server"
+
+[dependencies]
+async-trait = "0.1"
+oauth2-core = { path = "../oauth2-core", version = "0.1.0" }
+oauth2-ports = { path = "../oauth2-ports", version = "0.1.0" }

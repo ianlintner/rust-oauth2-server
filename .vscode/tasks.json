@@ -1,765 +1,845 @@
 {
-  "version": "2.0.0",
-  "tasks": [
-    {
-      "label": "cargo-check-security-batch",
-      "type": "shell",
-      "command": "cargo",
-      "args": ["check", "--all-features"],
-      "isBackground": false
-    },
-    {
-      "label": "cargo-check-security-batch",
-      "type": "shell",
-      "command": "cargo",
-      "args": ["check", "--all-features"],
-      "isBackground": false
-    },
-    {
-      "label": "cargo-check-security-batch",
-      "type": "shell",
-      "command": "cargo",
-      "args": ["check", "--all-features"],
-      "isBackground": false
-    },
-    {
-      "label": "cargo-test-targeted-security",
-      "type": "shell",
-      "command": "cargo",
-      "args": [
-        "test",
-        "--test",
-        "security_http",
-        "--test",
-        "storage_contract_sqlx"
-      ],
-      "isBackground": false
-    },
-    {
-      "label": "git-status-security-wave",
-      "type": "shell",
-      "command": "git",
-      "args": ["status", "--short"],
-      "isBackground": false
-    },
-    {
-      "label": "cargo-update-security-targets",
-      "type": "shell",
-      "command": "cargo",
-      "args": [
-        "update",
-        "-p",
-        "bytes",
-        "-p",
-        "time",
-        "-p",
-        "quinn-proto",
-        "-p",
-        "idna",
-        "-p",
-        "rustls-webpki",
-        "-p",
-        "astral-tokio-tar"
-      ],
-      "isBackground": false
-    },
-    {
-      "label": "cargo-update-security-targets-2",
-      "type": "shell",
-      "command": "cargo",
-      "args": [
-        "update",
-        "-p",
-        "bytes",
-        "-p",
-        "time",
-        "-p",
-        "quinn-proto",
-        "-p",
-        "idna@0.2.3",
-        "-p",
-        "idna@1.1.0",
-        "-p",
-        "rustls-webpki@0.101.7",
-        "-p",
-        "rustls-webpki@0.103.8",
-        "-p",
-        "astral-tokio-tar"
-      ],
-      "isBackground": false
-    },
-    {
-      "label": "cargo-check-after-lock-update",
-      "type": "shell",
-      "command": "cargo",
-      "args": ["check", "--all-features"],
-      "isBackground": false
-    },
-    {
-      "label": "generate-benchmark-report",
-      "type": "shell",
-      "command": "bash",
-      "args": [
-        "/Users/ianlintner/Projects/rust-oauth2-server/benchmarks/analyze-results.sh"
-      ],
-      "isBackground": false
-    },
-    {
-      "label": "generate-benchmark-report-2",
-      "type": "shell",
-      "command": "bash",
-      "args": [
-        "/Users/ianlintner/Projects/rust-oauth2-server/benchmarks/analyze-results.sh"
-      ],
-      "isBackground": false
-    },
-    {
-      "label": "debug-raw-count",
-      "type": "shell",
-      "command": "jq",
-      "args": [
-        "-s",
-        "'[.[] | select(.type==\"Point\" and .metric==\"http_reqs\" and .data.tags.server==\"rust-oauth2-server\" and .data.tags.test==\"client_credentials\")] | length",
-        "/Users/ianlintner/Projects/rust-oauth2-server/benchmarks/results/raw.json"
-      ],
-      "isBackground": false
-    },
-    {
-      "label": "generate-benchmark-report-3",
-      "type": "shell",
-      "command": "bash",
-      "args": [
-        "/Users/ianlintner/Projects/rust-oauth2-server/benchmarks/analyze-results.sh"
-      ],
-      "isBackground": false
-    },
-    {
-      "label": "bench-remaining-servers",
-      "type": "shell",
-      "command": "bash",
-      "args": [
-        "benchmarks/run-benchmarks.sh",
-        "--servers",
-        "hydra,authentik,node-oidc",
-        "--profile",
-        "light",
-        "--iterations",
-        "1"
-      ],
-      "isBackground": false
-    },
-    {
-      "label": "bench-hydra-migrate-logs",
-      "type": "shell",
-      "command": "docker",
-      "args": [
-        "compose",
-        "-f",
-        "benchmarks/docker-compose.yml",
-        "logs",
-        "bench-hydra-migrate"
-      ],
-      "isBackground": false
-    },
-    {
-      "label": "bench-remaining-servers-rerun",
-      "type": "shell",
-      "command": "bash",
-      "args": [
-        "benchmarks/run-benchmarks.sh",
-        "--servers",
-        "hydra,authentik,node-oidc",
-        "--profile",
-        "light",
-        "--iterations",
-        "1"
-      ],
-      "isBackground": false
-    },
-    {
-      "label": "bench-hydra-server-logs",
-      "type": "shell",
-      "command": "docker",
-      "args": [
-        "compose",
-        "-f",
-        "benchmarks/docker-compose.yml",
-        "logs",
-        "--tail",
-        "200",
-        "bench-hydra"
-      ],
-      "isBackground": false
-    },
-    {
-      "label": "bench-remaining-servers-rerun-2",
-      "type": "shell",
-      "command": "bash",
-      "args": [
-        "benchmarks/run-benchmarks.sh",
-        "--servers",
-        "hydra,authentik,node-oidc",
-        "--profile",
-        "light",
-        "--iterations",
-        "1"
-      ],
-      "isBackground": false
-    },
-    {
-      "label": "bench-docker-ps-check",
-      "type": "shell",
-      "command": "docker",
-      "args": ["ps", "--format", "table {{.Names}}\\t{{.Status}}"],
-      "isBackground": false
-    },
-    {
-      "label": "bench-docker-ps-check-2",
-      "type": "shell",
-      "command": "docker",
-      "args": ["ps", "--format", "table {{.Names}}\\t{{.Status}}"],
-      "isBackground": false
-    },
-    {
-      "label": "bench-docker-ps-check-3",
-      "type": "shell",
-      "command": "docker",
-      "args": ["ps", "--format", "table {{.Names}}\\t{{.Status}}"],
-      "isBackground": false
-    },
-    {
-      "label": "bench-k6-run-check",
-      "type": "shell",
-      "command": "sh",
-      "args": [
-        "-c",
-        "docker ps --format '{{.Names}}' | grep '^benchmarks-bench-k6-run-' || true"
-      ],
-      "isBackground": false
-    },
-    {
-      "label": "bench-k6-run-check-2",
-      "type": "shell",
-      "command": "sh",
-      "args": [
-        "-c",
-        "docker ps --format '{{.Names}}' | grep '^benchmarks-bench-k6-run-' || true"
-      ],
-      "isBackground": false
-    },
-    {
-      "label": "bench-k6-current-logs",
-      "type": "shell",
-      "command": "sh",
-      "args": [
-        "-c",
-        "id=$(docker ps --format '{{.Names}}' | grep '^benchmarks-bench-k6-run-' | head -n1); echo \"K6=$id\"; [ -n \"$id\" ] && docker logs --tail 50 \"$id\" || true"
-      ],
-      "isBackground": false
-    },
-    {
-      "label": "bench-k6-run-check-3",
-      "type": "shell",
-      "command": "sh",
-      "args": [
-        "-c",
-        "docker ps --format '{{.Names}}' | grep '^benchmarks-bench-k6-run-' || true"
-      ],
-      "isBackground": false
-    },
-    {
-      "label": "bench-k6-run-check-4",
-      "type": "shell",
-      "command": "sh",
-      "args": [
-        "-c",
-        "docker ps --format '{{.Names}}' | grep '^benchmarks-bench-k6-run-' || true"
-      ],
-      "isBackground": false
-    },
-    {
-      "label": "bench-k6-current-logs-2",
-      "type": "shell",
-      "command": "sh",
-      "args": [
-        "-c",
-        "id=$(docker ps --format '{{.Names}}' | grep '^benchmarks-bench-k6-run-' | head -n1); echo \"K6=$id\"; [ -n \"$id\" ] && docker logs --tail 80 \"$id\" || true"
-      ],
-      "isBackground": false
-    },
-    {
-      "label": "bench-docker-ps-final",
-      "type": "shell",
-      "command": "docker",
-      "args": ["ps", "--format", "table {{.Names}}\\t{{.Status}}"],
-      "isBackground": false
-    },
-    {
-      "label": "bench-authentik-node",
-      "type": "shell",
-      "command": "bash",
-      "args": [
-        "benchmarks/run-benchmarks.sh",
-        "--servers",
-        "authentik,node-oidc",
-        "--profile",
-        "light",
-        "--iterations",
-        "1"
-      ],
-      "isBackground": false
-    },
-    {
-      "label": "bench-auth-node-status-1",
-      "type": "shell",
-      "command": "docker",
-      "args": ["ps", "--format", "table {{.Names}}\\t{{.Status}}"],
-      "isBackground": false
-    },
-    {
-      "label": "bench-auth-node-status-2",
-      "type": "shell",
-      "command": "docker",
-      "args": ["ps", "--format", "table {{.Names}}\\t{{.Status}}"],
-      "isBackground": false
-    },
-    {
-      "label": "bench-authentik-logs",
-      "type": "shell",
-      "command": "docker",
-      "args": [
-        "compose",
-        "-f",
-        "benchmarks/docker-compose.yml",
-        "logs",
-        "--tail",
-        "120",
-        "bench-authentik"
-      ],
-      "isBackground": false
-    },
-    {
-      "label": "bench-auth-node-rerun-after-healthfix",
-      "type": "shell",
-      "command": "sh",
-      "args": [
-        "-c",
-        "docker compose -f benchmarks/docker-compose.yml down -v --remove-orphans && bash benchmarks/run-benchmarks.sh --servers authentik,node-oidc --profile light --iterations 1"
-      ],
-      "isBackground": false
-    },
-    {
-      "label": "bench-progress-auth-node",
-      "type": "shell",
-      "command": "docker",
-      "args": ["ps", "--format", "table {{.Names}}\\t{{.Status}}"],
-      "isBackground": false
-    },
-    {
-      "label": "bench-k6-running-check-finalphase",
-      "type": "shell",
-      "command": "sh",
-      "args": [
-        "-c",
-        "docker ps --format '{{.Names}}' | grep '^benchmarks-bench-k6-run-' || true"
-      ],
-      "isBackground": false
-    },
-    {
-      "label": "bench-docker-ps-postrun",
-      "type": "shell",
-      "command": "docker",
-      "args": ["ps", "--format", "table {{.Names}}\\t{{.Status}}"],
-      "isBackground": false
-    },
-    {
-      "label": "bench-node-oidc-logs",
-      "type": "shell",
-      "command": "docker",
-      "args": [
-        "compose",
-        "-f",
-        "benchmarks/docker-compose.yml",
-        "logs",
-        "--tail",
-        "120",
-        "bench-node-oidc"
-      ],
-      "isBackground": false
-    },
-    {
-      "label": "bench-auth-node-final-rerun",
-      "type": "shell",
-      "command": "sh",
-      "args": [
-        "-c",
-        "docker compose -f benchmarks/docker-compose.yml down -v --remove-orphans && bash benchmarks/run-benchmarks.sh --servers authentik,node-oidc --profile light --iterations 1"
-      ],
-      "isBackground": false
-    },
-    {
-      "label": "bench-k6-running-now",
-      "type": "shell",
-      "command": "sh",
-      "args": [
-        "-c",
-        "docker ps --format '{{.Names}}' | grep '^benchmarks-bench-k6-run-' || true"
-      ],
-      "isBackground": false
-    },
-    {
-      "label": "bench-k6-running-now-2",
-      "type": "shell",
-      "command": "sh",
-      "args": [
-        "-c",
-        "docker ps --format '{{.Names}}' | grep '^benchmarks-bench-k6-run-' || true"
-      ],
-      "isBackground": false
-    },
-    {
-      "label": "bench-k6-two-logs",
-      "type": "shell",
-      "command": "sh",
-      "args": [
-        "-c",
-        "for id in $(docker ps --format '{{.Names}}' | grep '^benchmarks-bench-k6-run-' ); do echo \"==== $id ====\"; docker logs --tail 20 \"$id\"; done"
-      ],
-      "isBackground": false
-    },
-    {
-      "label": "bench-k6-running-now-3",
-      "type": "shell",
-      "command": "sh",
-      "args": [
-        "-c",
-        "docker ps --format '{{.Names}}' | grep '^benchmarks-bench-k6-run-' || true"
-      ],
-      "isBackground": false
-    },
-    {
-      "label": "bench-node-only",
-      "type": "shell",
-      "command": "sh",
-      "args": [
-        "-c",
-        "docker compose -f benchmarks/docker-compose.yml down -v --remove-orphans && bash benchmarks/run-benchmarks.sh --servers node-oidc --profile light --iterations 1"
-      ],
-      "isBackground": false
-    },
-    {
-      "label": "bench-node-k6-check",
-      "type": "shell",
-      "command": "sh",
-      "args": [
-        "-c",
-        "docker ps --format '{{.Names}}' | grep '^benchmarks-bench-k6-run-' || true"
-      ],
-      "isBackground": false
-    },
-    {
-      "label": "bench-node-k6-check-2",
-      "type": "shell",
-      "command": "sh",
-      "args": [
-        "-c",
-        "docker ps --format '{{.Names}}' | grep '^benchmarks-bench-k6-run-' || true"
-      ],
-      "isBackground": false
-    },
-    {
-      "label": "bench-node-k6-check-3",
-      "type": "shell",
-      "command": "sh",
-      "args": [
-        "-c",
-        "docker ps --format '{{.Names}}' | grep '^benchmarks-bench-k6-run-' || true"
-      ],
-      "isBackground": false
-    },
-    {
-      "label": "bench-node-k6-logs",
-      "type": "shell",
-      "command": "sh",
-      "args": [
-        "-c",
-        "id=$(docker ps --format '{{.Names}}' | grep '^benchmarks-bench-k6-run-' | head -n1); echo \"K6=$id\"; [ -n \"$id\" ] && docker logs --tail 40 \"$id\" || true"
-      ],
-      "isBackground": false
-    },
-    {
-      "label": "bench-node-k6-check-4",
-      "type": "shell",
-      "command": "sh",
-      "args": [
-        "-c",
-        "docker ps --format '{{.Names}}' | grep '^benchmarks-bench-k6-run-' || true"
-      ],
-      "isBackground": false
-    },
-    {
-      "label": "bench-node-k6-check-5",
-      "type": "shell",
-      "command": "sh",
-      "args": [
-        "-c",
-        "docker ps --format '{{.Names}}' | grep '^benchmarks-bench-k6-run-' || true"
-      ],
-      "isBackground": false
-    },
-    {
-      "label": "bench-node-k6-check-6",
-      "type": "shell",
-      "command": "sh",
-      "args": [
-        "-c",
-        "docker ps --format '{{.Names}}' | grep '^benchmarks-bench-k6-run-' || true"
-      ],
-      "isBackground": false
-    },
-    {
-      "label": "bench-node-k6-check-7",
-      "type": "shell",
-      "command": "sh",
-      "args": [
-        "-c",
-        "docker ps --format '{{.Names}}' | grep '^benchmarks-bench-k6-run-' || true"
-      ],
-      "isBackground": false
-    },
-    {
-      "label": "bench-node-k6-logs-both",
-      "type": "shell",
-      "command": "sh",
-      "args": [
-        "-c",
-        "for id in $(docker ps --format '{{.Names}}' | grep '^benchmarks-bench-k6-run-'); do echo \"==== $id ====\"; docker logs --tail 15 \"$id\"; done"
-      ],
-      "isBackground": false
-    },
-    {
-      "label": "bench-node-k6-check-8",
-      "type": "shell",
-      "command": "sh",
-      "args": [
-        "-c",
-        "docker ps --format '{{.Names}}' | grep '^benchmarks-bench-k6-run-' || true"
-      ],
-      "isBackground": false
-    },
-    {
-      "label": "bench-node-k6-check-9",
-      "type": "shell",
-      "command": "sh",
-      "args": [
-        "-c",
-        "docker ps --format '{{.Names}}' | grep '^benchmarks-bench-k6-run-' || true"
-      ],
-      "isBackground": false
-    },
-    {
-      "label": "bench-node-k6-check-10",
-      "type": "shell",
-      "command": "sh",
-      "args": [
-        "-c",
-        "docker ps --format '{{.Names}}' | grep '^benchmarks-bench-k6-run-' || true"
-      ],
-      "isBackground": false
-    },
-    {
-      "label": "bench-node-k6-logs-current",
-      "type": "shell",
-      "command": "sh",
-      "args": [
-        "-c",
-        "id=$(docker ps --format '{{.Names}}' | grep '^benchmarks-bench-k6-run-' | head -n1); echo \"K6=$id\"; [ -n \"$id\" ] && docker logs --tail 30 \"$id\" || true"
-      ],
-      "isBackground": false
-    },
-    {
-      "label": "bench-node-k6-check-11",
-      "type": "shell",
-      "command": "sh",
-      "args": [
-        "-c",
-        "docker ps --format '{{.Names}}' | grep '^benchmarks-bench-k6-run-' || true"
-      ],
-      "isBackground": false
-    },
-    {
-      "label": "bench-node-missing-scenarios",
-      "type": "shell",
-      "command": "sh",
-      "args": [
-        "-c",
-        "docker compose -f benchmarks/docker-compose.yml down -v --remove-orphans && bash benchmarks/run-benchmarks.sh --servers node-oidc --scenarios discovery,health --profile light --iterations 1"
-      ],
-      "isBackground": false
-    },
-    {
-      "label": "bench-node-missing-k6-check",
-      "type": "shell",
-      "command": "sh",
-      "args": [
-        "-c",
-        "docker ps --format '{{.Names}}' | grep '^benchmarks-bench-k6-run-' || true"
-      ],
-      "isBackground": false
-    },
-    {
-      "label": "bench-node-missing-k6-check-2",
-      "type": "shell",
-      "command": "sh",
-      "args": [
-        "-c",
-        "docker ps --format '{{.Names}}' | grep '^benchmarks-bench-k6-run-' || true"
-      ],
-      "isBackground": false
-    },
-    {
-      "label": "bench-generate-report-final",
-      "type": "shell",
-      "command": "bash",
-      "args": ["benchmarks/analyze-results.sh"],
-      "isBackground": false
-    },
-    {
-      "label": "security-http-opcount-test",
-      "type": "shell",
-      "command": "cargo",
-      "args": [
-        "test",
-        "--test",
-        "security_http",
-        "token_client_credentials_uses_single_client_lookup_and_single_token_write",
-        "--",
-        "--exact"
-      ],
-      "isBackground": false
-    },
-    {
-      "label": "cargo-check-all-features-opguard",
-      "type": "shell",
-      "command": "cargo",
-      "args": ["check", "--all-features"],
-      "isBackground": false
-    },
-    {
-      "label": "bench-rust-client-credentials-post-opt",
-      "type": "shell",
-      "command": "bash",
-      "args": [
-        "benchmarks/run-benchmarks.sh",
-        "--servers",
-        "rust",
-        "--scenarios",
-        "client-credentials",
-        "--profile",
-        "light",
-        "--iterations",
-        "1"
-      ],
-      "isBackground": false
-    },
-    {
-      "label": "regenerate-benchmark-report-post-rust-opt",
-      "type": "shell",
-      "command": "bash",
-      "args": ["benchmarks/analyze-results.sh"],
-      "isBackground": false
-    },
-    {
-      "label": "security-http-warm-cache-opcount-test",
-      "type": "shell",
-      "command": "cargo",
-      "args": [
-        "test",
-        "--test",
-        "security_http",
-        "token_client_credentials_uses_single_lookup_with_warm_cache",
-        "--",
-        "--exact"
-      ],
-      "isBackground": false
-    },
-    {
-      "label": "cargo-check-all-features-post-cache",
-      "type": "shell",
-      "command": "cargo",
-      "args": ["check", "--all-features"],
-      "isBackground": false
-    },
-    {
-      "label": "bench-rust-client-credentials-cache-opt",
-      "type": "shell",
-      "command": "bash",
-      "args": [
-        "benchmarks/run-benchmarks.sh",
-        "--servers",
-        "rust",
-        "--scenarios",
-        "client-credentials",
-        "--profile",
-        "light",
-        "--iterations",
-        "1"
-      ],
-      "isBackground": false
-    },
-    {
-      "label": "git-diff-docs-testing-observability",
-      "type": "shell",
-      "command": "git",
-      "args": [
-        "--no-pager",
-        "diff",
-        "--",
-        "docs/development/testing.md",
-        "mkdocs.yml",
-        "docs/operations/observability.md"
-      ],
-      "isBackground": false
-    },
-    {
-      "label": "ci-fmt-check-local",
-      "type": "shell",
-      "command": "cargo",
-      "args": ["fmt", "--all", "--", "--check"],
-      "isBackground": false
-    },
-    {
-      "label": "git-diff-client-actor-format-fix",
-      "type": "shell",
-      "command": "git",
-      "args": [
-        "--no-pager",
-        "diff",
-        "--",
-        "crates/oauth2-actix/src/actors/client_actor.rs"
-      ],
-      "isBackground": false
-    },
-    {
-      "label": "ci-clippy-local",
-      "type": "shell",
-      "command": "cargo",
-      "args": [
-        "clippy",
-        "--all-targets",
-        "--all-features",
-        "--",
-        "-D",
-        "warnings"
-      ],
-      "isBackground": false
-    },
-    {
-      "label": "ci-tests-local",
-      "type": "shell",
-      "command": "cargo",
-      "args": ["test", "--verbose", "--all-features", "--locked"],
-      "isBackground": false
-    }
-  ]
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "cargo-check-security-batch",
+			"type": "shell",
+			"command": "cargo",
+			"args": [
+				"check",
+				"--all-features"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "cargo-check-security-batch",
+			"type": "shell",
+			"command": "cargo",
+			"args": [
+				"check",
+				"--all-features"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "cargo-check-security-batch",
+			"type": "shell",
+			"command": "cargo",
+			"args": [
+				"check",
+				"--all-features"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "cargo-test-targeted-security",
+			"type": "shell",
+			"command": "cargo",
+			"args": [
+				"test",
+				"--test",
+				"security_http",
+				"--test",
+				"storage_contract_sqlx"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "git-status-security-wave",
+			"type": "shell",
+			"command": "git",
+			"args": [
+				"status",
+				"--short"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "cargo-update-security-targets",
+			"type": "shell",
+			"command": "cargo",
+			"args": [
+				"update",
+				"-p",
+				"bytes",
+				"-p",
+				"time",
+				"-p",
+				"quinn-proto",
+				"-p",
+				"idna",
+				"-p",
+				"rustls-webpki",
+				"-p",
+				"astral-tokio-tar"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "cargo-update-security-targets-2",
+			"type": "shell",
+			"command": "cargo",
+			"args": [
+				"update",
+				"-p",
+				"bytes",
+				"-p",
+				"time",
+				"-p",
+				"quinn-proto",
+				"-p",
+				"idna@0.2.3",
+				"-p",
+				"idna@1.1.0",
+				"-p",
+				"rustls-webpki@0.101.7",
+				"-p",
+				"rustls-webpki@0.103.8",
+				"-p",
+				"astral-tokio-tar"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "cargo-check-after-lock-update",
+			"type": "shell",
+			"command": "cargo",
+			"args": [
+				"check",
+				"--all-features"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "generate-benchmark-report",
+			"type": "shell",
+			"command": "bash",
+			"args": [
+				"/Users/ianlintner/Projects/rust-oauth2-server/benchmarks/analyze-results.sh"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "generate-benchmark-report-2",
+			"type": "shell",
+			"command": "bash",
+			"args": [
+				"/Users/ianlintner/Projects/rust-oauth2-server/benchmarks/analyze-results.sh"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "debug-raw-count",
+			"type": "shell",
+			"command": "jq",
+			"args": [
+				"-s",
+				"'[.[] | select(.type==\"Point\" and .metric==\"http_reqs\" and .data.tags.server==\"rust-oauth2-server\" and .data.tags.test==\"client_credentials\")] | length",
+				"/Users/ianlintner/Projects/rust-oauth2-server/benchmarks/results/raw.json"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "generate-benchmark-report-3",
+			"type": "shell",
+			"command": "bash",
+			"args": [
+				"/Users/ianlintner/Projects/rust-oauth2-server/benchmarks/analyze-results.sh"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "bench-remaining-servers",
+			"type": "shell",
+			"command": "bash",
+			"args": [
+				"benchmarks/run-benchmarks.sh",
+				"--servers",
+				"hydra,authentik,node-oidc",
+				"--profile",
+				"light",
+				"--iterations",
+				"1"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "bench-hydra-migrate-logs",
+			"type": "shell",
+			"command": "docker",
+			"args": [
+				"compose",
+				"-f",
+				"benchmarks/docker-compose.yml",
+				"logs",
+				"bench-hydra-migrate"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "bench-remaining-servers-rerun",
+			"type": "shell",
+			"command": "bash",
+			"args": [
+				"benchmarks/run-benchmarks.sh",
+				"--servers",
+				"hydra,authentik,node-oidc",
+				"--profile",
+				"light",
+				"--iterations",
+				"1"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "bench-hydra-server-logs",
+			"type": "shell",
+			"command": "docker",
+			"args": [
+				"compose",
+				"-f",
+				"benchmarks/docker-compose.yml",
+				"logs",
+				"--tail",
+				"200",
+				"bench-hydra"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "bench-remaining-servers-rerun-2",
+			"type": "shell",
+			"command": "bash",
+			"args": [
+				"benchmarks/run-benchmarks.sh",
+				"--servers",
+				"hydra,authentik,node-oidc",
+				"--profile",
+				"light",
+				"--iterations",
+				"1"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "bench-docker-ps-check",
+			"type": "shell",
+			"command": "docker",
+			"args": [
+				"ps",
+				"--format",
+				"table {{.Names}}\\t{{.Status}}"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "bench-docker-ps-check-2",
+			"type": "shell",
+			"command": "docker",
+			"args": [
+				"ps",
+				"--format",
+				"table {{.Names}}\\t{{.Status}}"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "bench-docker-ps-check-3",
+			"type": "shell",
+			"command": "docker",
+			"args": [
+				"ps",
+				"--format",
+				"table {{.Names}}\\t{{.Status}}"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "bench-k6-run-check",
+			"type": "shell",
+			"command": "sh",
+			"args": [
+				"-c",
+				"docker ps --format '{{.Names}}' | grep '^benchmarks-bench-k6-run-' || true"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "bench-k6-run-check-2",
+			"type": "shell",
+			"command": "sh",
+			"args": [
+				"-c",
+				"docker ps --format '{{.Names}}' | grep '^benchmarks-bench-k6-run-' || true"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "bench-k6-current-logs",
+			"type": "shell",
+			"command": "sh",
+			"args": [
+				"-c",
+				"id=$(docker ps --format '{{.Names}}' | grep '^benchmarks-bench-k6-run-' | head -n1); echo \"K6=$id\"; [ -n \"$id\" ] && docker logs --tail 50 \"$id\" || true"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "bench-k6-run-check-3",
+			"type": "shell",
+			"command": "sh",
+			"args": [
+				"-c",
+				"docker ps --format '{{.Names}}' | grep '^benchmarks-bench-k6-run-' || true"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "bench-k6-run-check-4",
+			"type": "shell",
+			"command": "sh",
+			"args": [
+				"-c",
+				"docker ps --format '{{.Names}}' | grep '^benchmarks-bench-k6-run-' || true"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "bench-k6-current-logs-2",
+			"type": "shell",
+			"command": "sh",
+			"args": [
+				"-c",
+				"id=$(docker ps --format '{{.Names}}' | grep '^benchmarks-bench-k6-run-' | head -n1); echo \"K6=$id\"; [ -n \"$id\" ] && docker logs --tail 80 \"$id\" || true"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "bench-docker-ps-final",
+			"type": "shell",
+			"command": "docker",
+			"args": [
+				"ps",
+				"--format",
+				"table {{.Names}}\\t{{.Status}}"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "bench-authentik-node",
+			"type": "shell",
+			"command": "bash",
+			"args": [
+				"benchmarks/run-benchmarks.sh",
+				"--servers",
+				"authentik,node-oidc",
+				"--profile",
+				"light",
+				"--iterations",
+				"1"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "bench-auth-node-status-1",
+			"type": "shell",
+			"command": "docker",
+			"args": [
+				"ps",
+				"--format",
+				"table {{.Names}}\\t{{.Status}}"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "bench-auth-node-status-2",
+			"type": "shell",
+			"command": "docker",
+			"args": [
+				"ps",
+				"--format",
+				"table {{.Names}}\\t{{.Status}}"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "bench-authentik-logs",
+			"type": "shell",
+			"command": "docker",
+			"args": [
+				"compose",
+				"-f",
+				"benchmarks/docker-compose.yml",
+				"logs",
+				"--tail",
+				"120",
+				"bench-authentik"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "bench-auth-node-rerun-after-healthfix",
+			"type": "shell",
+			"command": "sh",
+			"args": [
+				"-c",
+				"docker compose -f benchmarks/docker-compose.yml down -v --remove-orphans && bash benchmarks/run-benchmarks.sh --servers authentik,node-oidc --profile light --iterations 1"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "bench-progress-auth-node",
+			"type": "shell",
+			"command": "docker",
+			"args": [
+				"ps",
+				"--format",
+				"table {{.Names}}\\t{{.Status}}"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "bench-k6-running-check-finalphase",
+			"type": "shell",
+			"command": "sh",
+			"args": [
+				"-c",
+				"docker ps --format '{{.Names}}' | grep '^benchmarks-bench-k6-run-' || true"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "bench-docker-ps-postrun",
+			"type": "shell",
+			"command": "docker",
+			"args": [
+				"ps",
+				"--format",
+				"table {{.Names}}\\t{{.Status}}"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "bench-node-oidc-logs",
+			"type": "shell",
+			"command": "docker",
+			"args": [
+				"compose",
+				"-f",
+				"benchmarks/docker-compose.yml",
+				"logs",
+				"--tail",
+				"120",
+				"bench-node-oidc"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "bench-auth-node-final-rerun",
+			"type": "shell",
+			"command": "sh",
+			"args": [
+				"-c",
+				"docker compose -f benchmarks/docker-compose.yml down -v --remove-orphans && bash benchmarks/run-benchmarks.sh --servers authentik,node-oidc --profile light --iterations 1"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "bench-k6-running-now",
+			"type": "shell",
+			"command": "sh",
+			"args": [
+				"-c",
+				"docker ps --format '{{.Names}}' | grep '^benchmarks-bench-k6-run-' || true"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "bench-k6-running-now-2",
+			"type": "shell",
+			"command": "sh",
+			"args": [
+				"-c",
+				"docker ps --format '{{.Names}}' | grep '^benchmarks-bench-k6-run-' || true"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "bench-k6-two-logs",
+			"type": "shell",
+			"command": "sh",
+			"args": [
+				"-c",
+				"for id in $(docker ps --format '{{.Names}}' | grep '^benchmarks-bench-k6-run-' ); do echo \"==== $id ====\"; docker logs --tail 20 \"$id\"; done"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "bench-k6-running-now-3",
+			"type": "shell",
+			"command": "sh",
+			"args": [
+				"-c",
+				"docker ps --format '{{.Names}}' | grep '^benchmarks-bench-k6-run-' || true"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "bench-node-only",
+			"type": "shell",
+			"command": "sh",
+			"args": [
+				"-c",
+				"docker compose -f benchmarks/docker-compose.yml down -v --remove-orphans && bash benchmarks/run-benchmarks.sh --servers node-oidc --profile light --iterations 1"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "bench-node-k6-check",
+			"type": "shell",
+			"command": "sh",
+			"args": [
+				"-c",
+				"docker ps --format '{{.Names}}' | grep '^benchmarks-bench-k6-run-' || true"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "bench-node-k6-check-2",
+			"type": "shell",
+			"command": "sh",
+			"args": [
+				"-c",
+				"docker ps --format '{{.Names}}' | grep '^benchmarks-bench-k6-run-' || true"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "bench-node-k6-check-3",
+			"type": "shell",
+			"command": "sh",
+			"args": [
+				"-c",
+				"docker ps --format '{{.Names}}' | grep '^benchmarks-bench-k6-run-' || true"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "bench-node-k6-logs",
+			"type": "shell",
+			"command": "sh",
+			"args": [
+				"-c",
+				"id=$(docker ps --format '{{.Names}}' | grep '^benchmarks-bench-k6-run-' | head -n1); echo \"K6=$id\"; [ -n \"$id\" ] && docker logs --tail 40 \"$id\" || true"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "bench-node-k6-check-4",
+			"type": "shell",
+			"command": "sh",
+			"args": [
+				"-c",
+				"docker ps --format '{{.Names}}' | grep '^benchmarks-bench-k6-run-' || true"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "bench-node-k6-check-5",
+			"type": "shell",
+			"command": "sh",
+			"args": [
+				"-c",
+				"docker ps --format '{{.Names}}' | grep '^benchmarks-bench-k6-run-' || true"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "bench-node-k6-check-6",
+			"type": "shell",
+			"command": "sh",
+			"args": [
+				"-c",
+				"docker ps --format '{{.Names}}' | grep '^benchmarks-bench-k6-run-' || true"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "bench-node-k6-check-7",
+			"type": "shell",
+			"command": "sh",
+			"args": [
+				"-c",
+				"docker ps --format '{{.Names}}' | grep '^benchmarks-bench-k6-run-' || true"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "bench-node-k6-logs-both",
+			"type": "shell",
+			"command": "sh",
+			"args": [
+				"-c",
+				"for id in $(docker ps --format '{{.Names}}' | grep '^benchmarks-bench-k6-run-'); do echo \"==== $id ====\"; docker logs --tail 15 \"$id\"; done"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "bench-node-k6-check-8",
+			"type": "shell",
+			"command": "sh",
+			"args": [
+				"-c",
+				"docker ps --format '{{.Names}}' | grep '^benchmarks-bench-k6-run-' || true"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "bench-node-k6-check-9",
+			"type": "shell",
+			"command": "sh",
+			"args": [
+				"-c",
+				"docker ps --format '{{.Names}}' | grep '^benchmarks-bench-k6-run-' || true"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "bench-node-k6-check-10",
+			"type": "shell",
+			"command": "sh",
+			"args": [
+				"-c",
+				"docker ps --format '{{.Names}}' | grep '^benchmarks-bench-k6-run-' || true"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "bench-node-k6-logs-current",
+			"type": "shell",
+			"command": "sh",
+			"args": [
+				"-c",
+				"id=$(docker ps --format '{{.Names}}' | grep '^benchmarks-bench-k6-run-' | head -n1); echo \"K6=$id\"; [ -n \"$id\" ] && docker logs --tail 30 \"$id\" || true"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "bench-node-k6-check-11",
+			"type": "shell",
+			"command": "sh",
+			"args": [
+				"-c",
+				"docker ps --format '{{.Names}}' | grep '^benchmarks-bench-k6-run-' || true"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "bench-node-missing-scenarios",
+			"type": "shell",
+			"command": "sh",
+			"args": [
+				"-c",
+				"docker compose -f benchmarks/docker-compose.yml down -v --remove-orphans && bash benchmarks/run-benchmarks.sh --servers node-oidc --scenarios discovery,health --profile light --iterations 1"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "bench-node-missing-k6-check",
+			"type": "shell",
+			"command": "sh",
+			"args": [
+				"-c",
+				"docker ps --format '{{.Names}}' | grep '^benchmarks-bench-k6-run-' || true"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "bench-node-missing-k6-check-2",
+			"type": "shell",
+			"command": "sh",
+			"args": [
+				"-c",
+				"docker ps --format '{{.Names}}' | grep '^benchmarks-bench-k6-run-' || true"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "bench-generate-report-final",
+			"type": "shell",
+			"command": "bash",
+			"args": [
+				"benchmarks/analyze-results.sh"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "security-http-opcount-test",
+			"type": "shell",
+			"command": "cargo",
+			"args": [
+				"test",
+				"--test",
+				"security_http",
+				"token_client_credentials_uses_single_client_lookup_and_single_token_write",
+				"--",
+				"--exact"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "cargo-check-all-features-opguard",
+			"type": "shell",
+			"command": "cargo",
+			"args": [
+				"check",
+				"--all-features"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "bench-rust-client-credentials-post-opt",
+			"type": "shell",
+			"command": "bash",
+			"args": [
+				"benchmarks/run-benchmarks.sh",
+				"--servers",
+				"rust",
+				"--scenarios",
+				"client-credentials",
+				"--profile",
+				"light",
+				"--iterations",
+				"1"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "regenerate-benchmark-report-post-rust-opt",
+			"type": "shell",
+			"command": "bash",
+			"args": [
+				"benchmarks/analyze-results.sh"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "security-http-warm-cache-opcount-test",
+			"type": "shell",
+			"command": "cargo",
+			"args": [
+				"test",
+				"--test",
+				"security_http",
+				"token_client_credentials_uses_single_lookup_with_warm_cache",
+				"--",
+				"--exact"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "cargo-check-all-features-post-cache",
+			"type": "shell",
+			"command": "cargo",
+			"args": [
+				"check",
+				"--all-features"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "bench-rust-client-credentials-cache-opt",
+			"type": "shell",
+			"command": "bash",
+			"args": [
+				"benchmarks/run-benchmarks.sh",
+				"--servers",
+				"rust",
+				"--scenarios",
+				"client-credentials",
+				"--profile",
+				"light",
+				"--iterations",
+				"1"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "git-diff-docs-testing-observability",
+			"type": "shell",
+			"command": "git",
+			"args": [
+				"--no-pager",
+				"diff",
+				"--",
+				"docs/development/testing.md",
+				"mkdocs.yml",
+				"docs/operations/observability.md"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "ci-fmt-check-local",
+			"type": "shell",
+			"command": "cargo",
+			"args": [
+				"fmt",
+				"--all",
+				"--",
+				"--check"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "git-diff-client-actor-format-fix",
+			"type": "shell",
+			"command": "git",
+			"args": [
+				"--no-pager",
+				"diff",
+				"--",
+				"crates/oauth2-actix/src/actors/client_actor.rs"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "ci-clippy-local",
+			"type": "shell",
+			"command": "cargo",
+			"args": [
+				"clippy",
+				"--all-targets",
+				"--all-features",
+				"--",
+				"-D",
+				"warnings"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "ci-tests-local",
+			"type": "shell",
+			"command": "cargo",
+			"args": [
+				"test",
+				"--verbose",
+				"--all-features",
+				"--locked"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "verify-mysql-storage-test",
+			"type": "shell",
+			"command": "cargo",
+			"args": [
+				"test",
+				"--test",
+				"mysql_storage",
+				"--all-features",
+				"--locked"
+			],
+			"isBackground": false
+		}
+	]
 }

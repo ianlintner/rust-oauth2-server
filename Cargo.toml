@@ -22,6 +22,8 @@ members = [
 	"crates/oauth2-social-login",
 	"crates/oauth2-storage-mongo",
 	"crates/oauth2-storage-sqlx",
+	"crates/oauth2-storage-cosmosdb",
+	"crates/oauth2-storage-cassandra",
 	"oauth2-ratelimit",
 	"oauth2-resilience",
 ]
@@ -55,6 +57,12 @@ sqlx = ["oauth2-core/sqlx", "oauth2-server/sqlx", "oauth2-storage-factory/sqlx"]
 
 # Optional MongoDB storage backend.
 mongo = ["oauth2-server/mongo", "oauth2-storage-factory/mongo"]
+
+# Optional Azure Cosmos DB (NoSQL SQL API) storage backend.
+cosmosdb = ["oauth2-server/cosmosdb", "oauth2-storage-factory/cosmosdb"]
+
+# Optional Cassandra storage backend (experimental).
+cassandra = ["oauth2-server/cassandra", "oauth2-storage-factory/cassandra"]
 
 # Optional eventing backends (Phase 1 best-effort)
 events-redis = ["oauth2-events/events-redis", "oauth2-server/events-redis"]

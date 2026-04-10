@@ -23,11 +23,25 @@ pub mod mongo {
     pub use oauth2_storage_mongo::MongoStorage;
 }
 
+/// Backward-compatible module path for the Cosmos DB adapter.
+#[cfg(feature = "cosmosdb")]
+pub mod cosmosdb {
+    pub use oauth2_storage_cosmosdb::CosmosDbStorage;
+}
+
+/// Backward-compatible module path for the Cassandra adapter.
+#[cfg(feature = "cassandra")]
+pub mod cassandra {
+    pub use oauth2_storage_cassandra::CassandraStorage;
+}
+
 /// Create a storage backend based on URL scheme.
 ///
 /// Supported:
-/// - `postgres://...` and `sqlite:...` -> SQLx backend
+/// - `postgres://...`, `mysql://...`, and `sqlite:...` -> SQLx backend
 /// - `mongodb://...` and `mongodb+srv://...` -> Mongo backend (requires `--features mongo`)
+/// - `cosmosdb://...` -> Cosmos DB backend (requires `--features cosmosdb`)
+/// - `cassandra://...` -> Cassandra backend (requires `--features cassandra`)
 pub async fn create_storage(database_url: &str) -> Result<DynStorage, OAuth2Error> {
     create_storage_with_pool_config(database_url, None, None).await
 }
@@ -41,6 +55,8 @@ pub async fn create_storage_with_pool_config(
 ) -> Result<DynStorage, OAuth2Error> {
     let is_mongo =
         database_url.starts_with("mongodb://") || database_url.starts_with("mongodb+srv://");
+    let is_cosmos = database_url.starts_with("cosmosdb://");
+    let is_cassandra = database_url.starts_with("cassandra://");
 
     if is_mongo {
         #[cfg(feature = "mongo")]
@@ -60,6 +76,42 @@ pub async fn create_storage_with_pool_config(
                 ),
             ))
         }
+    } else if is_cosmos {
+        #[cfg(feature = "cosmosdb")]
+        {
+            let storage = cosmosdb::CosmosDbStorage::new(database_url).await?;
+            let inner: DynStorage = Arc::new(storage);
+            let observed = ObservedStorage::new(inner, "cosmosdb".to_string());
+            Ok(Arc::new(observed))
+        }
+
+        #[cfg(not(feature = "cosmosdb"))]
+        {
+            Err(OAuth2Error::new(
+                "server_error",
+                Some(
+                    "Cosmos DB backend requested but the binary was built without the `cosmosdb` feature",
+                ),
+            ))
+        }
+    } else if is_cassandra {
+        #[cfg(feature = "cassandra")]
+        {
+            let storage = cassandra::CassandraStorage::new(database_url).await?;
+            let inner: DynStorage = Arc::new(storage);
+            let observed = ObservedStorage::new(inner, "cassandra".to_string());
+            Ok(Arc::new(observed))
+        }
+
+        #[cfg(not(feature = "cassandra"))]
+        {
+            Err(OAuth2Error::new(
+                "server_error",
+                Some(
+                    "Cassandra backend requested but the binary was built without the `cassandra` feature",
+                ),
+            ))
+        }
     } else {
         let storage = match (pool_config, read_url) {
             (Some(pc), Some(ru)) => {
@@ -74,6 +126,8 @@ pub async fn create_storage_with_pool_config(
             || database_url.starts_with("postgresql://")
         {
             "postgresql"
+        } else if database_url.starts_with("mysql://") || database_url.starts_with("mariadb://") {
+            "mysql"
         } else if database_url.starts_with("sqlite:") || database_url.starts_with("sqlite://") {
             "sqlite"
         } else {
@@ -98,6 +152,8 @@ pub async fn create_storage_with_pool_config(
 ) -> Result<DynStorage, OAuth2Error> {
     let is_mongo =
         database_url.starts_with("mongodb://") || database_url.starts_with("mongodb+srv://");
+    let is_cosmos = database_url.starts_with("cosmosdb://");
+    let is_cassandra = database_url.starts_with("cassandra://");
 
     if is_mongo {
         #[cfg(feature = "mongo")]
@@ -114,6 +170,42 @@ pub async fn create_storage_with_pool_config(
                 "server_error",
                 Some(
                     "MongoDB backend requested but the binary was built without the `mongo` feature",
+                ),
+            ))
+        }
+    } else if is_cosmos {
+        #[cfg(feature = "cosmosdb")]
+        {
+            let storage = cosmosdb::CosmosDbStorage::new(database_url).await?;
+            let inner: DynStorage = Arc::new(storage);
+            let observed = ObservedStorage::new(inner, "cosmosdb".to_string());
+            Ok(Arc::new(observed))
+        }
+
+        #[cfg(not(feature = "cosmosdb"))]
+        {
+            Err(OAuth2Error::new(
+                "server_error",
+                Some(
+                    "Cosmos DB backend requested but the binary was built without the `cosmosdb` feature",
+                ),
+            ))
+        }
+    } else if is_cassandra {
+        #[cfg(feature = "cassandra")]
+        {
+            let storage = cassandra::CassandraStorage::new(database_url).await?;
+            let inner: DynStorage = Arc::new(storage);
+            let observed = ObservedStorage::new(inner, "cassandra".to_string());
+            Ok(Arc::new(observed))
+        }
+
+        #[cfg(not(feature = "cassandra"))]
+        {
+            Err(OAuth2Error::new(
+                "server_error",
+                Some(
+                    "Cassandra backend requested but the binary was built without the `cassandra` feature",
                 ),
             ))
         }

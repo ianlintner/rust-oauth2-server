@@ -7,9 +7,10 @@ description = "SQLx-backed storage adapter for rust-oauth2-server"
 repository = "https://github.com/ianlintner/rust_oauth2_server"
 
 [features]
-default = ["sqlite", "postgres"]
+default = ["sqlite", "postgres", "mysql"]
 sqlite = ["sqlx/sqlite"]
 postgres = ["sqlx/postgres"]
+mysql = ["sqlx/mysql"]
 
 [dependencies]
 async-trait = "0.1"

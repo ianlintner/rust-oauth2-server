@@ -54,6 +54,10 @@ sqlx = ["oauth2-storage-factory/sqlx"]
 
 mongo = ["oauth2-storage-factory/mongo"]
 
+cosmosdb = ["oauth2-storage-factory/cosmosdb"]
+
+cassandra = ["oauth2-storage-factory/cassandra"]
+
 # Optional eventing backends (pass-through to oauth2-events)
 events-redis = ["oauth2-events/events-redis"]
 events-kafka = ["oauth2-events/events-kafka"]

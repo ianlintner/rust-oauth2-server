@@ -87,6 +87,8 @@ impl From<sqlx::Error> for OAuth2Error {
             // Postgres unique violation: 23505
             // SQLite constraint error codes vary by extended code; also match by message.
             let is_unique = code == "23505"
+                || code == "1062"
+                || code == "23000"
                 || code == "2067"
                 || code == "1555"
                 || msg.contains("UNIQUE constraint failed")

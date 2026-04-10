@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use oauth2_core::{AuthorizationCode, Client, OAuth2Error, Token, User};
 use oauth2_ports::Storage;
 use sqlx::pool::PoolOptions;
-use sqlx::{Pool, Postgres, Sqlite};
+use sqlx::{MySql, Pool, Postgres, Sqlite};
 use std::borrow::Cow;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -31,6 +31,7 @@ impl Default for PoolConfig {
 enum DatabasePool {
     Sqlite(Pool<Sqlite>),
     Postgres(Pool<Postgres>),
+    MySql(Pool<MySql>),
 }
 
 /// SQL-backed storage implementation (SQLite/Postgres) using SQLx.
@@ -97,6 +98,15 @@ impl SqlxStorage {
                 .connect(database_url)
                 .await?;
             DatabasePool::Postgres(pg_pool)
+        } else if database_url.starts_with("mysql://") || database_url.starts_with("mariadb://") {
+            let mysql_pool = PoolOptions::<MySql>::new()
+                .max_connections(pool_config.max_connections)
+                .min_connections(pool_config.min_connections)
+                .acquire_timeout(pool_config.acquire_timeout)
+                .idle_timeout(pool_config.idle_timeout)
+                .connect(database_url)
+                .await?;
+            DatabasePool::MySql(mysql_pool)
         } else {
             // Best-effort: if we can't create it (permissions, etc.), sqlx will surface the
             // underlying error on connect.
@@ -146,6 +156,12 @@ impl SqlxStorage {
             }
             DatabasePool::Postgres(pool) => {
                 // Postgres schema is expected to be created by Flyway migrations.
+                sqlx::query("SELECT 1").execute(pool).await?;
+            }
+            DatabasePool::MySql(pool) => {
+                // In local/dev environments without Flyway, make sure schema exists.
+                // Statements are idempotent and cheap for MySQL.
+                self.bootstrap_mysql_schema(pool).await?;
                 sqlx::query("SELECT 1").execute(pool).await?;
             }
         }
@@ -283,6 +299,139 @@ impl SqlxStorage {
 
         Ok(())
     }
+
+    async fn bootstrap_mysql_schema(&self, pool: &Pool<MySql>) -> Result<(), sqlx::Error> {
+        // Clients
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS clients (
+                id VARCHAR(255) PRIMARY KEY,
+                client_id VARCHAR(255) NOT NULL UNIQUE,
+                client_secret TEXT NOT NULL,
+                redirect_uris TEXT NOT NULL,
+                grant_types TEXT NOT NULL,
+                scope TEXT NOT NULL,
+                name TEXT NOT NULL,
+                created_at DATETIME(6) NOT NULL,
+                updated_at DATETIME(6) NOT NULL
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+            "#,
+        )
+        .execute(pool)
+        .await?;
+
+        sqlx::query(r#"CREATE INDEX IF NOT EXISTS idx_clients_client_id ON clients(client_id);"#)
+            .execute(pool)
+            .await?;
+
+        // Users
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS users (
+                id VARCHAR(255) PRIMARY KEY,
+                username VARCHAR(255) NOT NULL UNIQUE,
+                password_hash TEXT NOT NULL,
+                email VARCHAR(255) NOT NULL,
+                enabled BOOLEAN NOT NULL DEFAULT TRUE,
+                role VARCHAR(64) NOT NULL DEFAULT 'user',
+                created_at DATETIME(6) NOT NULL,
+                updated_at DATETIME(6) NOT NULL
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+            "#,
+        )
+        .execute(pool)
+        .await?;
+
+        sqlx::query(r#"CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);"#)
+            .execute(pool)
+            .await?;
+        sqlx::query(r#"CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);"#)
+            .execute(pool)
+            .await?;
+
+        // Tokens
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS tokens (
+                id VARCHAR(255) PRIMARY KEY,
+                access_token TEXT NOT NULL,
+                refresh_token TEXT NULL,
+                token_type VARCHAR(64) NOT NULL,
+                expires_in BIGINT NOT NULL,
+                scope TEXT NOT NULL,
+                client_id VARCHAR(255) NOT NULL,
+                user_id VARCHAR(255) NULL,
+                created_at DATETIME(6) NOT NULL,
+                expires_at DATETIME(6) NOT NULL,
+                revoked BOOLEAN NOT NULL DEFAULT FALSE,
+                CONSTRAINT uq_tokens_access_token UNIQUE (access_token(255)),
+                FOREIGN KEY (client_id) REFERENCES clients(client_id),
+                FOREIGN KEY (user_id) REFERENCES users(id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+            "#,
+        )
+        .execute(pool)
+        .await?;
+
+        sqlx::query(
+            r#"CREATE INDEX IF NOT EXISTS idx_tokens_access_token ON tokens(access_token(255));"#,
+        )
+        .execute(pool)
+        .await?;
+        sqlx::query(
+            r#"CREATE INDEX IF NOT EXISTS idx_tokens_refresh_token ON tokens(refresh_token(255));"#,
+        )
+        .execute(pool)
+        .await?;
+        sqlx::query(r#"CREATE INDEX IF NOT EXISTS idx_tokens_client_id ON tokens(client_id);"#)
+            .execute(pool)
+            .await?;
+        sqlx::query(r#"CREATE INDEX IF NOT EXISTS idx_tokens_user_id ON tokens(user_id);"#)
+            .execute(pool)
+            .await?;
+
+        // Authorization codes
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS authorization_codes (
+                id VARCHAR(255) PRIMARY KEY,
+                code TEXT NOT NULL,
+                client_id VARCHAR(255) NOT NULL,
+                user_id VARCHAR(255) NOT NULL,
+                redirect_uri TEXT NOT NULL,
+                scope TEXT NOT NULL,
+                created_at DATETIME(6) NOT NULL,
+                expires_at DATETIME(6) NOT NULL,
+                used BOOLEAN NOT NULL DEFAULT FALSE,
+                code_challenge TEXT NULL,
+                code_challenge_method VARCHAR(32) NULL,
+                CONSTRAINT uq_authorization_codes_code UNIQUE (code(255)),
+                FOREIGN KEY (client_id) REFERENCES clients(client_id),
+                FOREIGN KEY (user_id) REFERENCES users(id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+            "#,
+        )
+        .execute(pool)
+        .await?;
+
+        sqlx::query(
+            r#"CREATE INDEX IF NOT EXISTS idx_authorization_codes_code ON authorization_codes(code(255));"#,
+        )
+        .execute(pool)
+        .await?;
+        sqlx::query(
+            r#"CREATE INDEX IF NOT EXISTS idx_authorization_codes_client_id ON authorization_codes(client_id);"#,
+        )
+        .execute(pool)
+        .await?;
+        sqlx::query(
+            r#"CREATE INDEX IF NOT EXISTS idx_authorization_codes_user_id ON authorization_codes(user_id);"#,
+        )
+        .execute(pool)
+        .await?;
+
+        Ok(())
+    }
 }
 
 #[async_trait]
@@ -298,6 +447,9 @@ impl Storage for SqlxStorage {
                 sqlx::query("SELECT 1").execute(pool).await?;
             }
             DatabasePool::Postgres(pool) => {
+                sqlx::query("SELECT 1").execute(pool).await?;
+            }
+            DatabasePool::MySql(pool) => {
                 sqlx::query("SELECT 1").execute(pool).await?;
             }
         }
@@ -345,6 +497,25 @@ impl Storage for SqlxStorage {
                 .execute(pool)
                 .await?;
             }
+            DatabasePool::MySql(pool) => {
+                sqlx::query(
+                    r#"
+                    INSERT INTO clients (id, client_id, client_secret, redirect_uris, grant_types, scope, name, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    "#,
+                )
+                .bind(&client.id)
+                .bind(&client.client_id)
+                .bind(&client.client_secret)
+                .bind(&client.redirect_uris)
+                .bind(&client.grant_types)
+                .bind(&client.scope)
+                .bind(&client.name)
+                .bind(client.created_at)
+                .bind(client.updated_at)
+                .execute(pool)
+                .await?;
+            }
         }
 
         Ok(())
@@ -360,6 +531,12 @@ impl Storage for SqlxStorage {
             }
             DatabasePool::Postgres(pool) => {
                 sqlx::query_as::<_, Client>("SELECT * FROM clients WHERE client_id = $1")
+                    .bind(client_id)
+                    .fetch_optional(pool)
+                    .await?
+            }
+            DatabasePool::MySql(pool) => {
+                sqlx::query_as::<_, Client>("SELECT * FROM clients WHERE client_id = ?")
                     .bind(client_id)
                     .fetch_optional(pool)
                     .await?
@@ -407,6 +584,24 @@ impl Storage for SqlxStorage {
                 .execute(pool)
                 .await?;
             }
+            DatabasePool::MySql(pool) => {
+                sqlx::query(
+                    r#"
+                    INSERT INTO users (id, username, password_hash, email, enabled, created_at, updated_at, role)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    "#,
+                )
+                .bind(&user.id)
+                .bind(&user.username)
+                .bind(&user.password_hash)
+                .bind(&user.email)
+                .bind(user.enabled)
+                .bind(user.created_at)
+                .bind(user.updated_at)
+                .bind(&user.role)
+                .execute(pool)
+                .await?;
+            }
         }
 
         Ok(())
@@ -422,6 +617,12 @@ impl Storage for SqlxStorage {
             }
             DatabasePool::Postgres(pool) => {
                 sqlx::query_as::<_, User>("SELECT * FROM users WHERE username = $1")
+                    .bind(username)
+                    .fetch_optional(pool)
+                    .await?
+            }
+            DatabasePool::MySql(pool) => {
+                sqlx::query_as::<_, User>("SELECT * FROM users WHERE username = ?")
                     .bind(username)
                     .fetch_optional(pool)
                     .await?
@@ -475,6 +676,27 @@ impl Storage for SqlxStorage {
                 .execute(pool)
                 .await?;
             }
+            DatabasePool::MySql(pool) => {
+                sqlx::query(
+                    r#"
+                    INSERT INTO tokens (id, access_token, refresh_token, token_type, expires_in, scope, client_id, user_id, created_at, expires_at, revoked)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    "#,
+                )
+                .bind(&token.id)
+                .bind(&token.access_token)
+                .bind(&token.refresh_token)
+                .bind(&token.token_type)
+                .bind(token.expires_in)
+                .bind(&token.scope)
+                .bind(&token.client_id)
+                .bind(&token.user_id)
+                .bind(token.created_at)
+                .bind(token.expires_at)
+                .bind(token.revoked)
+                .execute(pool)
+                .await?;
+            }
         }
 
         Ok(())
@@ -493,6 +715,12 @@ impl Storage for SqlxStorage {
             }
             DatabasePool::Postgres(pool) => {
                 sqlx::query_as::<_, Token>("SELECT * FROM tokens WHERE access_token = $1")
+                    .bind(access_token)
+                    .fetch_optional(pool)
+                    .await?
+            }
+            DatabasePool::MySql(pool) => {
+                sqlx::query_as::<_, Token>("SELECT * FROM tokens WHERE access_token = ?")
                     .bind(access_token)
                     .fetch_optional(pool)
                     .await?
@@ -516,6 +744,15 @@ impl Storage for SqlxStorage {
             DatabasePool::Postgres(pool) => {
                 sqlx::query(
                     "UPDATE tokens SET revoked = true WHERE access_token = $1 OR refresh_token = $2",
+                )
+                .bind(token)
+                .bind(token)
+                .execute(pool)
+                .await?;
+            }
+            DatabasePool::MySql(pool) => {
+                sqlx::query(
+                    "UPDATE tokens SET revoked = 1 WHERE access_token = ? OR refresh_token = ?",
                 )
                 .bind(token)
                 .bind(token)
@@ -574,6 +811,27 @@ impl Storage for SqlxStorage {
                 .execute(pool)
                 .await?;
             }
+            DatabasePool::MySql(pool) => {
+                sqlx::query(
+                    r#"
+                    INSERT INTO authorization_codes (id, code, client_id, user_id, redirect_uri, scope, created_at, expires_at, used, code_challenge, code_challenge_method)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    "#,
+                )
+                .bind(&auth_code.id)
+                .bind(&auth_code.code)
+                .bind(&auth_code.client_id)
+                .bind(&auth_code.user_id)
+                .bind(&auth_code.redirect_uri)
+                .bind(&auth_code.scope)
+                .bind(auth_code.created_at)
+                .bind(auth_code.expires_at)
+                .bind(auth_code.used)
+                .bind(&auth_code.code_challenge)
+                .bind(&auth_code.code_challenge_method)
+                .execute(pool)
+                .await?;
+            }
         }
 
         Ok(())
@@ -600,6 +858,14 @@ impl Storage for SqlxStorage {
                 .fetch_optional(pool)
                 .await?
             }
+            DatabasePool::MySql(pool) => {
+                sqlx::query_as::<_, AuthorizationCode>(
+                    "SELECT * FROM authorization_codes WHERE code = ?",
+                )
+                .bind(code)
+                .fetch_optional(pool)
+                .await?
+            }
         };
 
         Ok(auth_code)
@@ -615,6 +881,12 @@ impl Storage for SqlxStorage {
             }
             DatabasePool::Postgres(pool) => {
                 sqlx::query("UPDATE authorization_codes SET used = true WHERE code = $1")
+                    .bind(code)
+                    .execute(pool)
+                    .await?;
+            }
+            DatabasePool::MySql(pool) => {
+                sqlx::query("UPDATE authorization_codes SET used = 1 WHERE code = ?")
                     .bind(code)
                     .execute(pool)
                     .await?;
@@ -636,6 +908,11 @@ impl Storage for SqlxStorage {
                     .fetch_all(pool)
                     .await?
             }
+            DatabasePool::MySql(pool) => {
+                sqlx::query_as::<_, Client>("SELECT * FROM clients ORDER BY created_at DESC")
+                    .fetch_all(pool)
+                    .await?
+            }
         };
         Ok(clients)
     }
@@ -648,6 +925,11 @@ impl Storage for SqlxStorage {
                     .await?
             }
             DatabasePool::Postgres(pool) => {
+                sqlx::query_as::<_, User>("SELECT * FROM users ORDER BY created_at DESC")
+                    .fetch_all(pool)
+                    .await?
+            }
+            DatabasePool::MySql(pool) => {
                 sqlx::query_as::<_, User>("SELECT * FROM users ORDER BY created_at DESC")
                     .fetch_all(pool)
                     .await?
@@ -666,6 +948,13 @@ impl Storage for SqlxStorage {
                 .await?
             }
             DatabasePool::Postgres(pool) => {
+                sqlx::query_as::<_, Token>(
+                    "SELECT * FROM tokens ORDER BY created_at DESC LIMIT 200",
+                )
+                .fetch_all(pool)
+                .await?
+            }
+            DatabasePool::MySql(pool) => {
                 sqlx::query_as::<_, Token>(
                     "SELECT * FROM tokens ORDER BY created_at DESC LIMIT 200",
                 )
