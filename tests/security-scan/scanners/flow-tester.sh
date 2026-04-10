@@ -52,7 +52,7 @@ fi
 
 # Test 4: Open redirect via return_to
 if [[ -f "${SCENARIOS_DIR}/attacks.json" ]]; then
-  echo "$( jq -c '.[]' "${SCENARIOS_DIR}/attacks.json" 2>/dev/null )" | while IFS= read -r attack; do
+  jq -c '.[]' "${SCENARIOS_DIR}/attacks.json" 2>/dev/null | while IFS= read -r attack; do
     attack_id=$(echo "$attack" | jq -r '.id // empty')
     requests=$(echo "$attack" | jq -c '.requests // []')
     echo "$requests" | jq -c '.[]' | while IFS= read -r req; do
