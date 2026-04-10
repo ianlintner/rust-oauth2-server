@@ -524,6 +524,61 @@ impl Handler<RevokeToken> for TokenActor {
 }
 
 // ---------------------------------------------------------------------------
+// Refresh-token lookup (database round-trip, no cache)
+// ---------------------------------------------------------------------------
+
+/// Look up a token by its refresh_token string.
+/// Returns the full `Token` row if found and not revoked/expired, or an error.
+#[derive(Message)]
+#[rtype(result = "Result<Token, OAuth2Error>")]
+pub struct ValidateRefreshToken {
+    pub refresh_token: String,
+    pub span: tracing::Span,
+}
+
+impl Handler<ValidateRefreshToken> for TokenActor {
+    type Result = ResponseFuture<Result<Token, OAuth2Error>>;
+
+    fn handle(&mut self, msg: ValidateRefreshToken, _: &mut Self::Context) -> Self::Result {
+        let db = self.db.clone();
+
+        let parent_span = msg.span.clone();
+        let token_prefix = msg.refresh_token.chars().take(12).collect::<String>();
+        let actor_span = tracing::info_span!(
+            parent: &parent_span,
+            "actor.token.validate_refresh",
+            trace_id = tracing::field::Empty,
+            span_id = tracing::field::Empty,
+            token_prefix = %token_prefix,
+            token_len = msg.refresh_token.len()
+        );
+        annotate_span_with_trace_ids(&actor_span);
+
+        let refresh_token = msg.refresh_token;
+
+        Box::pin(
+            async move {
+                let token = db
+                    .get_token_by_refresh_token(&refresh_token)
+                    .await?
+                    .ok_or_else(|| {
+                        OAuth2Error::invalid_grant("Refresh token not found or revoked")
+                    })?;
+
+                if !token.is_valid() {
+                    return Err(OAuth2Error::invalid_grant(
+                        "Refresh token is expired or revoked",
+                    ));
+                }
+
+                Ok(token)
+            }
+            .instrument(actor_span),
+        )
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Stateless JWT-only validation (no database lookup)
 // ---------------------------------------------------------------------------
 

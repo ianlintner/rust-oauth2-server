@@ -29,6 +29,10 @@ pub trait Storage: Send + Sync {
         &self,
         access_token: &str,
     ) -> Result<Option<Token>, OAuth2Error>;
+    async fn get_token_by_refresh_token(
+        &self,
+        refresh_token: &str,
+    ) -> Result<Option<Token>, OAuth2Error>;
     async fn revoke_token(&self, token: &str) -> Result<(), OAuth2Error>;
 
     // Authorization code operations

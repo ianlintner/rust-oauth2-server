@@ -70,7 +70,7 @@ pub async fn openid_configuration(
         "registration_endpoint": format!("{}/admin/clients/register", base),
         "scopes_supported": ["openid", "profile", "email", "read", "write", "admin"],
         "response_types_supported": ["code"],
-        "grant_types_supported": ["authorization_code", "client_credentials"],
+        "grant_types_supported": ["authorization_code", "client_credentials", "refresh_token"],
         "subject_types_supported": ["public"],
         "id_token_signing_alg_values_supported": id_token_algs,
         "token_endpoint_auth_methods_supported": [

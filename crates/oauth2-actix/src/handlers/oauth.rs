@@ -12,7 +12,7 @@ use oauth2_observability::Metrics;
 
 use crate::actors::{
     AuthActor, ClientActor, CreateAuthorizationCode, CreateToken, GetClient,
-    MarkAuthorizationCodeUsed, TokenActorPool, ValidateAuthorizationCode,
+    MarkAuthorizationCodeUsed, TokenActorPool, ValidateAuthorizationCode, ValidateRefreshToken,
 };
 use crate::handlers::wellknown::OidcConfig;
 use oauth2_core::{IdTokenClaims, OAuth2Error, TokenResponse};
@@ -301,7 +301,6 @@ pub struct TokenRequest {
     redirect_uri: Option<String>,
     client_id: String,
     client_secret: Option<String>,
-    #[allow(dead_code)] // OAuth2 refresh token grant, planned for future
     refresh_token: Option<String>,
     #[allow(dead_code)] // OAuth2 password grant, intentionally disabled by default
     username: Option<String>,
@@ -391,11 +390,12 @@ pub async fn token(
         "client_credentials" => {
             handle_client_credentials_grant(form, token_actor, client_actor, metrics).await
         }
-        // Password and refresh_token grants are intentionally disabled by default
-        // (OAuth 2.0 Security BCP).
-        "password" | "refresh_token" => {
-            Err(OAuth2Error::unsupported_grant_type("Grant type disabled"))
+        "refresh_token" => {
+            handle_refresh_token_grant(form, token_actor, client_actor, metrics).await
         }
+        // Password grant is intentionally disabled by default
+        // (OAuth 2.0 Security BCP).
+        "password" => Err(OAuth2Error::unsupported_grant_type("Grant type disabled")),
         _ => Err(OAuth2Error::unsupported_grant_type(&format!(
             "Grant type '{}' not supported",
             form.grant_type
@@ -479,7 +479,7 @@ async fn handle_authorization_code_grant(
             user_id: Some(auth_code.user_id.clone()),
             client_id: auth_code.client_id.clone(),
             scope: auth_code.scope.clone(),
-            include_refresh: false,
+            include_refresh: true,
             span: tracing::Span::current(),
         })
         .await
@@ -561,6 +561,94 @@ async fn handle_client_credentials_grant(
             client_id: req.client_id,
             scope,
             include_refresh: false,
+            span: tracing::Span::current(),
+        })
+        .await
+        .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))??;
+
+    metrics.oauth_token_issued_total.inc();
+
+    Ok(no_store_headers(
+        HttpResponse::Ok().json(TokenResponse::from(token)),
+    ))
+}
+
+/// RFC 6749 §6 — Refresh Token Grant
+///
+/// Exchanges a valid, non-revoked refresh token for a fresh access + refresh token pair.
+/// Supports optional scope down-scoping: the requested scope must be a subset of the
+/// original scope bound to the refresh token.
+async fn handle_refresh_token_grant(
+    req: TokenRequest,
+    token_actor: web::Data<TokenActorPool>,
+    client_actor: web::Data<Addr<ClientActor>>,
+    metrics: web::Data<Metrics>,
+) -> Result<HttpResponse, OAuth2Error> {
+    let refresh_token_str = req
+        .refresh_token
+        .ok_or_else(|| OAuth2Error::invalid_request("Missing refresh_token"))?;
+
+    // Authenticate the client.
+    let client = client_actor
+        .send(GetClient {
+            client_id: req.client_id.clone(),
+            span: tracing::Span::current(),
+        })
+        .await
+        .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))??;
+
+    let client_secret = req
+        .client_secret
+        .ok_or_else(|| OAuth2Error::invalid_client("Missing client_secret"))?;
+    if !client_secret_matches(&client, &client_secret) {
+        return Err(OAuth2Error::invalid_client("Invalid client_secret"));
+    }
+
+    // Look up the refresh token via the actor (DB round-trip).
+    let old_token = token_actor
+        .route(&req.client_id)
+        .send(ValidateRefreshToken {
+            refresh_token: refresh_token_str,
+            span: tracing::Span::current(),
+        })
+        .await
+        .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))??;
+
+    // The refresh token must belong to the authenticating client.
+    if old_token.client_id != req.client_id {
+        return Err(OAuth2Error::invalid_grant(
+            "Refresh token does not belong to this client",
+        ));
+    }
+
+    // Determine scope: if the request includes a scope, it must be a subset of the
+    // original token's scope. If omitted, inherit the original scope.
+    let scope = match req.scope {
+        Some(ref requested) => {
+            validate_scope_subset(requested, &old_token.scope)?;
+            requested.clone()
+        }
+        None => old_token.scope.clone(),
+    };
+
+    // Revoke the old token family (access + refresh).
+    token_actor
+        .route(&req.client_id)
+        .send(crate::actors::RevokeToken {
+            token: old_token.access_token.clone(),
+            span: tracing::Span::current(),
+        })
+        .await
+        .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))??;
+
+    // Mint new access + refresh token pair.
+    let token = token_actor
+        .route(&req.client_id)
+        .send(CreateToken {
+            user_id: old_token.user_id.clone(),
+            client_id: req.client_id,
+            scope,
+            include_refresh: true,
             span: tracing::Span::current(),
         })
         .await

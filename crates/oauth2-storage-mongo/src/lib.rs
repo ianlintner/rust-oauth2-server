@@ -194,6 +194,16 @@ impl Storage for MongoStorage {
             .map_err(Self::mongo_err_to_oauth)
     }
 
+    async fn get_token_by_refresh_token(
+        &self,
+        refresh_token: &str,
+    ) -> Result<Option<Token>, OAuth2Error> {
+        self.tokens
+            .find_one(doc! { "refresh_token": refresh_token, "revoked": false })
+            .await
+            .map_err(Self::mongo_err_to_oauth)
+    }
+
     async fn revoke_token(&self, token: &str) -> Result<(), OAuth2Error> {
         self.tokens
             .update_many(

@@ -147,6 +147,26 @@ impl Storage for ObservedStorage {
             .await
     }
 
+    async fn get_token_by_refresh_token(
+        &self,
+        refresh_token: &str,
+    ) -> Result<Option<Token>, OAuth2Error> {
+        let token_prefix = Self::token_prefix(refresh_token);
+        let span = tracing::info_span!(
+            "db",
+            trace_id = field::Empty,
+            span_id = field::Empty,
+            db_system = %self.db_system,
+            db_operation = "get_token_by_refresh_token",
+            token_prefix = %token_prefix,
+            token_len = refresh_token.len()
+        );
+        annotate_span_with_trace_ids(&span);
+        async move { self.inner.get_token_by_refresh_token(refresh_token).await }
+            .instrument(span)
+            .await
+    }
+
     async fn revoke_token(&self, token: &str) -> Result<(), OAuth2Error> {
         let token_prefix = Self::token_prefix(token);
         let span = tracing::info_span!(

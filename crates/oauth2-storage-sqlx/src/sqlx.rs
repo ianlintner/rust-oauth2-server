@@ -502,6 +502,32 @@ impl Storage for SqlxStorage {
         Ok(token)
     }
 
+    async fn get_token_by_refresh_token(
+        &self,
+        refresh_token: &str,
+    ) -> Result<Option<Token>, OAuth2Error> {
+        let token = match self.read_pool() {
+            DatabasePool::Sqlite(pool) => {
+                sqlx::query_as::<_, Token>(
+                    "SELECT * FROM tokens WHERE refresh_token = ? AND revoked = 0",
+                )
+                .bind(refresh_token)
+                .fetch_optional(pool)
+                .await?
+            }
+            DatabasePool::Postgres(pool) => {
+                sqlx::query_as::<_, Token>(
+                    "SELECT * FROM tokens WHERE refresh_token = $1 AND revoked = false",
+                )
+                .bind(refresh_token)
+                .fetch_optional(pool)
+                .await?
+            }
+        };
+
+        Ok(token)
+    }
+
     async fn revoke_token(&self, token: &str) -> Result<(), OAuth2Error> {
         match &self.pool {
             DatabasePool::Sqlite(pool) => {

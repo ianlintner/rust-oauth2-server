@@ -239,6 +239,13 @@ impl Storage for CountingStorage {
         Ok(None)
     }
 
+    async fn get_token_by_refresh_token(
+        &self,
+        _refresh_token: &str,
+    ) -> Result<Option<Token>, OAuth2Error> {
+        Ok(None)
+    }
+
     async fn revoke_token(&self, _token: &str) -> Result<(), OAuth2Error> {
         Ok(())
     }
@@ -1237,7 +1244,7 @@ async fn well_known_metadata_matches_supported_flows() {
         .and_then(|v| v.as_array())
         .cloned()
         .unwrap_or_default();
-    assert!(!gts.iter().any(|v| v == "refresh_token"));
+    assert!(gts.iter().any(|v| v == "refresh_token"));
     assert!(!gts.iter().any(|v| v == "password"));
 
     let pkce_methods = body
@@ -2281,5 +2288,299 @@ async fn events_public_ingest_can_be_enabled_explicitly() {
     assert_eq!(
         body.get("status").and_then(|value| value.as_str()),
         Some("accepted")
+    );
+}
+
+// ── Refresh Token Grant Tests ──────────────────────────────────────────────────
+
+#[actix_web::test]
+async fn refresh_token_grant_issues_new_access_token() {
+    // Client must list "refresh_token" among its allowed grant types.
+    let client = Client::new(
+        "client_refresh".to_string(),
+        "secret_refresh".to_string(),
+        vec!["https://good.example/cb".to_string()],
+        vec![
+            "authorization_code".to_string(),
+            "refresh_token".to_string(),
+        ],
+        "read write".to_string(),
+        "test".to_string(),
+    );
+
+    let (token_actor, client_actor, auth_actor, jwt_secret, metrics, oidc_config) =
+        setup_context(client).await;
+    let config = test_runtime_config(&jwt_secret);
+
+    let app = test::init_service(
+        App::new()
+            .wrap(SessionMiddleware::new(
+                CookieSessionStore::default(),
+                Key::generate(),
+            ))
+            .route("/test/login", web::get().to(test_set_session))
+            .app_data(web::Data::new(token_actor))
+            .app_data(web::Data::new(client_actor))
+            .app_data(web::Data::new(auth_actor))
+            .app_data(web::Data::new(jwt_secret.clone()))
+            .app_data(web::Data::new(metrics))
+            .app_data(web::Data::new(oidc_config))
+            .app_data(web::Data::new(config))
+            .app_data(web::Data::new(false))
+            .service(
+                web::scope("/oauth")
+                    .route(
+                        "/authorize",
+                        web::get().to(oauth2_actix::handlers::oauth::authorize),
+                    )
+                    .route(
+                        "/token",
+                        web::post().to(oauth2_actix::handlers::oauth::token),
+                    ),
+            ),
+    )
+    .await;
+
+    // 1. Establish authenticated session
+    let login_resp = test::call_service(
+        &app,
+        test::TestRequest::get().uri("/test/login").to_request(),
+    )
+    .await;
+    let session_cookie = extract_session_cookie(&login_resp);
+
+    // 2. Get an authorization code
+    let verifier = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk";
+    let challenge = s256_challenge(verifier);
+    let authorize_resp = test::call_service(
+        &app,
+        test::TestRequest::get()
+            .uri(&format!(
+                "/oauth/authorize?response_type=code\
+                 &client_id=client_refresh\
+                 &redirect_uri=https%3A%2F%2Fgood.example%2Fcb\
+                 &scope=read\
+                 &code_challenge={challenge}\
+                 &code_challenge_method=S256"
+            ))
+            .insert_header(("Cookie", session_cookie.as_str()))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(authorize_resp.status(), 302, "authorize should redirect");
+    let loc = authorize_resp
+        .headers()
+        .get(actix_web::http::header::LOCATION)
+        .and_then(|h| h.to_str().ok())
+        .unwrap();
+    let code = extract_query_param(loc, "code").expect("code param missing from redirect");
+
+    // 3. Exchange authorization code for tokens (expect a refresh_token)
+    let token_resp = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri("/oauth/token")
+            .set_form([
+                ("grant_type", "authorization_code"),
+                ("client_id", "client_refresh"),
+                ("client_secret", "secret_refresh"),
+                ("code", code.as_str()),
+                ("redirect_uri", "https://good.example/cb"),
+                ("code_verifier", verifier),
+            ])
+            .to_request(),
+    )
+    .await;
+    assert!(
+        token_resp.status().is_success(),
+        "auth code exchange should succeed, got {}",
+        token_resp.status()
+    );
+
+    let token_body: serde_json::Value = test::read_body_json(token_resp).await;
+    let refresh_token = token_body
+        .get("refresh_token")
+        .and_then(|v| v.as_str())
+        .expect("auth code response should include refresh_token");
+    let original_access_token = token_body
+        .get("access_token")
+        .and_then(|v| v.as_str())
+        .expect("access_token");
+
+    // 4. Use the refresh token to obtain a new access token
+    let refresh_resp = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri("/oauth/token")
+            .set_form([
+                ("grant_type", "refresh_token"),
+                ("client_id", "client_refresh"),
+                ("client_secret", "secret_refresh"),
+                ("refresh_token", refresh_token),
+            ])
+            .to_request(),
+    )
+    .await;
+    assert!(
+        refresh_resp.status().is_success(),
+        "refresh_token grant should succeed, got {}",
+        refresh_resp.status()
+    );
+
+    let refresh_body: serde_json::Value = test::read_body_json(refresh_resp).await;
+    let new_access_token = refresh_body
+        .get("access_token")
+        .and_then(|v| v.as_str())
+        .expect("refresh response should include access_token");
+
+    assert_ne!(
+        new_access_token, original_access_token,
+        "new access token should differ from the original"
+    );
+    assert!(
+        refresh_body.get("token_type").is_some(),
+        "refresh response should include token_type"
+    );
+    assert!(
+        refresh_body.get("expires_in").is_some(),
+        "refresh response should include expires_in"
+    );
+}
+
+#[actix_web::test]
+async fn refresh_token_grant_rejects_wrong_client_secret() {
+    let client = Client::new(
+        "client_refresh_neg".to_string(),
+        "correct_secret".to_string(),
+        vec!["https://good.example/cb".to_string()],
+        vec![
+            "authorization_code".to_string(),
+            "refresh_token".to_string(),
+        ],
+        "read write".to_string(),
+        "test".to_string(),
+    );
+
+    let (token_actor, client_actor, auth_actor, jwt_secret, metrics, oidc_config) =
+        setup_context(client).await;
+    let config = test_runtime_config(&jwt_secret);
+
+    let app = test::init_service(
+        App::new()
+            .wrap(SessionMiddleware::new(
+                CookieSessionStore::default(),
+                Key::generate(),
+            ))
+            .route("/test/login", web::get().to(test_set_session))
+            .app_data(web::Data::new(token_actor))
+            .app_data(web::Data::new(client_actor))
+            .app_data(web::Data::new(auth_actor))
+            .app_data(web::Data::new(jwt_secret.clone()))
+            .app_data(web::Data::new(metrics))
+            .app_data(web::Data::new(oidc_config))
+            .app_data(web::Data::new(config))
+            .app_data(web::Data::new(false))
+            .service(
+                web::scope("/oauth")
+                    .route(
+                        "/authorize",
+                        web::get().to(oauth2_actix::handlers::oauth::authorize),
+                    )
+                    .route(
+                        "/token",
+                        web::post().to(oauth2_actix::handlers::oauth::token),
+                    ),
+            ),
+    )
+    .await;
+
+    // 1. Establish authenticated session
+    let login_resp = test::call_service(
+        &app,
+        test::TestRequest::get().uri("/test/login").to_request(),
+    )
+    .await;
+    let session_cookie = extract_session_cookie(&login_resp);
+
+    // 2. Get an authorization code
+    let verifier = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk";
+    let challenge = s256_challenge(verifier);
+    let authorize_resp = test::call_service(
+        &app,
+        test::TestRequest::get()
+            .uri(&format!(
+                "/oauth/authorize?response_type=code\
+                 &client_id=client_refresh_neg\
+                 &redirect_uri=https%3A%2F%2Fgood.example%2Fcb\
+                 &scope=read\
+                 &code_challenge={challenge}\
+                 &code_challenge_method=S256"
+            ))
+            .insert_header(("Cookie", session_cookie.as_str()))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(authorize_resp.status(), 302, "authorize should redirect");
+    let loc = authorize_resp
+        .headers()
+        .get(actix_web::http::header::LOCATION)
+        .and_then(|h| h.to_str().ok())
+        .unwrap();
+    let code = extract_query_param(loc, "code").expect("code param missing from redirect");
+
+    // 3. Exchange authorization code for tokens (get a valid refresh_token)
+    let token_resp = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri("/oauth/token")
+            .set_form([
+                ("grant_type", "authorization_code"),
+                ("client_id", "client_refresh_neg"),
+                ("client_secret", "correct_secret"),
+                ("code", code.as_str()),
+                ("redirect_uri", "https://good.example/cb"),
+                ("code_verifier", verifier),
+            ])
+            .to_request(),
+    )
+    .await;
+    assert!(
+        token_resp.status().is_success(),
+        "auth code exchange should succeed, got {}",
+        token_resp.status()
+    );
+
+    let token_body: serde_json::Value = test::read_body_json(token_resp).await;
+    let refresh_token = token_body
+        .get("refresh_token")
+        .and_then(|v| v.as_str())
+        .expect("auth code response should include refresh_token");
+
+    // 4. Attempt refresh with WRONG client_secret — must fail
+    let refresh_resp = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri("/oauth/token")
+            .set_form([
+                ("grant_type", "refresh_token"),
+                ("client_id", "client_refresh_neg"),
+                ("client_secret", "wrong_secret"),
+                ("refresh_token", refresh_token),
+            ])
+            .to_request(),
+    )
+    .await;
+
+    assert_eq!(
+        refresh_resp.status(),
+        actix_web::http::StatusCode::UNAUTHORIZED,
+        "refresh with wrong client_secret should be rejected (401 per RFC 6749)"
+    );
+
+    let err_body: serde_json::Value = test::read_body_json(refresh_resp).await;
+    assert_eq!(
+        err_body.get("error").and_then(|v| v.as_str()),
+        Some("invalid_client"),
+        "error code should be invalid_client"
     );
 }
