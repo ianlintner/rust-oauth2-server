@@ -1,0 +1,12 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: oauth2-server
+spec:
+  template:
+    spec:
+      containers:
+        - name: oauth2-server
+          env:
+            - name: RUST_LOG
+              value: "debug"

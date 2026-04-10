@@ -1,0 +1,13 @@
+[
+  {"op": "remove", "path": "/spec/volumeClaimTemplates"},
+  {
+    "op": "add",
+    "path": "/spec/template/spec/volumes",
+    "value": [
+      {
+        "name": "postgres-storage",
+        "emptyDir": {}
+      }
+    ]
+  }
+]
