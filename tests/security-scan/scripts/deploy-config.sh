@@ -7,6 +7,7 @@ NAMESPACE="${NAMESPACE:-security-scan}"
 IMAGE_REF="${IMAGE_REF:-docker.io/ianlintner068/oauth2-server:test}"
 PORT="${PORT:-}"
 SKIP_IMAGE_BUILD="${SKIP_IMAGE_BUILD:-0}"
+NS_DELETE_TIMEOUT="${NS_DELETE_TIMEOUT:-120}"  # seconds to wait for namespace Terminating → gone
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 cd "$ROOT_DIR"
@@ -30,7 +31,7 @@ _free_port() {
 
 # Create cluster if needed
 if ! kind get clusters 2>/dev/null | grep -qx "${CLUSTER_NAME}"; then
-  echo "==> Creating KinD cluster (${CLUSTER_NAME})"
+  echo "==> Creating KinD cluster (${CLUSTER_NAME})" >&2
   mkdir -p "$(dirname "${KUBECONFIG}")"
   kind create cluster --name "${CLUSTER_NAME}" --kubeconfig "${KUBECONFIG}"
 fi
@@ -48,27 +49,32 @@ _kubectl wait --for=condition=Ready pod -n kube-system -l k8s-app=kube-dns --tim
 
 # Build and load image
 if [[ "${SKIP_IMAGE_BUILD}" != "1" ]]; then
-  echo "==> Building image (${IMAGE_REF})"
-  docker build -t "${IMAGE_REF}" -f Dockerfile . 2>&1 | tail -5
+  echo "==> Building image (${IMAGE_REF})" >&2
+  docker build -t "${IMAGE_REF}" -f Dockerfile . 2>&1 | tail -5 >&2
 fi
 kind load docker-image "${IMAGE_REF}" --name "${CLUSTER_NAME}" 2>/dev/null || true
 
-# Clean namespace
+# Clean namespace — wait for full deletion before recreating to avoid Terminating races
 _kubectl delete namespace "${NAMESPACE}" --ignore-not-found 2>/dev/null || true
+_ns_wait_iters=$(( NS_DELETE_TIMEOUT / 2 ))
+for _ in $(seq 1 "${_ns_wait_iters}"); do
+  _kubectl get namespace "${NAMESPACE}" >/dev/null 2>&1 || break
+  sleep 2
+done
 _kubectl create namespace "${NAMESPACE}"
 
 # Deploy
-echo "==> Deploying config: ${CONFIG_NAME}"
+echo "==> Deploying config: ${CONFIG_NAME}" >&2
 kustomize build "${KUSTOMIZE_DIR}" | _kubectl apply -n "${NAMESPACE}" -f -
 _kubectl delete job flyway-migration -n "${NAMESPACE}" --ignore-not-found 2>/dev/null || true
 kustomize build "${KUSTOMIZE_DIR}" | _kubectl apply -n "${NAMESPACE}" -f -
 
 # Wait for postgres
-echo "==> Waiting for Postgres"
+echo "==> Waiting for Postgres" >&2
 _kubectl rollout status statefulset/postgres -n "${NAMESPACE}" --timeout=240s
 
 # Wait for migration
-echo "==> Waiting for migrations"
+echo "==> Waiting for migrations" >&2
 if ! _kubectl wait --for=condition=complete job/flyway-migration -n "${NAMESPACE}" --timeout=360s; then
   echo "Migration failed" >&2
   _kubectl logs -n "${NAMESPACE}" -l job-name=flyway-migration -c flyway --tail=100 >&2 || true
@@ -77,7 +83,7 @@ fi
 
 # Restart deployment for clean start
 _kubectl rollout restart deployment/oauth2-server -n "${NAMESPACE}"
-echo "==> Waiting for oauth2-server"
+echo "==> Waiting for oauth2-server" >&2
 if ! _kubectl rollout status deployment/oauth2-server -n "${NAMESPACE}" --timeout=240s; then
   echo "Deployment failed" >&2
   _kubectl describe pods -n "${NAMESPACE}" >&2 || true
@@ -99,9 +105,20 @@ BASE_URL="http://127.0.0.1:${PORT}"
 _kubectl -n "${NAMESPACE}" port-forward svc/oauth2-server "${PORT}:80" >/tmp/security-scan-pf.log 2>&1 &
 PF_PID=$!
 
+healthy=0
 for _ in {1..60}; do
-  curl -fsS "${BASE_URL}/health" >/dev/null 2>&1 && break
+  if curl -fsS "${BASE_URL}/health" >/dev/null 2>&1; then
+    healthy=1
+    break
+  fi
   sleep 1
 done
+
+if [[ "$healthy" -eq 0 ]]; then
+  echo "Health check timed out for config ${CONFIG_NAME}" >&2
+  kill "$PF_PID" 2>/dev/null || true
+  echo '{"config":"'"${CONFIG_NAME}"'","status":"unhealthy","base_url":"'"${BASE_URL}"'","port":'"${PORT}"',"pf_pid":'"${PF_PID}"'}'
+  exit 1
+fi
 
 echo '{"config":"'"${CONFIG_NAME}"'","status":"ready","base_url":"'"${BASE_URL}"'","port":'"${PORT}"',"pf_pid":'"${PF_PID}"'}'

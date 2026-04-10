@@ -10,9 +10,9 @@ SCENARIOS_DIR="${ROOT_DIR}/tests/security-scan/scenarios/${CONFIG_NAME}"
 OUTPUT_DIR="${ROOT_DIR}/reports/security-scan/${CONFIG_NAME}/$(date +%Y%m%d-%H%M%S)"
 mkdir -p "$OUTPUT_DIR"
 
-echo "==> Running scanners for config: ${CONFIG_NAME}"
-echo "    Base URL: ${BASE_URL}"
-echo "    Output:   ${OUTPUT_DIR}"
+echo "==> Running scanners for config: ${CONFIG_NAME}" >&2
+echo "    Base URL: ${BASE_URL}" >&2
+echo "    Output:   ${OUTPUT_DIR}" >&2
 
 # Authenticate for scanners that need it
 COOKIE_JAR="/tmp/security-scan-cookies-${CONFIG_NAME}.txt"
@@ -48,11 +48,22 @@ for pid in "${pids[@]}"; do
   fi
 done
 
-# Merge all findings
-jq -s '.' "${OUTPUT_DIR}"/*.json > "${OUTPUT_DIR}/all-findings.json"
+# Merge only valid JSON outputs so partial results are preserved even if a scanner crashed
+valid_files=()
+for f in "${OUTPUT_DIR}"/*.json; do
+  if [[ -f "$f" ]] && jq empty "$f" 2>/dev/null; then
+    valid_files+=("$f")
+  fi
+done
+
+if [[ ${#valid_files[@]} -gt 0 ]]; then
+  jq -s '.' "${valid_files[@]}" > "${OUTPUT_DIR}/all-findings.json"
+else
+  echo "[]" > "${OUTPUT_DIR}/all-findings.json"
+fi
 
 total=$(jq '[.[].findings | length] | add // 0' "${OUTPUT_DIR}/all-findings.json")
-echo "==> Scan complete: ${total} total findings across all scanners"
+echo "==> Scan complete: ${total} total findings across all scanners" >&2
 echo "${OUTPUT_DIR}"
 
 exit $failed

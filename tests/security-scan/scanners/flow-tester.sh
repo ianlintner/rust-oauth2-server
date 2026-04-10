@@ -23,7 +23,7 @@ for ep in /health /ready /.well-known/openid-configuration; do
   status=$(curl -sS -o /dev/null -w '%{http_code}' "${BASE_URL}${ep}" || echo "000")
   if [[ "$status" != "200" ]]; then
     _add_finding "FLOW-HEALTH-${ep}" "high" "Health endpoint ${ep} returned ${status}" \
-      "{\"endpoint\":\"${ep}\",\"status\":${status}}"
+      "$(jq -n --arg ep "${ep}" --arg st "${status}" '{"endpoint":$ep,"status":$st}')"
   fi
 done
 
@@ -36,7 +36,7 @@ login_status=$(curl -sS -X POST "${BASE_URL}/auth/login" \
 
 if [[ "$login_status" != "302" ]]; then
   _add_finding "FLOW-LOGIN-001" "medium" "Admin login returned ${login_status} (expected 302)" \
-    "{\"endpoint\":\"/auth/login\",\"status\":${login_status}}"
+    "$(jq -n --arg ep "/auth/login" --arg st "${login_status}" '{"endpoint":$ep,"status":$st}')"
 fi
 
 # Test 3: Client registration without auth
@@ -47,7 +47,7 @@ unreg_status=$(curl -sS -X POST "${BASE_URL}/admin/clients/register" \
 
 if [[ "$unreg_status" == "200" || "$unreg_status" == "201" ]]; then
   _add_finding "FLOW-AUTH-001" "critical" "Unauthenticated client registration succeeded" \
-    "{\"endpoint\":\"/admin/clients/register\",\"status\":${unreg_status}}"
+    "$(jq -n --arg ep "/admin/clients/register" --arg st "${unreg_status}" '{"endpoint":$ep,"status":$st}')"
 fi
 
 # Test 4: Open redirect via return_to

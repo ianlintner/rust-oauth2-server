@@ -2,7 +2,6 @@
 set -euo pipefail
 
 CONFIGS=("prod-hardened" "dev-relaxed" "misconfig-cors" "misconfig-auth" "edge-empty")
-FEEDBACK_LOOPS="${FEEDBACK_LOOPS:-0}"
 CLUSTER_NAME="${CLUSTER_NAME:-oauth2-security}"
 NAMESPACE="${NAMESPACE:-security-scan}"
 BUDGET_MINUTES="${BUDGET_MINUTES:-30}"
@@ -14,7 +13,6 @@ Usage: tests/security-scan/scripts/security-scan.sh [OPTIONS]
 
 Options:
   --matrix all|<config>   Run all configs or a single config (default: all)
-  --feedback-loops N      Max LLM feedback rounds per finding (default: 0)
   --budget Nm             Wall-clock budget in minutes (default: 30)
   --skip-build            Skip Docker image build
   -h, --help              Show this help
@@ -22,7 +20,6 @@ Options:
 Environment:
   CLUSTER_NAME     (default: oauth2-security)
   NAMESPACE        (default: security-scan)
-  ANTHROPIC_API_KEY  Required for feedback loops > 0
 USAGE
 }
 
@@ -30,7 +27,6 @@ MATRIX="all"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --matrix) MATRIX="$2"; shift 2 ;;
-    --feedback-loops) FEEDBACK_LOOPS="$2"; shift 2 ;;
     --budget) BUDGET_MINUTES="${2%m}"; shift 2 ;;
     --skip-build) SKIP_IMAGE_BUILD=1; shift ;;
     -h|--help) _usage; exit 0 ;;
@@ -59,17 +55,11 @@ for cmd in docker kind kubectl kustomize jq curl python3; do
   command -v "$cmd" >/dev/null 2>&1 || { echo "Missing: $cmd" >&2; exit 1; }
 done
 
-if [[ "$FEEDBACK_LOOPS" -gt 0 ]] && [[ -z "${ANTHROPIC_API_KEY:-}" ]]; then
-  echo "ANTHROPIC_API_KEY required for feedback loops" >&2
-  exit 1
-fi
-
 export CLUSTER_NAME NAMESPACE SKIP_IMAGE_BUILD
 
 echo "========================================"
 echo "  Security Scan — $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 echo "  Configs: ${CONFIGS[*]}"
-echo "  Feedback loops: ${FEEDBACK_LOOPS}"
 echo "  Budget: ${BUDGET_MINUTES}m"
 echo "========================================"
 

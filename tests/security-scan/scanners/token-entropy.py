@@ -44,7 +44,10 @@ def register_client(base_url: str, cookie_jar_path: str) -> tuple[str, str] | No
     """Register a test client using admin session cookie."""
     import http.cookiejar
     cj = http.cookiejar.MozillaCookieJar(cookie_jar_path)
-    cj.load(ignore_discard=True, ignore_expires=True)
+    try:
+        cj.load(ignore_discard=True, ignore_expires=True)
+    except (FileNotFoundError, OSError, http.cookiejar.LoadError):
+        return None
     opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(cj))
     data = json.dumps({
         "client_name": "entropy-test",
