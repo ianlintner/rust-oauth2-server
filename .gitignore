@@ -57,3 +57,4 @@ mcp-server/.env
 
 # Security scan reports (generated, not committed)
 reports/
+__pycache__/
