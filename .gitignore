@@ -54,6 +54,7 @@ mcp-server/.env
 .venv-docs/
 .venv.worktrees
 .venv
+.worktrees/
 
 # Security scan reports (generated, not committed)
 reports/
