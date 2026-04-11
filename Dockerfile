@@ -105,7 +105,8 @@ COPY static ./static
 RUN mkdir -p /app/data
 
 # Create a non-root user for security
-RUN adduser --disabled-password --gecos '' appuser \
+RUN addgroup --gid 1000 appuser \
+    && adduser --disabled-password --gecos '' --uid 1000 --gid 1000 appuser \
     && chown -R appuser:appuser /app
 
 # Expose port

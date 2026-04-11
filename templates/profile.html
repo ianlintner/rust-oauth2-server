@@ -44,8 +44,8 @@
           <h1 class="text-2xl font-bold text-gray-900">My Profile</h1>
         </div>
         <!-- nosemgrep: python.django.security.django-no-csrf-token -->
-        <!-- This is an Actix-web (Rust) template, not Django. CSRF is handled server-side via
-             the actix-session cookie which is HttpOnly, SameSite=Lax, and scoped to the session. -->
+        <!-- This is an Actix-web (Rust) template, not a Django template; this Django-specific
+             Semgrep rule is not applicable here. -->
         <form action="/auth/logout" method="POST">
           <button
             type="submit"
