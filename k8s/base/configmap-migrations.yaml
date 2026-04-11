@@ -152,3 +152,12 @@ data:
 
     CREATE INDEX idx_signing_keys_kid ON signing_keys(kid);
     CREATE INDEX idx_signing_keys_algorithm_current ON signing_keys(algorithm, is_current);
+
+  V9__add_nonce_to_auth_codes.sql: |
+    ALTER TABLE authorization_codes ADD COLUMN nonce TEXT;
+
+  V10__add_token_family.sql: |
+    -- Add token_family column for refresh token rotation replay detection
+    -- (OAuth 2.0 Security BCP §4.13.2)
+    ALTER TABLE tokens ADD COLUMN token_family TEXT;
+    CREATE INDEX idx_tokens_token_family ON tokens(token_family);
