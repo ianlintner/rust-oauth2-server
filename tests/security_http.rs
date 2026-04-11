@@ -2737,7 +2737,10 @@ async fn id_token_contains_correct_c_hash() {
 
     let app = test::init_service(
         App::new()
-            .wrap(SessionMiddleware::new(CookieSessionStore::default(), Key::generate()))
+            .wrap(SessionMiddleware::new(
+                CookieSessionStore::default(),
+                Key::generate(),
+            ))
             .route("/test/login", web::get().to(test_set_session))
             .app_data(web::Data::new(token_actor))
             .app_data(web::Data::new(client_actor))
@@ -2749,8 +2752,14 @@ async fn id_token_contains_correct_c_hash() {
             .app_data(web::Data::new(false))
             .service(
                 web::scope("/oauth")
-                    .route("/authorize", web::get().to(oauth2_actix::handlers::oauth::authorize))
-                    .route("/token", web::post().to(oauth2_actix::handlers::oauth::token)),
+                    .route(
+                        "/authorize",
+                        web::get().to(oauth2_actix::handlers::oauth::authorize),
+                    )
+                    .route(
+                        "/token",
+                        web::post().to(oauth2_actix::handlers::oauth::token),
+                    ),
             ),
     )
     .await;

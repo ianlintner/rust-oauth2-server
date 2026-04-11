@@ -184,6 +184,23 @@ impl Storage for ObservedStorage {
             .await
     }
 
+    async fn set_token_family(&self, access_token: &str, family: &str) -> Result<(), OAuth2Error> {
+        let token_prefix = Self::token_prefix(access_token);
+        let span = tracing::info_span!(
+            "db",
+            trace_id = field::Empty,
+            span_id = field::Empty,
+            db_system = %self.db_system,
+            db_operation = "set_token_family",
+            token_prefix = %token_prefix,
+            token_family = %family
+        );
+        annotate_span_with_trace_ids(&span);
+        async move { self.inner.set_token_family(access_token, family).await }
+            .instrument(span)
+            .await
+    }
+
     async fn revoke_token_family(&self, family: &str) -> Result<u64, OAuth2Error> {
         let span = tracing::info_span!(
             "db",

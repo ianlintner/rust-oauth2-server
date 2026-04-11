@@ -517,20 +517,16 @@ impl Storage for SqlxStorage {
     ) -> Result<Option<Token>, OAuth2Error> {
         let token = match self.read_pool() {
             DatabasePool::Sqlite(pool) => {
-                sqlx::query_as::<_, Token>(
-                    "SELECT * FROM tokens WHERE refresh_token = ?",
-                )
-                .bind(refresh_token)
-                .fetch_optional(pool)
-                .await?
+                sqlx::query_as::<_, Token>("SELECT * FROM tokens WHERE refresh_token = ?")
+                    .bind(refresh_token)
+                    .fetch_optional(pool)
+                    .await?
             }
             DatabasePool::Postgres(pool) => {
-                sqlx::query_as::<_, Token>(
-                    "SELECT * FROM tokens WHERE refresh_token = $1",
-                )
-                .bind(refresh_token)
-                .fetch_optional(pool)
-                .await?
+                sqlx::query_as::<_, Token>("SELECT * FROM tokens WHERE refresh_token = $1")
+                    .bind(refresh_token)
+                    .fetch_optional(pool)
+                    .await?
             }
         };
 
@@ -556,6 +552,27 @@ impl Storage for SqlxStorage {
                 .bind(token)
                 .execute(pool)
                 .await?;
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn set_token_family(&self, access_token: &str, family: &str) -> Result<(), OAuth2Error> {
+        match &self.pool {
+            DatabasePool::Sqlite(pool) => {
+                sqlx::query("UPDATE tokens SET token_family = ? WHERE access_token = ?")
+                    .bind(family)
+                    .bind(access_token)
+                    .execute(pool)
+                    .await?;
+            }
+            DatabasePool::Postgres(pool) => {
+                sqlx::query("UPDATE tokens SET token_family = $1 WHERE access_token = $2")
+                    .bind(family)
+                    .bind(access_token)
+                    .execute(pool)
+                    .await?;
             }
         }
 

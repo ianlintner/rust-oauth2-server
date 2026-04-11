@@ -25,6 +25,7 @@ pub struct AuthorizationCode {
 }
 
 impl AuthorizationCode {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         code: String,
         client_id: String,

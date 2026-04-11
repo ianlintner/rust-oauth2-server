@@ -35,6 +35,15 @@ pub trait Storage: Send + Sync {
     ) -> Result<Option<Token>, OAuth2Error>;
     async fn revoke_token(&self, token: &str) -> Result<(), OAuth2Error>;
 
+    /// Assign (or update) the token-family UUID on an existing token row.
+    /// Used during refresh-token rotation when a legacy token has no family yet,
+    /// so that replay detection can revoke the entire grant lineage.
+    /// Default impl is a no-op so existing backends are not broken.
+    async fn set_token_family(&self, access_token: &str, family: &str) -> Result<(), OAuth2Error> {
+        let (_, _) = (access_token, family);
+        Ok(())
+    }
+
     /// Revoke every token in a refresh-token family (replay detection).
     /// Returns number of rows affected. Default impl is a no-op so existing
     /// backends are not broken.

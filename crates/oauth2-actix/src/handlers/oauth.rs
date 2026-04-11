@@ -475,15 +475,23 @@ async fn handle_authorization_code_grant(
         .await
         .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))??;
 
-    // Create token
+    // Create token — only include a refresh token when the client is authorized
+    // to use the refresh_token grant and the `offline_access` scope was requested
+    // (or the client explicitly supports refresh_token without scope restriction).
+    let include_refresh = client.supports_grant_type("refresh_token");
+    let token_family = if include_refresh {
+        Some(Uuid::new_v4().to_string())
+    } else {
+        None
+    };
     let token = token_actor
         .route(&auth_code.client_id)
         .send(CreateToken {
             user_id: Some(auth_code.user_id.clone()),
             client_id: auth_code.client_id.clone(),
             scope: auth_code.scope.clone(),
-            include_refresh: true,
-            token_family: Some(Uuid::new_v4().to_string()),
+            include_refresh,
+            token_family,
             span: tracing::Span::current(),
         })
         .await
@@ -617,6 +625,13 @@ async fn handle_refresh_token_grant(
         return Err(OAuth2Error::invalid_client("Invalid client_secret"));
     }
 
+    // Verify the client is authorized to use the refresh_token grant type.
+    if !client.supports_grant_type("refresh_token") {
+        return Err(OAuth2Error::unauthorized_client(
+            "Client is not allowed to use refresh_token",
+        ));
+    }
+
     // Look up the refresh token via the actor (DB round-trip).
     let old_token = token_actor
         .route(&req.client_id)
@@ -644,7 +659,28 @@ async fn handle_refresh_token_grant(
         None => old_token.scope.clone(),
     };
 
-    // Revoke the old token family (access + refresh).
+    // Propagate the token family UUID so replay detection can revoke the entire chain.
+    // On first rotation the old token has no family yet — start a new one and persist
+    // it onto the old token record BEFORE revoking so that a later replay of the
+    // revoked token can still look up the family and revoke the new token.
+    let family = match old_token.token_family.clone() {
+        Some(f) => f,
+        None => {
+            let new_family = uuid::Uuid::new_v4().to_string();
+            // Best-effort: set the family on the old token so replay detection works.
+            let _ = token_actor
+                .route(&req.client_id)
+                .send(crate::actors::SetTokenFamily {
+                    access_token: old_token.access_token.clone(),
+                    family: new_family.clone(),
+                    span: tracing::Span::current(),
+                })
+                .await;
+            new_family
+        }
+    };
+
+    // Revoke the old token (access + refresh).
     token_actor
         .route(&req.client_id)
         .send(crate::actors::RevokeToken {
@@ -653,13 +689,6 @@ async fn handle_refresh_token_grant(
         })
         .await
         .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))??;
-
-    // Propagate the token family UUID so replay detection can revoke the entire chain.
-    // On first rotation the old token has no family yet — start a new one.
-    let family = old_token
-        .token_family
-        .clone()
-        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
 
     // Mint new access + refresh token pair.
     let token = token_actor

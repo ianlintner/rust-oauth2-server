@@ -38,6 +38,7 @@ lru = "0.16"
 
 sha2 = "0.10"
 base64 = "0.22"
+jsonwebtoken = { version = "10.3", features = ["rust_crypto"] }
 
 # JWKS (RS256 public key publishing)
 rsa = { version = "0.9", features = ["pem"] }
