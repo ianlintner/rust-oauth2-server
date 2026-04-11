@@ -54,3 +54,7 @@ mcp-server/.env
 .venv-docs/
 .venv.worktrees
 .venv
+
+# Security scan reports (generated, not committed)
+reports/
+__pycache__/

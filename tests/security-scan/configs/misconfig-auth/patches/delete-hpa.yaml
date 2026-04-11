@@ -1,0 +1,5 @@
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: oauth2-server
+$patch: delete

@@ -1,0 +1,207 @@
+name: Security Scan
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - "tests/security-scan/**"
+      - "k8s/**"
+      - ".github/workflows/security-scan.yml"
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - "tests/security-scan/**"
+      - "k8s/**"
+      - ".github/workflows/security-scan.yml"
+  workflow_dispatch:
+    inputs:
+      matrix:
+        description: "Config to scan (or 'all')"
+        required: false
+        default: "all"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ format('{0}-{1}', github.workflow, github.event.pull_request.number || github.ref) }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # Fast validation: lint scripts, build kustomize configs, check Python syntax
+  validate:
+    name: Validate scan framework
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install kustomize
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
+          sudo mv kustomize /usr/local/bin/
+
+      - name: Shellcheck all shell scripts
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s globstar
+          shellcheck tests/security-scan/**/*.sh
+
+      - name: Python syntax check
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -c "
+          import py_compile, sys, glob
+          errors = []
+          for f in glob.glob('tests/security-scan/**/*.py', recursive=True):
+              try:
+                  py_compile.compile(f, doraise=True)
+                  print(f'  OK: {f}')
+              except py_compile.PyCompileError as e:
+                  errors.append(str(e))
+                  print(f'  FAIL: {f}')
+          if errors:
+              print('\n'.join(errors))
+              sys.exit(1)
+          "
+
+      - name: Validate kustomize configs
+        shell: bash
+        run: |
+          set -euo pipefail
+          for config in prod-hardened dev-relaxed misconfig-cors misconfig-auth edge-empty; do
+            echo "Building: ${config}"
+            kustomize build "tests/security-scan/configs/${config}" > /dev/null
+            echo "  OK"
+          done
+
+      - name: Verify script permissions
+        shell: bash
+        run: |
+          set -euo pipefail
+          fail=0
+          for f in tests/security-scan/scanners/*.sh tests/security-scan/scanners/*.py \
+                   tests/security-scan/scripts/*.sh; do
+            if [[ ! -x "$f" ]]; then
+              echo "NOT executable: $f"
+              fail=1
+            fi
+          done
+          if [[ $fail -eq 1 ]]; then
+            echo "Fix with: chmod +x <file>"
+            exit 1
+          fi
+          echo "All scripts are executable"
+
+  # Full KinD-based security scan (runs on push to main or manual trigger)
+  scan:
+    name: Security scan on KinD
+    runs-on: ubuntu-latest
+    needs: [validate]
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch))
+    timeout-minutes: 45
+    env:
+      KUBECONFIG: ${{ github.workspace }}/.kubeconfig-kind-oauth2
+      CARGO_INCREMENTAL: 0
+      RUST_BACKTRACE: 1
+      OAUTH2_JWT_SECRET: "test-jwt-secret-for-ci-only-do-not-use-in-production-32chars"
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Rust toolchain + cache
+        uses: ./.github/actions/rust-setup
+        with:
+          toolchain: stable
+          cache-key: security-scan
+          install-system-deps: "true"
+
+      - name: Build release binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo build --release --locked
+          cp target/release/rust_oauth2_server target/release/rust_oauth2_server-amd64
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: Dockerfile.prebuilt
+          tags: docker.io/ianlintner068/oauth2-server:test
+          load: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Install KIND
+        shell: bash
+        run: |
+          set -euo pipefail
+          KIND_VERSION="v0.24.0"
+          curl -fsSL -o kind "https://kind.sigs.k8s.io/dl/${KIND_VERSION}/kind-linux-amd64"
+          chmod +x kind
+          sudo mv kind /usr/local/bin/kind
+          kind version
+
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: v1.29.0
+
+      - name: Install kustomize
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
+          sudo mv kustomize /usr/local/bin/
+
+      - name: Run security scan
+        shell: bash
+        run: |
+          set -euo pipefail
+          SKIP_IMAGE_BUILD=1 \
+          CLUSTER_NAME=oauth2-security \
+          NAMESPACE=security-scan \
+          IMAGE_REF='docker.io/ianlintner068/oauth2-server:test' \
+          bash tests/security-scan/scripts/security-scan.sh \
+            --matrix "${{ github.event.inputs.matrix || 'all' }}" \
+            --budget 35m
+
+      - name: Upload scan report
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: security-scan-report-${{ github.run_id }}
+          path: reports/security-scan/
+          retention-days: 30
+
+      - name: Export cluster logs
+        if: failure()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if kind get clusters 2>/dev/null | grep -qx oauth2-security; then
+            kind export logs ./kind-logs --name oauth2-security || true
+          fi
+
+      - name: Upload cluster logs
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: security-scan-cluster-logs-${{ github.run_id }}
+          path: kind-logs/
+          retention-days: 7
+
+      - name: Cleanup
+        if: always()
+        shell: bash
+        run: kind delete cluster --name oauth2-security || true

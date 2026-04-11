@@ -1,0 +1,39 @@
+name: Semgrep
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+  schedule:
+    - cron: "27 4 * * 5"
+
+permissions:
+  contents: read
+
+jobs:
+  semgrep:
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+    name: Scan
+    runs-on: ubuntu-latest
+    container:
+      image: semgrep/semgrep
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Run Semgrep scan
+        run: semgrep scan --config auto --sarif --output=semgrep.sarif
+        env:
+          # Optional: set SEMGREP_APP_TOKEN in repository secrets to
+          # enable Semgrep Cloud Platform features (managed policies,
+          # findings triage, etc.). Basic scanning works without it.
+          SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
+
+      - name: Upload SARIF file
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: semgrep.sarif
+        if: success() || failure()

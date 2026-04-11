@@ -1,0 +1,14 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: oauth2-server
+spec:
+  template:
+    spec:
+      containers:
+        - name: oauth2-server
+          env:
+            - name: OAUTH2_ALLOWED_ORIGINS
+              value: "*"
+            - name: OAUTH2_ALLOW_INSECURE_DEFAULTS
+              value: "1"
