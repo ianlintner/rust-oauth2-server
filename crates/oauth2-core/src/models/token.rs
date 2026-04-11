@@ -232,6 +232,11 @@ pub struct Token {
     pub created_at: DateTime<Utc>,
     pub expires_at: DateTime<Utc>,
     pub revoked: bool,
+    /// Lineage UUID shared by all tokens issued from the same authorization grant.
+    /// Used for replay detection: if a revoked refresh token is presented, every
+    /// token in the family is revoked (OAuth 2.0 Security BCP §4.13.2).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub token_family: Option<String>,
 }
 
 impl Token {
@@ -242,6 +247,7 @@ impl Token {
         user_id: Option<String>,
         scope: String,
         expires_in: i32,
+        token_family: Option<String>,
     ) -> Self {
         let now = Utc::now();
         let expires_at = now + Duration::seconds(i64::from(expires_in));
@@ -258,6 +264,7 @@ impl Token {
             created_at: now,
             expires_at,
             revoked: false,
+            token_family,
         }
     }
 

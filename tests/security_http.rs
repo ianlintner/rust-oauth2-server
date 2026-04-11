@@ -160,6 +160,7 @@ async fn issue_access_token(
             client_id: client_id.to_string(),
             scope: scope.to_string(),
             include_refresh: false,
+            token_family: None,
             span: tracing::Span::current(),
         })
         .await
@@ -2839,5 +2840,205 @@ async fn id_token_contains_correct_c_hash() {
         claims.get("c_hash").and_then(|v| v.as_str()),
         Some(expected_c_hash.as_str()),
         "id_token c_hash must equal base64url(SHA-256(code)[..16]) per OIDC Core §3.3.2.11"
+    );
+}
+
+/// OAuth 2.0 Security BCP §4.13.2 — Refresh token replay detection.
+///
+/// When a previously-used (revoked) refresh token is presented, the entire
+/// token family must be invalidated immediately.
+///
+/// Scenario:
+///   RT1  = initial refresh token from auth-code exchange
+///   RT2  = new refresh token issued after RT1 is used
+///   Replay RT1 → 400 invalid_grant
+///   Try RT2    → 400 invalid_grant  (family was revoked during replay)
+#[actix_web::test]
+async fn refresh_token_replay_revokes_entire_token_family() {
+    let client = Client::new(
+        "client_replay".to_string(),
+        "secret_replay".to_string(),
+        vec!["https://good.example/cb".to_string()],
+        vec![
+            "authorization_code".to_string(),
+            "refresh_token".to_string(),
+        ],
+        "read write".to_string(),
+        "test".to_string(),
+    );
+
+    let (token_actor, client_actor, auth_actor, jwt_secret, metrics, oidc_config) =
+        setup_context(client).await;
+    let config = test_runtime_config(&jwt_secret);
+
+    let app = test::init_service(
+        App::new()
+            .wrap(SessionMiddleware::new(
+                CookieSessionStore::default(),
+                Key::generate(),
+            ))
+            .route("/test/login", web::get().to(test_set_session))
+            .app_data(web::Data::new(token_actor))
+            .app_data(web::Data::new(client_actor))
+            .app_data(web::Data::new(auth_actor))
+            .app_data(web::Data::new(jwt_secret.clone()))
+            .app_data(web::Data::new(metrics))
+            .app_data(web::Data::new(oidc_config))
+            .app_data(web::Data::new(config))
+            .app_data(web::Data::new(false))
+            .service(
+                web::scope("/oauth")
+                    .route(
+                        "/authorize",
+                        web::get().to(oauth2_actix::handlers::oauth::authorize),
+                    )
+                    .route(
+                        "/token",
+                        web::post().to(oauth2_actix::handlers::oauth::token),
+                    ),
+            ),
+    )
+    .await;
+
+    // 1. Establish authenticated session
+    let login_resp = test::call_service(
+        &app,
+        test::TestRequest::get().uri("/test/login").to_request(),
+    )
+    .await;
+    let session_cookie = extract_session_cookie(&login_resp);
+
+    // 2. Get an authorization code
+    let verifier = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk";
+    let challenge = s256_challenge(verifier);
+    let authorize_resp = test::call_service(
+        &app,
+        test::TestRequest::get()
+            .uri(&format!(
+                "/oauth/authorize?response_type=code\
+                 &client_id=client_replay\
+                 &redirect_uri=https%3A%2F%2Fgood.example%2Fcb\
+                 &scope=read\
+                 &code_challenge={challenge}\
+                 &code_challenge_method=S256"
+            ))
+            .insert_header(("Cookie", session_cookie.as_str()))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(authorize_resp.status(), 302, "authorize should redirect");
+    let loc = authorize_resp
+        .headers()
+        .get(actix_web::http::header::LOCATION)
+        .and_then(|h| h.to_str().ok())
+        .unwrap();
+    let code = extract_query_param(loc, "code").expect("code param missing");
+
+    // 3. Exchange auth code → RT1 (initial refresh token)
+    let token_resp = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri("/oauth/token")
+            .set_form([
+                ("grant_type", "authorization_code"),
+                ("client_id", "client_replay"),
+                ("client_secret", "secret_replay"),
+                ("code", code.as_str()),
+                ("redirect_uri", "https://good.example/cb"),
+                ("code_verifier", verifier),
+            ])
+            .to_request(),
+    )
+    .await;
+    assert!(
+        token_resp.status().is_success(),
+        "auth code exchange should succeed, got {}",
+        token_resp.status()
+    );
+    let token_body: serde_json::Value = test::read_body_json(token_resp).await;
+    let rt1 = token_body
+        .get("refresh_token")
+        .and_then(|v| v.as_str())
+        .expect("initial token response should include refresh_token (RT1)")
+        .to_string();
+
+    // 4. Use RT1 → should succeed and issue RT2
+    let refresh_resp = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri("/oauth/token")
+            .set_form([
+                ("grant_type", "refresh_token"),
+                ("client_id", "client_replay"),
+                ("client_secret", "secret_replay"),
+                ("refresh_token", rt1.as_str()),
+            ])
+            .to_request(),
+    )
+    .await;
+    assert!(
+        refresh_resp.status().is_success(),
+        "first use of RT1 should succeed, got {}",
+        refresh_resp.status()
+    );
+    let refresh_body: serde_json::Value = test::read_body_json(refresh_resp).await;
+    let rt2 = refresh_body
+        .get("refresh_token")
+        .and_then(|v| v.as_str())
+        .expect("refresh response should include RT2")
+        .to_string();
+
+    // 5. Replay RT1 (already revoked) → must be rejected with 400 invalid_grant
+    let replay_resp = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri("/oauth/token")
+            .set_form([
+                ("grant_type", "refresh_token"),
+                ("client_id", "client_replay"),
+                ("client_secret", "secret_replay"),
+                ("refresh_token", rt1.as_str()),
+            ])
+            .to_request(),
+    )
+    .await;
+    assert_eq!(
+        replay_resp.status(),
+        400,
+        "replaying RT1 must return 400, got {}",
+        replay_resp.status()
+    );
+    let replay_body: serde_json::Value = test::read_body_json(replay_resp).await;
+    assert_eq!(
+        replay_body.get("error").and_then(|v| v.as_str()),
+        Some("invalid_grant"),
+        "replaying RT1 must return error=invalid_grant"
+    );
+
+    // 6. Try RT2 → must also be rejected (entire family was revoked in step 5)
+    let rt2_resp = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri("/oauth/token")
+            .set_form([
+                ("grant_type", "refresh_token"),
+                ("client_id", "client_replay"),
+                ("client_secret", "secret_replay"),
+                ("refresh_token", rt2.as_str()),
+            ])
+            .to_request(),
+    )
+    .await;
+    assert_eq!(
+        rt2_resp.status(),
+        400,
+        "RT2 must be rejected after family revocation, got {}",
+        rt2_resp.status()
+    );
+    let rt2_body: serde_json::Value = test::read_body_json(rt2_resp).await;
+    assert_eq!(
+        rt2_body.get("error").and_then(|v| v.as_str()),
+        Some("invalid_grant"),
+        "RT2 must return error=invalid_grant after family was revoked"
     );
 }

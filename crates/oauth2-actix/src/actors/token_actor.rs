@@ -112,6 +112,7 @@ pub struct CreateToken {
     pub client_id: String,
     pub scope: String,
     pub include_refresh: bool,
+    pub token_family: Option<String>,
     pub span: tracing::Span,
 }
 
@@ -197,6 +198,7 @@ impl Handler<CreateToken> for TokenActor {
                     msg.user_id.clone(),
                     msg.scope.clone(),
                     3600,
+                    msg.token_family,
                 );
 
                 db.save_token(&token).await?;
@@ -565,6 +567,18 @@ impl Handler<ValidateRefreshToken> for TokenActor {
                         OAuth2Error::invalid_grant("Refresh token not found or revoked")
                     })?;
 
+                // Replay detection (OAuth 2.0 Security BCP §4.13.2):
+                // A revoked refresh token being presented again is a replay attack.
+                // Revoke the entire token family to invalidate the authorization grant.
+                if token.revoked {
+                    if let Some(ref family) = token.token_family {
+                        let _ = db.revoke_token_family(family).await;
+                    }
+                    return Err(OAuth2Error::invalid_grant(
+                        "Refresh token has been revoked (replay detected)",
+                    ));
+                }
+
                 if !token.is_valid() {
                     return Err(OAuth2Error::invalid_grant(
                         "Refresh token is expired or revoked",
@@ -640,6 +654,7 @@ impl Handler<ValidateTokenStateless> for TokenActor {
             created_at,
             expires_at,
             revoked: false,
+            token_family: None,
         })
     }
 }

@@ -217,6 +217,7 @@ impl SqlxStorage {
                 created_at TEXT NOT NULL,
                 expires_at TEXT NOT NULL,
                 revoked INTEGER NOT NULL DEFAULT 0,
+                token_family TEXT,
                 FOREIGN KEY (client_id) REFERENCES clients(client_id),
                 FOREIGN KEY (user_id) REFERENCES users(id)
             );
@@ -241,6 +242,11 @@ impl SqlxStorage {
         sqlx::query(r#"CREATE INDEX IF NOT EXISTS idx_tokens_user_id ON tokens(user_id);"#)
             .execute(pool)
             .await?;
+        sqlx::query(
+            r#"CREATE INDEX IF NOT EXISTS idx_tokens_token_family ON tokens(token_family);"#,
+        )
+        .execute(pool)
+        .await?;
 
         // Authorization codes
         sqlx::query(
@@ -437,8 +443,8 @@ impl Storage for SqlxStorage {
             DatabasePool::Sqlite(pool) => {
                 sqlx::query(
                     r#"
-                    INSERT INTO tokens (id, access_token, refresh_token, token_type, expires_in, scope, client_id, user_id, created_at, expires_at, revoked)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO tokens (id, access_token, refresh_token, token_type, expires_in, scope, client_id, user_id, created_at, expires_at, revoked, token_family)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     "#,
                 )
                 .bind(&token.id)
@@ -452,14 +458,15 @@ impl Storage for SqlxStorage {
                 .bind(token.created_at)
                 .bind(token.expires_at)
                 .bind(token.revoked)
+                .bind(&token.token_family)
                 .execute(pool)
                 .await?;
             }
             DatabasePool::Postgres(pool) => {
                 sqlx::query(
                     r#"
-                    INSERT INTO tokens (id, access_token, refresh_token, token_type, expires_in, scope, client_id, user_id, created_at, expires_at, revoked)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                    INSERT INTO tokens (id, access_token, refresh_token, token_type, expires_in, scope, client_id, user_id, created_at, expires_at, revoked, token_family)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
                     "#,
                 )
                 .bind(&token.id)
@@ -473,6 +480,7 @@ impl Storage for SqlxStorage {
                 .bind(token.created_at)
                 .bind(token.expires_at)
                 .bind(token.revoked)
+                .bind(&token.token_family)
                 .execute(pool)
                 .await?;
             }
@@ -510,7 +518,7 @@ impl Storage for SqlxStorage {
         let token = match self.read_pool() {
             DatabasePool::Sqlite(pool) => {
                 sqlx::query_as::<_, Token>(
-                    "SELECT * FROM tokens WHERE refresh_token = ? AND revoked = 0",
+                    "SELECT * FROM tokens WHERE refresh_token = ?",
                 )
                 .bind(refresh_token)
                 .fetch_optional(pool)
@@ -518,7 +526,7 @@ impl Storage for SqlxStorage {
             }
             DatabasePool::Postgres(pool) => {
                 sqlx::query_as::<_, Token>(
-                    "SELECT * FROM tokens WHERE refresh_token = $1 AND revoked = false",
+                    "SELECT * FROM tokens WHERE refresh_token = $1",
                 )
                 .bind(refresh_token)
                 .fetch_optional(pool)
@@ -552,6 +560,27 @@ impl Storage for SqlxStorage {
         }
 
         Ok(())
+    }
+
+    async fn revoke_token_family(&self, family: &str) -> Result<u64, OAuth2Error> {
+        let rows = match &self.pool {
+            DatabasePool::Sqlite(pool) => {
+                sqlx::query("UPDATE tokens SET revoked = 1 WHERE token_family = ?")
+                    .bind(family)
+                    .execute(pool)
+                    .await?
+                    .rows_affected()
+            }
+            DatabasePool::Postgres(pool) => {
+                sqlx::query("UPDATE tokens SET revoked = true WHERE token_family = $1")
+                    .bind(family)
+                    .execute(pool)
+                    .await?
+                    .rows_affected()
+            }
+        };
+
+        Ok(rows)
     }
 
     async fn save_authorization_code(

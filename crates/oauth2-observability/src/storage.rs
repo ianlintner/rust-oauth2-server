@@ -184,6 +184,21 @@ impl Storage for ObservedStorage {
             .await
     }
 
+    async fn revoke_token_family(&self, family: &str) -> Result<u64, OAuth2Error> {
+        let span = tracing::info_span!(
+            "db",
+            trace_id = field::Empty,
+            span_id = field::Empty,
+            db_system = %self.db_system,
+            db_operation = "revoke_token_family",
+            token_family = %family
+        );
+        annotate_span_with_trace_ids(&span);
+        async move { self.inner.revoke_token_family(family).await }
+            .instrument(span)
+            .await
+    }
+
     async fn save_authorization_code(
         &self,
         auth_code: &AuthorizationCode,

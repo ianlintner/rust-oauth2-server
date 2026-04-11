@@ -35,6 +35,14 @@ pub trait Storage: Send + Sync {
     ) -> Result<Option<Token>, OAuth2Error>;
     async fn revoke_token(&self, token: &str) -> Result<(), OAuth2Error>;
 
+    /// Revoke every token in a refresh-token family (replay detection).
+    /// Returns number of rows affected. Default impl is a no-op so existing
+    /// backends are not broken.
+    async fn revoke_token_family(&self, family: &str) -> Result<u64, OAuth2Error> {
+        let _ = family;
+        Ok(0)
+    }
+
     // Authorization code operations
     async fn save_authorization_code(
         &self,

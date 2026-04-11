@@ -7,6 +7,7 @@ use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
 use subtle::ConstantTimeEq;
 use url::{form_urlencoded, Url};
+use uuid::Uuid;
 
 use oauth2_observability::Metrics;
 
@@ -482,6 +483,7 @@ async fn handle_authorization_code_grant(
             client_id: auth_code.client_id.clone(),
             scope: auth_code.scope.clone(),
             include_refresh: true,
+            token_family: Some(Uuid::new_v4().to_string()),
             span: tracing::Span::current(),
         })
         .await
@@ -571,6 +573,7 @@ async fn handle_client_credentials_grant(
             client_id: req.client_id,
             scope,
             include_refresh: false,
+            token_family: None,
             span: tracing::Span::current(),
         })
         .await
@@ -651,6 +654,13 @@ async fn handle_refresh_token_grant(
         .await
         .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))??;
 
+    // Propagate the token family UUID so replay detection can revoke the entire chain.
+    // On first rotation the old token has no family yet — start a new one.
+    let family = old_token
+        .token_family
+        .clone()
+        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+
     // Mint new access + refresh token pair.
     let token = token_actor
         .route(&req.client_id)
@@ -659,6 +669,7 @@ async fn handle_refresh_token_grant(
             client_id: req.client_id,
             scope,
             include_refresh: true,
+            token_family: Some(family),
             span: tracing::Span::current(),
         })
         .await

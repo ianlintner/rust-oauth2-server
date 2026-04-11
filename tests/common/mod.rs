@@ -60,6 +60,7 @@ pub async fn run_storage_contract(storage: &dyn Storage) -> Result<(), Box<dyn s
         None,
         "read".to_string(),
         3600,
+        None,
     );
 
     storage
@@ -97,6 +98,7 @@ pub async fn run_storage_contract(storage: &dyn Storage) -> Result<(), Box<dyn s
         None,
         "read".to_string(),
         3600,
+        None,
     );
 
     storage
@@ -111,6 +113,7 @@ pub async fn run_storage_contract(storage: &dyn Storage) -> Result<(), Box<dyn s
         None,
         "read".to_string(),
         3600,
+        None,
     );
 
     storage
@@ -134,6 +137,7 @@ pub async fn run_storage_contract(storage: &dyn Storage) -> Result<(), Box<dyn s
         "read".to_string(),
         None,
         None,
+        None, // nonce
     );
 
     storage
