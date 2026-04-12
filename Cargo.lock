@@ -5008,6 +5008,8 @@ dependencies = [
  "oauth2-storage-mongo",
  "oauth2-storage-sqlx",
  "percent-encoding",
+ "rand_core 0.6.4",
+ "rsa",
  "serde",
  "serde_json",
  "sha2",

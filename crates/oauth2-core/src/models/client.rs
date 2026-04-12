@@ -203,7 +203,7 @@ pub struct ClientRegistrationResponse {
     pub scope: String,
     pub token_endpoint_auth_method: String,
     pub response_types: Vec<String>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub contacts: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub logo_uri: Option<String>,
