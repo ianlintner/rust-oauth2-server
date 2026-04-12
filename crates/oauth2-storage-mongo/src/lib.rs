@@ -191,6 +191,23 @@ impl Storage for MongoStorage {
             .map_err(Self::mongo_err_to_oauth)
     }
 
+    async fn update_client(&self, client: &Client) -> Result<(), OAuth2Error> {
+        let filter = doc! { "client_id": &client.client_id };
+        self.clients
+            .replace_one(filter, client)
+            .await
+            .map(|_| ())
+            .map_err(Self::mongo_err_to_oauth)
+    }
+
+    async fn delete_client(&self, client_id: &str) -> Result<(), OAuth2Error> {
+        self.clients
+            .delete_one(doc! { "client_id": client_id })
+            .await
+            .map(|_| ())
+            .map_err(Self::mongo_err_to_oauth)
+    }
+
     async fn save_user(&self, user: &User) -> Result<(), OAuth2Error> {
         self.users
             .insert_one(user)

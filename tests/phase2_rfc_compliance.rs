@@ -260,6 +260,10 @@ async fn rfc7591_public_client_no_secret() {
         body.client_secret.is_none(),
         "public clients MUST NOT get a secret"
     );
+    assert!(
+        body.client_secret_expires_at.is_none(),
+        "public clients MUST NOT get client_secret_expires_at"
+    );
     assert_eq!(body.token_endpoint_auth_method, "none");
 }
 

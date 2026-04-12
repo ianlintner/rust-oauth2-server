@@ -223,6 +223,16 @@ impl Storage for CountingStorage {
         Ok(client.filter(|c| c.client_id == client_id))
     }
 
+    async fn update_client(&self, client: &Client) -> Result<(), OAuth2Error> {
+        *self.client.lock().expect("client mutex poisoned") = Some(client.clone());
+        Ok(())
+    }
+
+    async fn delete_client(&self, _client_id: &str) -> Result<(), OAuth2Error> {
+        *self.client.lock().expect("client mutex poisoned") = None;
+        Ok(())
+    }
+
     async fn save_user(&self, _user: &User) -> Result<(), OAuth2Error> {
         Ok(())
     }

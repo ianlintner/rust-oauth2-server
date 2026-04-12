@@ -144,8 +144,12 @@ fn authenticate_confidential_client(
             validate_jwt_client_assertion(client, assertion, token_endpoint_url)
         }
         "none" => {
-            // Public client — typically handled before this function is called.
-            Ok(())
+            // Public clients must be gated by callers *before* reaching this
+            // function.  Returning Ok here would silently bypass authentication
+            // for any misconfigured public client that slips through.
+            Err(OAuth2Error::invalid_client(
+                "Public clients (token_endpoint_auth_method=none) cannot use this authentication path",
+            ))
         }
         other => Err(OAuth2Error::invalid_client(&format!(
             "Unsupported token_endpoint_auth_method: {other}"
@@ -506,13 +510,20 @@ fn validate_jwt_client_assertion(
                     "private_key_jwt requires RS256 algorithm",
                 ));
             }
-            // The client must have registered a JWKS with at least one key.
-            if client.jwks.is_empty() {
+            // The client must have registered an inline JWKS.
+            // jwks_uri resolution is not yet supported — reject early.
+            let jwks_str = client.jwks.trim();
+            if jwks_str.is_empty() {
+                if !client.jwks_uri.trim().is_empty() {
+                    return Err(OAuth2Error::invalid_client(
+                        "private_key_jwt with jwks_uri is not yet supported; register inline jwks",
+                    ));
+                }
                 return Err(OAuth2Error::invalid_client(
-                    "Client has no registered JWKS for private_key_jwt",
+                    "Client must register inline jwks for private_key_jwt",
                 ));
             }
-            let jwks: serde_json::Value = serde_json::from_str(&client.jwks)
+            let jwks: serde_json::Value = serde_json::from_str(jwks_str)
                 .map_err(|_| OAuth2Error::invalid_client("Client JWKS is not valid JSON"))?;
             let keys = jwks
                 .get("keys")
@@ -705,6 +716,12 @@ async fn handle_device_code_grant(
         .await
         .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))??;
 
+    // Device code grant requires confidential clients.
+    if client.is_public() {
+        return Err(OAuth2Error::invalid_client(
+            "Public clients cannot use the device_code grant",
+        ));
+    }
     let token_endpoint_url = format!("{}/oauth/token", oidc_config.issuer.trim_end_matches('/'));
     authenticate_confidential_client(&client, &req, &token_endpoint_url)?;
 
@@ -964,6 +981,13 @@ async fn handle_client_credentials_grant(
     if !client.supports_grant_type("client_credentials") {
         return Err(OAuth2Error::unauthorized_client(
             "Client is not allowed to use client_credentials",
+        ));
+    }
+
+    // client_credentials requires confidential clients.
+    if client.is_public() {
+        return Err(OAuth2Error::invalid_client(
+            "Public clients cannot use the client_credentials grant",
         ));
     }
 

@@ -56,7 +56,8 @@ pub struct Client {
     #[serde(default = "default_empty_string")]
     pub tos_uri: String,
     /// RFC 7523 §2.2: client's JWKS document (inline JSON). Used for
-    /// `private_key_jwt` and `client_secret_jwt` authentication.
+    /// `private_key_jwt` authentication; `client_secret_jwt` uses the
+    /// shared `client_secret` instead.
     #[serde(default = "default_empty_string")]
     pub jwks: String,
     /// RFC 7523 §2.2: URL referencing the client's JWKS.
@@ -224,14 +225,15 @@ impl ClientRegistrationResponse {
     /// Build a registration response from a `Client` and the server's issuer base URL.
     pub fn from_client(client: &Client, issuer_base: &str) -> Self {
         let base = issuer_base.trim_end_matches('/');
+        let client_secret = if client.is_public() {
+            None
+        } else {
+            Some(client.client_secret.clone())
+        };
         Self {
             client_id: client.client_id.clone(),
-            client_secret: if client.is_public() {
-                None
-            } else {
-                Some(client.client_secret.clone())
-            },
-            client_secret_expires_at: Some(0), // 0 = never expires
+            client_secret_expires_at: client_secret.as_ref().map(|_| 0), // 0 = never expires
+            client_secret,
             registration_access_token: client.registration_access_token.clone(),
             registration_client_uri: format!("{}/connect/register/{}", base, client.client_id),
             client_name: client.name.clone(),

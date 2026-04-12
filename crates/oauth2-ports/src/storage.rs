@@ -16,16 +16,10 @@ pub trait Storage: Send + Sync {
     async fn get_client(&self, client_id: &str) -> Result<Option<Client>, OAuth2Error>;
 
     /// Update an existing client's metadata (RFC 7592).
-    async fn update_client(&self, client: &Client) -> Result<(), OAuth2Error> {
-        let _ = client;
-        Ok(())
-    }
+    async fn update_client(&self, client: &Client) -> Result<(), OAuth2Error>;
 
     /// Delete a client by `client_id` (RFC 7592).
-    async fn delete_client(&self, client_id: &str) -> Result<(), OAuth2Error> {
-        let _ = client_id;
-        Ok(())
-    }
+    async fn delete_client(&self, client_id: &str) -> Result<(), OAuth2Error>;
 
     // User operations
     // NOTE: These methods are implemented by all backends and covered by contract tests,
