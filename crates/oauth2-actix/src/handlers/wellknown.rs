@@ -88,7 +88,7 @@ pub async fn openid_configuration(
         ],
         "claims_supported": [
             "sub", "iss", "aud", "exp", "iat", "nonce", "at_hash", "c_hash",
-            "email", "preferred_username", "name", "picture"
+            "email", "preferred_username"
         ],
         "code_challenge_methods_supported": ["S256"],
         "authorization_response_iss_parameter_supported": true,
@@ -235,23 +235,15 @@ pub async fn userinfo(
             response.insert("aud".into(), json!(token.client_id));
 
             // Scope-gated claims (OIDC Core §5.4)
-            if scopes.contains(&"email") {
-                let email = user
-                    .as_ref()
-                    .map(|u| u.email.clone())
-                    .unwrap_or_else(|| format!("{}@placeholder.local", subject));
-                response.insert("email".into(), json!(email));
-            }
+            // Only include claims when we have real user data — never return placeholders.
+            if let Some(ref u) = user {
+                if scopes.contains(&"email") {
+                    response.insert("email".into(), json!(u.email));
+                }
 
-            if scopes.contains(&"profile") {
-                let preferred_username = user
-                    .as_ref()
-                    .map(|u| u.username.clone())
-                    .unwrap_or_else(|| subject.clone());
-                response.insert(
-                    "preferred_username".into(),
-                    json!(preferred_username),
-                );
+                if scopes.contains(&"profile") {
+                    response.insert("preferred_username".into(), json!(u.username));
+                }
             }
 
             Ok(HttpResponse::Ok().json(serde_json::Value::Object(response)))

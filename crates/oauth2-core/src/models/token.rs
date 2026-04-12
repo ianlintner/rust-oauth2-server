@@ -151,6 +151,15 @@ impl Claims {
         jsonwebtoken::encode(&header, self, &EncodingKey::from_secret(secret.as_ref()))
     }
 
+    /// Encode as a refresh token JWT (no `typ: at+JWT` header per RFC 9068).
+    pub fn encode_refresh(&self, secret: &str) -> Result<String, jsonwebtoken::errors::Error> {
+        jsonwebtoken::encode(
+            &Header::default(),
+            self,
+            &EncodingKey::from_secret(secret.as_ref()),
+        )
+    }
+
     pub fn decode(token: &str, secret: &str) -> Result<Self, jsonwebtoken::errors::Error> {
         let token_data = jsonwebtoken::decode::<Claims>(
             token,
@@ -168,6 +177,25 @@ impl Claims {
         };
         header.kid = Some(key.kid.clone());
         header.typ = Some("at+JWT".to_string());
+
+        let encoding_key = match key.algorithm {
+            KeyAlgorithm::HS256 => EncodingKey::from_secret(&key.key_material),
+            KeyAlgorithm::RS256 => EncodingKey::from_rsa_pem(&key.key_material)?,
+        };
+
+        jsonwebtoken::encode(&header, self, &encoding_key)
+    }
+
+    /// Encode as a refresh token JWT using a SigningKey (no `typ: at+JWT`).
+    pub fn encode_refresh_with_key(
+        &self,
+        key: &SigningKey,
+    ) -> Result<String, jsonwebtoken::errors::Error> {
+        let mut header = match key.algorithm {
+            KeyAlgorithm::HS256 => Header::default(),
+            KeyAlgorithm::RS256 => Header::new(jsonwebtoken::Algorithm::RS256),
+        };
+        header.kid = Some(key.kid.clone());
 
         let encoding_key = match key.algorithm {
             KeyAlgorithm::HS256 => EncodingKey::from_secret(&key.key_material),

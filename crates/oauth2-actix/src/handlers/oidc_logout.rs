@@ -7,7 +7,6 @@ use url::Url;
 use oauth2_core::OAuth2Error;
 use oauth2_ports::DynStorage;
 
-use crate::actors::{RevokeToken, TokenActorPool};
 use crate::handlers::wellknown::OidcConfig;
 
 #[derive(Debug, Deserialize)]
@@ -52,11 +51,23 @@ async fn is_registered_post_logout_redirect(
     }))
 }
 
+/// Extract audiences from a JWT `aud` claim, handling both string and array forms.
+fn extract_audiences(claims: &serde_json::Value) -> Vec<String> {
+    match claims.get("aud") {
+        Some(serde_json::Value::String(aud)) => vec![aud.clone()],
+        Some(serde_json::Value::Array(auds)) => auds
+            .iter()
+            .filter_map(|v| v.as_str().map(|s| s.to_string()))
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
 /// OIDC RP-Initiated Logout endpoint.
 ///
 /// Current behavior:
 /// - Always terminates the local user session.
-/// - If `id_token_hint` is present, decode it (without full signature verification),
+/// - If `id_token_hint` is present, validate it with signature verification,
 ///   verify `aud` matches a registered client, and revoke tokens for the `sub` user.
 /// - Optionally redirects to a registered `post_logout_redirect_uri`.
 /// - Preserves `state` by appending it as a query parameter to the redirect URI.
@@ -64,49 +75,48 @@ pub async fn logout(
     query: web::Query<LogoutQuery>,
     session: Session,
     storage: web::Data<DynStorage>,
-    _oidc: web::Data<OidcConfig>,
-    token_actor: web::Data<TokenActorPool>,
+    oidc: web::Data<OidcConfig>,
 ) -> Result<HttpResponse, OAuth2Error> {
     // If id_token_hint is provided, validate and extract claims.
     if let Some(ref id_token_hint) = query.id_token_hint {
-        // Decode without signature verification — we only need sub/aud.
-        if let Ok(token_data) =
-            jsonwebtoken::dangerous::insecure_decode::<serde_json::Value>(id_token_hint)
-        {
-            // Verify aud matches a registered client.
-            let aud = token_data
-                .claims
-                .get("aud")
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string());
+        // Validate the id_token_hint with signature verification.
+        let mut validation = jsonwebtoken::Validation::default();
+        // ID tokens use the issuer as audience in some flows, and client_id
+        // in others; we verify aud against registered clients below instead.
+        validation.validate_aud = false;
+        validation.set_issuer(&[&oidc.issuer]);
 
-            if let Some(ref aud) = aud {
-                let client = storage.get_client(aud).await?;
-                if client.is_none() {
+        let decoding_key = jsonwebtoken::DecodingKey::from_secret(oidc.jwt_secret.as_bytes());
+        let token_result =
+            jsonwebtoken::decode::<serde_json::Value>(id_token_hint, &decoding_key, &validation);
+
+        if let Ok(token_data) = token_result {
+            // Verify aud matches a registered client (handles string or array).
+            let audiences = extract_audiences(&serde_json::Value::Object(
+                token_data.claims.as_object().cloned().unwrap_or_default(),
+            ));
+
+            if !audiences.is_empty() {
+                let mut has_registered_audience = false;
+                for aud in &audiences {
+                    if storage.get_client(aud).await?.is_some() {
+                        has_registered_audience = true;
+                        break;
+                    }
+                }
+                if !has_registered_audience {
                     return Err(OAuth2Error::invalid_request(
                         "id_token_hint audience does not match a registered client",
                     ));
                 }
             }
 
-            // Use sub to revoke all tokens for the user.
+            // Use sub to revoke all tokens for the user via targeted storage operation.
             if let Some(sub) = token_data.claims.get("sub").and_then(|v| v.as_str()) {
-                // Revoke all tokens owned by this user by iterating stored tokens.
-                let all_tokens = storage.list_all_tokens().await?;
-                for t in all_tokens {
-                    if t.user_id.as_deref() == Some(sub) && !t.revoked {
-                        let _ = token_actor
-                            .route(&t.access_token)
-                            .send(RevokeToken {
-                                token: t.access_token.clone(),
-                                span: tracing::Span::current(),
-                            })
-                            .await;
-                    }
-                }
+                let _ = storage.revoke_tokens_by_user_id(sub).await;
             }
         }
-        // If decoding fails, we still purge the session (best-effort).
+        // If validation fails, we still purge the session (best-effort).
     }
 
     // Invalidate local session.

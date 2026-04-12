@@ -2236,13 +2236,6 @@ async fn oidc_logout_redirects_to_registered_post_logout_redirect_uri_with_state
     storage.save_client(&client).await.expect("save client");
 
     let jwt_secret = "test_jwt_secret_at_least_32_chars".to_string();
-    let token_actor = oauth2_actix::actors::TokenActor::new(
-        storage.clone(),
-        jwt_secret.clone(),
-        "http://localhost".to_string(),
-    )
-    .start();
-    let token_pool = TokenActorPool::new(vec![token_actor]);
 
     let oidc_config = OidcConfig {
         issuer: "http://localhost".to_string(),
@@ -2263,7 +2256,6 @@ async fn oidc_logout_redirects_to_registered_post_logout_redirect_uri_with_state
             .route("/test/login", web::get().to(test_set_session))
             .app_data(web::Data::new(dyn_storage))
             .app_data(web::Data::new(oidc_config))
-            .app_data(web::Data::new(token_pool))
             .service(web::scope("/oauth").route(
                 "/logout",
                 web::get().to(oauth2_actix::handlers::oidc_logout::logout),
@@ -2314,13 +2306,6 @@ async fn oidc_logout_rejects_unregistered_post_logout_redirect_uri() {
     storage.save_client(&client).await.expect("save client");
 
     let jwt_secret = "test_jwt_secret_at_least_32_chars".to_string();
-    let token_actor = oauth2_actix::actors::TokenActor::new(
-        storage.clone(),
-        jwt_secret.clone(),
-        "http://localhost".to_string(),
-    )
-    .start();
-    let token_pool = TokenActorPool::new(vec![token_actor]);
 
     let oidc_config = OidcConfig {
         issuer: "http://localhost".to_string(),
@@ -2336,7 +2321,6 @@ async fn oidc_logout_rejects_unregistered_post_logout_redirect_uri() {
         App::new()
             .app_data(web::Data::new(dyn_storage))
             .app_data(web::Data::new(oidc_config))
-            .app_data(web::Data::new(token_pool))
             .service(web::scope("/oauth").route(
                 "/logout",
                 web::get().to(oauth2_actix::handlers::oidc_logout::logout),

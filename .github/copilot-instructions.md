@@ -90,7 +90,7 @@ authoritative roadmap. Key points for Copilot:
 |---|---|---|
 | 1.A | `iss` in auth response, `typ: "at+JWT"`, issuer threading, RFC 7662 fields, `login_hint`, `/.well-known/oauth-authorization-server` | Done |
 | 1.B | Public client `token_endpoint_auth_method=none`, DB migration V12, registration validation | Done |
-| 1.C | UserInfo real claims from storage | Pending |
-| 1.D | `prompt=none/login`, `max_age` | Pending |
-| 1.E | `id_token_hint` validation, cascade revocation | Pending |
-| 1.F | Discovery doc cleanup | Pending |
+| 1.C | UserInfo real claims from storage | Done |
+| 1.D | `prompt=none/login`, `max_age` | Done |
+| 1.E | `id_token_hint` validation, cascade revocation | Done |
+| 1.F | Discovery doc cleanup | Done |

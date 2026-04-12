@@ -198,10 +198,10 @@ See `docs/oauth2-spec-audit.md` §6 for the full checklist.
 |---|---|---|
 | 1.A | Quick wins: `iss` in auth response, `typ: "at+JWT"`, issuer threading, `nbf/jti/aud/iss` in introspection, `login_hint`, `/.well-known/oauth-authorization-server` | **Done** |
 | 1.B | Public client support (`token_endpoint_auth_method=none`), DB migration V12, registration validation | **Done** |
-| 1.C | Issuer consistency full threading, UserInfo real claims from storage | Not started |
-| 1.D | OIDC `prompt=none/login`, `max_age` enforcement | Not started |
-| 1.E | `id_token_hint` validation in logout, cascade refresh token revocation | Not started |
-| 1.F | Discovery doc cleanup (`authorization_response_iss_parameter_supported`, `prompt_values_supported`, `none` in auth methods) | Not started |
+| 1.C | Issuer consistency full threading, UserInfo real claims from storage | **Done** |
+| 1.D | OIDC `prompt=none/login`, `max_age` enforcement | **Done** |
+| 1.E | `id_token_hint` validation in logout, cascade refresh token revocation | **Done** |
+| 1.F | Discovery doc cleanup (`authorization_response_iss_parameter_supported`, `prompt_values_supported`, `none` in auth methods) | **Done** |
 
 ---
 
@@ -232,8 +232,10 @@ cargo test --verbose --all-features --locked
    from a helper. Return the raw component tuple and build `App` inline in each
    test function.
 
-5. **`jsonwebtoken` crate** — in dev-dependencies only; use for header/claims
-   inspection in tests (`decode_header()`, `Validation::insecure_disable_signature_validation()`).
+5. **`jsonwebtoken` crate** — used in production code by `oauth2-actix`
+   (e.g., OIDC logout `id_token_hint` validation), so do **not** remove it
+   or move it to dev-dependencies only. Tests also use it for header/claims
+   inspection (`decode_header()`, `Validation`).
 
 6. **`sqlite::memory:`** — preferred for RFC tests (no temp files, faster).
    Use a file path (`/tmp/oauth2_*.db`) only when the test needs to persist

@@ -1073,8 +1073,9 @@ async fn userinfo_returns_real_claims_for_auth_code_flow() {
         "test".to_string(),
     );
 
-    let db_path = format!("/tmp/oauth2_ui_profile_{}.db", uuid::Uuid::new_v4());
-    let storage = oauth2_storage_factory::create_storage(&format!("sqlite:{}", db_path))
+    let temp_dir = tempfile::tempdir().expect("create temp dir");
+    let db_path = temp_dir.path().join("oauth2_ui_profile.db");
+    let storage = oauth2_storage_factory::create_storage(&format!("sqlite:{}", db_path.display()))
         .await
         .expect("create storage");
     storage.init().await.expect("init");
@@ -1477,13 +1478,6 @@ async fn logout_with_invalid_aud_id_token_hint_returns_error() {
     storage.init().await.expect("init");
 
     let jwt_secret = "rfc_test_jwt_secret_at_least_32_chars".to_string();
-    let token_actor = oauth2_actix::actors::TokenActor::new(
-        storage.clone(),
-        jwt_secret.clone(),
-        "https://auth.example.com".to_string(),
-    )
-    .start();
-    let token_pool = TokenActorPool::new(vec![token_actor]);
 
     let oidc_config = OidcConfig {
         issuer: "https://auth.example.com".to_string(),
@@ -1502,7 +1496,6 @@ async fn logout_with_invalid_aud_id_token_hint_returns_error() {
             ))
             .app_data(web::Data::new(dyn_storage))
             .app_data(web::Data::new(oidc_config))
-            .app_data(web::Data::new(token_pool))
             .service(web::scope("/oauth").route(
                 "/logout",
                 web::get().to(oauth2_actix::handlers::oidc_logout::logout),
@@ -1674,9 +1667,6 @@ async fn revoke_cascades_to_entire_token_family() {
     .await;
     assert_eq!(revoke_resp.status(), 200);
 
-    // Wait briefly for revocation to propagate
-    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-
     // The access token should also be revoked (cascade via token_family)
     let intro_resp = test::call_service(
         &app,
@@ -1766,17 +1756,17 @@ async fn discovery_includes_iss_parameter_supported() {
         "must still include client_secret_basic"
     );
 
-    // claims_supported must include name and picture
+    // claims_supported must include email and preferred_username (actually produced)
     let claims = body["claims_supported"]
         .as_array()
         .expect("claims_supported array");
     let claim_names: Vec<&str> = claims.iter().filter_map(|v| v.as_str()).collect();
     assert!(
-        claim_names.contains(&"name"),
-        "claims_supported must include 'name'"
+        claim_names.contains(&"email"),
+        "claims_supported must include 'email'"
     );
     assert!(
-        claim_names.contains(&"picture"),
-        "claims_supported must include 'picture'"
+        claim_names.contains(&"preferred_username"),
+        "claims_supported must include 'preferred_username'"
     );
 }

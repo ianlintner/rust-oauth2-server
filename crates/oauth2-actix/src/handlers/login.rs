@@ -137,6 +137,11 @@ pub async fn login_submit(
     session
         .insert("role", &user.role)
         .map_err(|e| actix_web::error::ErrorInternalServerError(e.to_string()))?;
+    // OIDC Core §2: auth_time — time at which the user authentication occurred.
+    // Used by `max_age` enforcement in the authorize handler.
+    session
+        .insert("auth_time", chrono::Utc::now().timestamp())
+        .map_err(|e| actix_web::error::ErrorInternalServerError(e.to_string()))?;
 
     tracing::info!(user_id = %user.id, username = %user.username, "User authenticated successfully");
 

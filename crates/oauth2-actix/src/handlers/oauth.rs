@@ -246,14 +246,28 @@ pub async fn authorize(
     }
 
     // --- User authentication gate ---
-    // OIDC Core §3.1.2.1: handle `prompt` parameter.
-    let prompt = query.prompt.as_deref().unwrap_or("");
+    // OIDC Core §3.1.2.1: handle `prompt` parameter (space-delimited list).
+    let prompt_values: Vec<&str> = query
+        .prompt
+        .as_deref()
+        .unwrap_or("")
+        .split_whitespace()
+        .collect();
+
+    // OIDC Core §3.1.2.1: "none" MUST NOT be combined with other prompt values.
+    let has_none = prompt_values.contains(&"none");
+    let has_login = prompt_values.contains(&"login");
+    if has_none && prompt_values.len() > 1 {
+        return Err(OAuth2Error::invalid_request(
+            "prompt value 'none' must not be combined with other values",
+        ));
+    }
 
     // Check if there is an authenticated session.
     let user_id: Option<String> = session.get("user_id").unwrap_or(None);
 
     // prompt=none: the AS must NOT display any UI. If not authenticated, return error.
-    if prompt == "none" {
+    if has_none {
         match user_id {
             Some(_) => { /* session exists; continue below */ }
             None => {
@@ -282,7 +296,7 @@ pub async fn authorize(
     }
 
     // prompt=login: force re-authentication even if already authenticated.
-    let force_login = prompt == "login";
+    let force_login = has_login;
 
     // max_age: if the user's auth_time is too old, force re-authentication.
     let auth_expired = if let Some(max_age) = query.max_age {

@@ -59,6 +59,14 @@ pub trait Storage: Send + Sync {
         Ok(0)
     }
 
+    /// Revoke all tokens belonging to a specific user.
+    /// Used by OIDC logout when `id_token_hint` identifies a user.
+    /// Returns number of rows affected. Default impl is a no-op.
+    async fn revoke_tokens_by_user_id(&self, user_id: &str) -> Result<u64, OAuth2Error> {
+        let _ = user_id;
+        Ok(0)
+    }
+
     // Authorization code operations
     async fn save_authorization_code(
         &self,

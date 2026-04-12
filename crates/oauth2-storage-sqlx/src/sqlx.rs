@@ -666,6 +666,27 @@ impl Storage for SqlxStorage {
         Ok(rows)
     }
 
+    async fn revoke_tokens_by_user_id(&self, user_id: &str) -> Result<u64, OAuth2Error> {
+        let rows = match &self.pool {
+            DatabasePool::Sqlite(pool) => {
+                sqlx::query("UPDATE tokens SET revoked = 1 WHERE user_id = ? AND revoked = 0")
+                    .bind(user_id)
+                    .execute(pool)
+                    .await?
+                    .rows_affected()
+            }
+            DatabasePool::Postgres(pool) => sqlx::query(
+                "UPDATE tokens SET revoked = true WHERE user_id = $1 AND revoked = false",
+            )
+            .bind(user_id)
+            .execute(pool)
+            .await?
+            .rows_affected(),
+        };
+
+        Ok(rows)
+    }
+
     async fn save_authorization_code(
         &self,
         auth_code: &AuthorizationCode,

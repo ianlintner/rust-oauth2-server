@@ -214,9 +214,9 @@ impl Handler<CreateToken> for TokenActor {
                         &issuer,
                     );
                     let token = if let Some(ref key) = signing_key {
-                        refresh_claims.encode_with_key(key)
+                        refresh_claims.encode_refresh_with_key(key)
                     } else {
-                        refresh_claims.encode(&jwt_secret)
+                        refresh_claims.encode_refresh(&jwt_secret)
                     }
                     .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))?;
                     Some(token)
