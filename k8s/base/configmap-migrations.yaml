@@ -184,3 +184,8 @@ data:
     CREATE INDEX IF NOT EXISTS idx_device_authorizations_device_code ON device_authorizations(device_code);
     CREATE INDEX IF NOT EXISTS idx_device_authorizations_user_code ON device_authorizations(user_code);
     CREATE INDEX IF NOT EXISTS idx_device_authorizations_client_id ON device_authorizations(client_id);
+
+  V12__add_token_endpoint_auth_method.sql: |
+    -- Add token_endpoint_auth_method to support public clients (RFC 7591 §2).
+    -- Default to 'client_secret_basic' for all existing clients.
+    ALTER TABLE clients ADD COLUMN token_endpoint_auth_method TEXT NOT NULL DEFAULT 'client_secret_basic';

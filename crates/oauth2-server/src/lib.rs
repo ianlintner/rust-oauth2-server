@@ -666,12 +666,16 @@ pub async fn run() -> std::io::Result<()> {
     }
 
     // Build OIDC configuration for discovery + id_token generation.
+    // Normalize: strip trailing slashes so `iss` is consistent everywhere
+    // (authorization response, JWT claims, discovery metadata).
     let issuer = config
         .server
         .public_url
         .clone()
         .or_else(|| config.server.public_base_url.clone())
-        .unwrap_or_else(|| format!("http://{}:{}", config.server.host, config.server.port));
+        .unwrap_or_else(|| format!("http://{}:{}", config.server.host, config.server.port))
+        .trim_end_matches('/')
+        .to_string();
 
     // Optional: RS256 id_token signing (recommended for OIDC clients like oauth2-proxy).
     // We accept the PEM either as a literal with newlines, or with \n escapes.

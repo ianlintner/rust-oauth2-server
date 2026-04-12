@@ -321,9 +321,8 @@ async fn rfc9068_jwt_iss_matches_configured_issuer() {
     assert_eq!(resp.status(), 200);
     let body: TokenResponse = test::read_body_json(resp).await;
 
-    // Decode claims ignoring signature (test env, known secret).
+    // Decode claims with the known test secret.
     let mut validation = jsonwebtoken::Validation::default();
-    validation.insecure_disable_signature_validation();
     validation.set_audience(&["client_iss_jwt"]);
     let token_data = jsonwebtoken::decode::<serde_json::Value>(
         &body.access_token,

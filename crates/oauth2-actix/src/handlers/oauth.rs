@@ -270,7 +270,7 @@ pub async fn authorize(
                     if let Some(state) = &query.state {
                         qp.append_pair("state", state);
                     }
-                    qp.append_pair("iss", oidc_config.issuer.trim_end_matches('/'));
+                    qp.append_pair("iss", &oidc_config.issuer);
                 }
                 return Ok(auth_response_security_headers(
                     HttpResponse::Found()
@@ -363,7 +363,7 @@ pub async fn authorize(
             qp.append_pair("state", state);
         }
         // RFC 9207: include the issuer identifier to prevent mix-up attacks.
-        qp.append_pair("iss", oidc_config.issuer.trim_end_matches('/'));
+        qp.append_pair("iss", &oidc_config.issuer);
     }
 
     Ok(auth_response_security_headers(no_store_headers(

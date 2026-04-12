@@ -88,7 +88,7 @@ fn validate_token_endpoint_auth_method(
             .collect();
         if !non_pkce.is_empty() {
             return Err(OAuth2Error::invalid_request(
-                "public clients (token_endpoint_auth_method=none) may only use authorization_code",
+                "public clients (token_endpoint_auth_method=none) may only use authorization_code and refresh_token",
             ));
         }
     }

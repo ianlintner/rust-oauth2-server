@@ -68,7 +68,7 @@ sites that must be kept in sync whenever the signature changes:
 ### `Claims::new()` — `crates/oauth2-core/src/models/token.rs`
 
 ```rust
-Claims::new(subject, scope, expires_in, client_id, issuer: &str) -> Self
+Claims::new(subject, client_id, scope, duration_seconds, issuer: &str) -> Self
 ```
 
 Fifth parameter `issuer` was added in Phase 1 (previously hardcoded

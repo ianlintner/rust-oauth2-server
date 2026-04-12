@@ -57,7 +57,7 @@ authoritative roadmap. Key points for Copilot:
   The `issuer: String` was added for RFC 9068/9207 compliance. All 5 call
   sites must stay in sync (`tests/` ×4, `crates/oauth2-server/src/lib.rs`).
 
-- **`Claims::new(subject, scope, expires_in, client_id, issuer: &str)`** takes
+- **`Claims::new(subject, client_id, scope, duration_seconds, issuer: &str)`** takes
   5 args. The issuer is passed from `TokenActor.issuer`.
 
 - **`Client::is_public()`** returns `true` when
