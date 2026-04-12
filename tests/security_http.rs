@@ -2235,6 +2235,23 @@ async fn oidc_logout_redirects_to_registered_post_logout_redirect_uri_with_state
     );
     storage.save_client(&client).await.expect("save client");
 
+    let jwt_secret = "test_jwt_secret_at_least_32_chars".to_string();
+    let token_actor = oauth2_actix::actors::TokenActor::new(
+        storage.clone(),
+        jwt_secret.clone(),
+        "http://localhost".to_string(),
+    )
+    .start();
+    let token_pool = TokenActorPool::new(vec![token_actor]);
+
+    let oidc_config = OidcConfig {
+        issuer: "http://localhost".to_string(),
+        jwt_secret,
+        id_token_alg: "HS256".to_string(),
+        id_token_kid: None,
+        id_token_private_key_pem: None,
+    };
+
     let dyn_storage: DynStorage = storage;
 
     let app = test::init_service(
@@ -2245,6 +2262,8 @@ async fn oidc_logout_redirects_to_registered_post_logout_redirect_uri_with_state
             ))
             .route("/test/login", web::get().to(test_set_session))
             .app_data(web::Data::new(dyn_storage))
+            .app_data(web::Data::new(oidc_config))
+            .app_data(web::Data::new(token_pool))
             .service(web::scope("/oauth").route(
                 "/logout",
                 web::get().to(oauth2_actix::handlers::oidc_logout::logout),
@@ -2294,14 +2313,35 @@ async fn oidc_logout_rejects_unregistered_post_logout_redirect_uri() {
     );
     storage.save_client(&client).await.expect("save client");
 
+    let jwt_secret = "test_jwt_secret_at_least_32_chars".to_string();
+    let token_actor = oauth2_actix::actors::TokenActor::new(
+        storage.clone(),
+        jwt_secret.clone(),
+        "http://localhost".to_string(),
+    )
+    .start();
+    let token_pool = TokenActorPool::new(vec![token_actor]);
+
+    let oidc_config = OidcConfig {
+        issuer: "http://localhost".to_string(),
+        jwt_secret,
+        id_token_alg: "HS256".to_string(),
+        id_token_kid: None,
+        id_token_private_key_pem: None,
+    };
+
     let dyn_storage: DynStorage = storage;
 
-    let app = test::init_service(App::new().app_data(web::Data::new(dyn_storage)).service(
-        web::scope("/oauth").route(
-            "/logout",
-            web::get().to(oauth2_actix::handlers::oidc_logout::logout),
-        ),
-    ))
+    let app = test::init_service(
+        App::new()
+            .app_data(web::Data::new(dyn_storage))
+            .app_data(web::Data::new(oidc_config))
+            .app_data(web::Data::new(token_pool))
+            .service(web::scope("/oauth").route(
+                "/logout",
+                web::get().to(oauth2_actix::handlers::oidc_logout::logout),
+            )),
+    )
     .await;
 
     let resp = test::call_service(

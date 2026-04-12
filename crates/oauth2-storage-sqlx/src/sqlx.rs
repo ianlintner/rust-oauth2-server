@@ -166,7 +166,8 @@ impl SqlxStorage {
                 scope TEXT NOT NULL,
                 name TEXT NOT NULL,
                 created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
+                updated_at TEXT NOT NULL,
+                token_endpoint_auth_method TEXT NOT NULL DEFAULT 'client_secret_basic'
             );
             "#,
         )
@@ -474,6 +475,29 @@ impl Storage for SqlxStorage {
                     .bind(username)
                     .fetch_optional(pool)
                     .await?
+            }
+        };
+
+        Ok(user)
+    }
+
+    async fn get_user_by_id(&self, user_id: &str) -> Result<Option<User>, OAuth2Error> {
+        let user = match self.read_pool() {
+            DatabasePool::Sqlite(pool) => {
+                sqlx::query_as::<_, User>(
+                    "SELECT id, username, password_hash, email, enabled, role, created_at, updated_at FROM users WHERE id = ?",
+                )
+                .bind(user_id)
+                .fetch_optional(pool)
+                .await?
+            }
+            DatabasePool::Postgres(pool) => {
+                sqlx::query_as::<_, User>(
+                    "SELECT id, username, password_hash, email, enabled, role, created_at, updated_at FROM users WHERE id = $1",
+                )
+                .bind(user_id)
+                .fetch_optional(pool)
+                .await?
             }
         };
 

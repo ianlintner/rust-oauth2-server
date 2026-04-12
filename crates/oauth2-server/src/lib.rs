@@ -769,10 +769,13 @@ pub async fn run() -> std::io::Result<()> {
                 let cache_redis = cache_redis_manager.clone();
                 actix::Actor::create(|ctx| {
                     ctx.set_mailbox_capacity(ACTOR_MAILBOX_CAPACITY);
-                    let actor =
-                        oauth2_actix::actors::TokenActor::new(storage.clone(), jwt_secret.clone(), issuer.clone())
-                            .with_keyset(keyset.clone())
-                            .with_access_tokens_opaque(config.jwt.access_tokens_opaque);
+                    let actor = oauth2_actix::actors::TokenActor::new(
+                        storage.clone(),
+                        jwt_secret.clone(),
+                        issuer.clone(),
+                    )
+                    .with_keyset(keyset.clone())
+                    .with_access_tokens_opaque(config.jwt.access_tokens_opaque);
                     attach_token_cache(actor, &cache_redis)
                 })
             };

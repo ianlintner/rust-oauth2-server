@@ -107,6 +107,21 @@ impl Storage for ObservedStorage {
             .await
     }
 
+    async fn get_user_by_id(&self, user_id: &str) -> Result<Option<User>, OAuth2Error> {
+        let span = tracing::info_span!(
+            "db",
+            trace_id = field::Empty,
+            span_id = field::Empty,
+            db_system = %self.db_system,
+            db_operation = "get_user_by_id",
+            user_id = %user_id
+        );
+        annotate_span_with_trace_ids(&span);
+        async move { self.inner.get_user_by_id(user_id).await }
+            .instrument(span)
+            .await
+    }
+
     async fn save_token(&self, token: &Token) -> Result<(), OAuth2Error> {
         // Never log full tokens.
         let token_prefix = Self::token_prefix(&token.access_token);

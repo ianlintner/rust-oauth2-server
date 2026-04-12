@@ -144,8 +144,10 @@ impl Claims {
     }
 
     pub fn encode(&self, secret: &str) -> Result<String, jsonwebtoken::errors::Error> {
-        let mut header = Header::default();
-        header.typ = Some("at+JWT".to_string());
+        let header = Header {
+            typ: Some("at+JWT".to_string()),
+            ..Header::default()
+        };
         jsonwebtoken::encode(&header, self, &EncodingKey::from_secret(secret.as_ref()))
     }
 

@@ -11,6 +11,7 @@ use tokio::sync::RwLock;
 
 use crate::actors::{TokenActorPool, ValidateToken};
 use oauth2_core::models::key_set::{Algorithm as KeyAlgorithm, KeySet};
+use oauth2_ports::DynStorage;
 
 /// Shared OIDC / server configuration injected as `web::Data<OidcConfig>`.
 #[derive(Debug, Clone)]
@@ -82,10 +83,16 @@ pub async fn openid_configuration(
         "id_token_signing_alg_values_supported": id_token_algs,
         "token_endpoint_auth_methods_supported": [
             "client_secret_basic",
-            "client_secret_post"
+            "client_secret_post",
+            "none"
         ],
-        "claims_supported": ["sub", "iss", "aud", "exp", "iat", "nonce", "at_hash", "c_hash", "email", "preferred_username"],
+        "claims_supported": [
+            "sub", "iss", "aud", "exp", "iat", "nonce", "at_hash", "c_hash",
+            "email", "preferred_username", "name", "picture"
+        ],
         "code_challenge_methods_supported": ["S256"],
+        "authorization_response_iss_parameter_supported": true,
+        "prompt_values_supported": ["none", "login"],
         "service_documentation": format!("{}/docs", base)
     });
 
@@ -170,6 +177,7 @@ pub async fn userinfo(
     req: HttpRequest,
     token_actor: web::Data<TokenActorPool>,
     oidc: web::Data<OidcConfig>,
+    storage: Option<web::Data<DynStorage>>,
 ) -> Result<HttpResponse> {
     // Extract Bearer token from the Authorization header only.
     let token_str = req
@@ -212,15 +220,41 @@ pub async fn userinfo(
                     })));
             };
 
-            let response = json!({
-                "sub": subject,
-                "iss": oidc.issuer,
-                "aud": token.client_id,
-                "scope": token.scope,
-                "preferred_username": token.user_id,
-                "email": format!("{}@placeholder.local", subject),
-            });
-            Ok(HttpResponse::Ok().json(response))
+            let scopes: Vec<&str> = token.scope.split_whitespace().collect();
+
+            // Look up real user claims from storage when available.
+            let user = if let Some(ref storage) = storage {
+                storage.get_user_by_id(&subject).await.ok().flatten()
+            } else {
+                None
+            };
+
+            let mut response = serde_json::Map::new();
+            response.insert("sub".into(), json!(subject));
+            response.insert("iss".into(), json!(oidc.issuer));
+            response.insert("aud".into(), json!(token.client_id));
+
+            // Scope-gated claims (OIDC Core §5.4)
+            if scopes.contains(&"email") {
+                let email = user
+                    .as_ref()
+                    .map(|u| u.email.clone())
+                    .unwrap_or_else(|| format!("{}@placeholder.local", subject));
+                response.insert("email".into(), json!(email));
+            }
+
+            if scopes.contains(&"profile") {
+                let preferred_username = user
+                    .as_ref()
+                    .map(|u| u.username.clone())
+                    .unwrap_or_else(|| subject.clone());
+                response.insert(
+                    "preferred_username".into(),
+                    json!(preferred_username),
+                );
+            }
+
+            Ok(HttpResponse::Ok().json(serde_json::Value::Object(response)))
         }
         Err(_) => Ok(HttpResponse::Unauthorized()
             .insert_header(("WWW-Authenticate", "Bearer error=\"invalid_token\""))

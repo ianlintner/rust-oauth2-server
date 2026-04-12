@@ -23,6 +23,13 @@ pub trait Storage: Send + Sync {
     #[allow(dead_code)]
     async fn get_user_by_username(&self, username: &str) -> Result<Option<User>, OAuth2Error>;
 
+    /// Look up a user by their unique id.
+    /// Default implementation returns None so older backends are not broken.
+    async fn get_user_by_id(&self, user_id: &str) -> Result<Option<User>, OAuth2Error> {
+        let _ = user_id;
+        Ok(None)
+    }
+
     // Token operations
     async fn save_token(&self, token: &Token) -> Result<(), OAuth2Error>;
     async fn get_token_by_access_token(

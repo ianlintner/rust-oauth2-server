@@ -179,6 +179,12 @@ pub struct AuthorizeQuery {
     /// OIDC Core §3.1.2.1: optional hint about the login identifier the user may use.
     /// Stored in session so the login form can pre-fill the username field.
     login_hint: Option<String>,
+    /// OIDC Core §3.1.2.1: space-delimited list of prompt values.
+    /// Supported: `none` (no UI), `login` (force re-authentication).
+    prompt: Option<String>,
+    /// OIDC Core §3.1.2.1: maximum authentication age in seconds.
+    /// If `auth_time` + `max_age` < now, the user must re-authenticate.
+    max_age: Option<u64>,
 }
 
 /// OAuth2 authorize endpoint
@@ -240,22 +246,77 @@ pub async fn authorize(
     }
 
     // --- User authentication gate ---
-    // Check if there is an authenticated session. If not, save the current
-    // authorize URL and redirect to the login page.
+    // OIDC Core §3.1.2.1: handle `prompt` parameter.
+    let prompt = query.prompt.as_deref().unwrap_or("");
+
+    // Check if there is an authenticated session.
     let user_id: Option<String> = session.get("user_id").unwrap_or(None);
+
+    // prompt=none: the AS must NOT display any UI. If not authenticated, return error.
+    if prompt == "none" {
+        match user_id {
+            Some(ref _uid) => { /* session exists; continue below */ }
+            None => {
+                // OIDC Core §3.1.2.6: return login_required via redirect.
+                let mut url = Url::parse(&query.redirect_uri)
+                    .map_err(|_| OAuth2Error::invalid_request("Invalid redirect_uri"))?;
+                {
+                    let mut qp = url.query_pairs_mut();
+                    qp.append_pair("error", "login_required");
+                    qp.append_pair(
+                        "error_description",
+                        "User is not authenticated and prompt=none was requested",
+                    );
+                    if let Some(state) = &query.state {
+                        qp.append_pair("state", state);
+                    }
+                    qp.append_pair("iss", oidc_config.issuer.trim_end_matches('/'));
+                }
+                return Ok(auth_response_security_headers(
+                    HttpResponse::Found()
+                        .append_header(("Location", url.to_string()))
+                        .finish(),
+                ));
+            }
+        }
+    }
+
+    // prompt=login: force re-authentication even if already authenticated.
+    let force_login = prompt == "login";
+
+    // max_age: if the user's auth_time is too old, force re-authentication.
+    let auth_expired = if let Some(max_age) = query.max_age {
+        let auth_time: Option<i64> = session.get("auth_time").unwrap_or(None);
+        match auth_time {
+            Some(at) => {
+                let now = chrono::Utc::now().timestamp();
+                now > at + max_age as i64
+            }
+            None => true, // No auth_time recorded → treat as expired.
+        }
+    } else {
+        false
+    };
+
     let user_id = match user_id {
-        Some(uid) => uid,
-        None => {
+        Some(uid) if !force_login && !auth_expired => uid,
+        _ => {
             // Persist the full authorize URL so we can replay after login.
             let return_to = format!("/oauth/authorize?{}", req.query_string());
             session
                 .insert("return_to", &return_to)
                 .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))?;
 
-            // RFC 9207 / OIDC Core §3.1.2.1: forward login_hint to the login form
+            // OIDC Core §3.1.2.1: forward login_hint to the login form
             // so the username field can be pre-filled for the user.
             if let Some(ref hint) = query.login_hint {
                 let _ = session.insert("login_hint", hint);
+            }
+
+            // Clear session so the login form is shown.
+            if force_login || auth_expired {
+                session.remove("user_id");
+                session.remove("authenticated");
             }
 
             return Ok(auth_response_security_headers(
@@ -612,7 +673,12 @@ async fn handle_authorization_code_grant(
     // authenticate via PKCE only — no client secret is required or expected.
     if client.is_public() {
         // Public clients MUST NOT present a secret.
-        if req.client_secret.as_deref().map(|s| !s.is_empty()).unwrap_or(false) {
+        if req
+            .client_secret
+            .as_deref()
+            .map(|s| !s.is_empty())
+            .unwrap_or(false)
+        {
             return Err(OAuth2Error::invalid_client(
                 "Public clients must not present a client_secret",
             ));

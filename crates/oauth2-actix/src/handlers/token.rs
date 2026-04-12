@@ -7,6 +7,7 @@ use crate::actors::{
     ValidateTokenStateless,
 };
 use crate::handlers::oauth::{client_secret_matches, parse_client_basic_auth};
+use crate::handlers::wellknown::OidcConfig;
 use oauth2_config::Config;
 use oauth2_core::{Claims, IntrospectionResponse, OAuth2Error};
 
@@ -104,6 +105,7 @@ pub struct IntrospectRequest {
 
 /// Token introspection endpoint
 /// Returns information about a token
+#[allow(clippy::too_many_arguments)]
 pub async fn introspect(
     req: HttpRequest,
     form: web::Form<IntrospectRequest>,
@@ -112,6 +114,7 @@ pub async fn introspect(
     jwt_secret: web::Data<String>,
     stateless: web::Data<bool>,
     config: Option<web::Data<Config>>,
+    oidc_config: Option<web::Data<OidcConfig>>,
 ) -> Result<HttpResponse, OAuth2Error> {
     let opaque_access_tokens = config
         .as_ref()
@@ -206,15 +209,15 @@ pub async fn introspect(
                     .map(|c| c.iat)
                     .or(Some(token.created_at.timestamp())),
                 sub: claims.as_ref().map(|c| c.sub.clone()).or(user_id),
-                aud: claims
-                    .as_ref()
-                    .map(|c| c.aud.clone())
-                    .or(Some(client_id)),
+                aud: claims.as_ref().map(|c| c.aud.clone()).or(Some(client_id)),
                 jti: claims
                     .as_ref()
                     .map(|c| c.jti.clone())
                     .or(Some(token.id.clone())),
-                iss: claims.as_ref().map(|c| c.iss.clone()),
+                iss: claims
+                    .as_ref()
+                    .map(|c| c.iss.clone())
+                    .or_else(|| oidc_config.as_ref().map(|c| c.issuer.clone())),
             };
 
             Ok(no_store_headers(HttpResponse::Ok().json(response)))
@@ -258,14 +261,31 @@ pub async fn revoke(
     .await?
     .expect("client auth is required for token revocation");
 
-    let token = token_actor
-        .route(&form.token)
-        .send(LookupToken {
-            token: form.token.clone(),
-            span: tracing::Span::current(),
-        })
-        .await
-        .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))??;
+    // Try access_token lookup first, then refresh_token.
+    let token = {
+        let by_access = token_actor
+            .route(&form.token)
+            .send(LookupToken {
+                token: form.token.clone(),
+                span: tracing::Span::current(),
+            })
+            .await
+            .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))??;
+
+        if by_access.is_some() {
+            by_access
+        } else {
+            // Refresh-token lookup
+            token_actor
+                .route(&form.token)
+                .send(crate::actors::LookupRefreshToken {
+                    refresh_token: form.token.clone(),
+                    span: tracing::Span::current(),
+                })
+                .await
+                .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))??
+        }
+    };
 
     if let Some(token) = token {
         if token.client_id == caller.client_id {

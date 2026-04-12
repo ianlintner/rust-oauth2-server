@@ -530,16 +530,33 @@ impl Handler<RevokeToken> for TokenActor {
                         redis::cmd("DEL").arg(&redis_key).query_async(conn).await;
                 }
 
-                // Get token info before revoking for event
+                // Get token info before revoking for event + cascade revocation.
                 let token_info = db
                     .get_token_by_access_token(&normalized_token_for_db)
                     .await?;
 
+                // Also check if the token is a refresh token (for cascade).
+                let token_by_refresh = if token_info.is_none() {
+                    db.get_token_by_refresh_token(&normalized_token_for_db)
+                        .await?
+                } else {
+                    None
+                };
+
+                let resolved = token_info.or(token_by_refresh);
+
                 db.revoke_token(&normalized_token_for_db).await?;
+
+                // Cascade: revoke the entire token family (linked access + refresh tokens).
+                if let Some(ref token) = resolved {
+                    if let Some(ref family) = token.token_family {
+                        let _ = db.revoke_token_family(family).await;
+                    }
+                }
 
                 // Emit revoked event
                 if let Some(event_bus) = event_bus {
-                    if let Some(token) = token_info {
+                    if let Some(token) = resolved {
                         let event = AuthEvent::new(
                             EventType::TokenRevoked,
                             EventSeverity::Info,
@@ -602,6 +619,41 @@ impl Handler<SetTokenFamily> for TokenActor {
 pub struct ValidateRefreshToken {
     pub refresh_token: String,
     pub span: tracing::Span,
+}
+
+/// Non-validating lookup of a token by refresh_token.
+/// Returns `Ok(Some(Token))` if found, `Ok(None)` if not.
+/// Used by the revocation handler to verify ownership before revoking.
+#[derive(Message)]
+#[rtype(result = "Result<Option<Token>, OAuth2Error>")]
+pub struct LookupRefreshToken {
+    pub refresh_token: String,
+    pub span: tracing::Span,
+}
+
+impl Handler<LookupRefreshToken> for TokenActor {
+    type Result = ResponseFuture<Result<Option<Token>, OAuth2Error>>;
+
+    fn handle(&mut self, msg: LookupRefreshToken, _: &mut Self::Context) -> Self::Result {
+        let db = self.db.clone();
+        let normalized_token = Self::normalize_token_key(&msg.refresh_token);
+
+        let parent_span = msg.span.clone();
+        let actor_span = tracing::info_span!(
+            parent: &parent_span,
+            "actor.token.lookup_refresh",
+            trace_id = tracing::field::Empty,
+            span_id = tracing::field::Empty,
+            token_prefix = %normalized_token.chars().take(12).collect::<String>(),
+            token_len = normalized_token.len()
+        );
+        annotate_span_with_trace_ids(&actor_span);
+
+        Box::pin(
+            async move { db.get_token_by_refresh_token(&normalized_token).await }
+                .instrument(actor_span),
+        )
+    }
 }
 
 impl Handler<ValidateRefreshToken> for TokenActor {

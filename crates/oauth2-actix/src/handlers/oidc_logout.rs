@@ -7,9 +7,11 @@ use url::Url;
 use oauth2_core::OAuth2Error;
 use oauth2_ports::DynStorage;
 
+use crate::actors::{RevokeToken, TokenActorPool};
+use crate::handlers::wellknown::OidcConfig;
+
 #[derive(Debug, Deserialize)]
 pub struct LogoutQuery {
-    #[allow(dead_code)] // Reserved for stricter RP validation in a follow-up.
     pub id_token_hint: Option<String>,
     pub post_logout_redirect_uri: Option<String>,
     pub state: Option<String>,
@@ -54,14 +56,60 @@ async fn is_registered_post_logout_redirect(
 ///
 /// Current behavior:
 /// - Always terminates the local user session.
+/// - If `id_token_hint` is present, decode it (without full signature verification),
+///   verify `aud` matches a registered client, and revoke tokens for the `sub` user.
 /// - Optionally redirects to a registered `post_logout_redirect_uri`.
 /// - Preserves `state` by appending it as a query parameter to the redirect URI.
 pub async fn logout(
     query: web::Query<LogoutQuery>,
     session: Session,
     storage: web::Data<DynStorage>,
+    _oidc: web::Data<OidcConfig>,
+    token_actor: web::Data<TokenActorPool>,
 ) -> Result<HttpResponse, OAuth2Error> {
-    // Invalidate local session first.
+    // If id_token_hint is provided, validate and extract claims.
+    if let Some(ref id_token_hint) = query.id_token_hint {
+        // Decode without signature verification — we only need sub/aud.
+        if let Ok(token_data) =
+            jsonwebtoken::dangerous::insecure_decode::<serde_json::Value>(id_token_hint)
+        {
+            // Verify aud matches a registered client.
+            let aud = token_data
+                .claims
+                .get("aud")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+
+            if let Some(ref aud) = aud {
+                let client = storage.get_client(aud).await?;
+                if client.is_none() {
+                    return Err(OAuth2Error::invalid_request(
+                        "id_token_hint audience does not match a registered client",
+                    ));
+                }
+            }
+
+            // Use sub to revoke all tokens for the user.
+            if let Some(sub) = token_data.claims.get("sub").and_then(|v| v.as_str()) {
+                // Revoke all tokens owned by this user by iterating stored tokens.
+                let all_tokens = storage.list_all_tokens().await?;
+                for t in all_tokens {
+                    if t.user_id.as_deref() == Some(sub) && !t.revoked {
+                        let _ = token_actor
+                            .route(&t.access_token)
+                            .send(RevokeToken {
+                                token: t.access_token.clone(),
+                                span: tracing::Span::current(),
+                            })
+                            .await;
+                    }
+                }
+            }
+        }
+        // If decoding fails, we still purge the session (best-effort).
+    }
+
+    // Invalidate local session.
     session.purge();
 
     if let Some(post_logout_redirect_uri) = query.post_logout_redirect_uri.as_deref() {
