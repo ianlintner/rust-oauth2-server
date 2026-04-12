@@ -758,6 +758,7 @@ pub async fn run() -> std::io::Result<()> {
                     let actor = oauth2_actix::actors::TokenActor::with_events(
                         storage.clone(),
                         jwt_secret.clone(),
+                        issuer.clone(),
                         eb,
                     )
                     .with_keyset(keyset.clone())
@@ -769,7 +770,7 @@ pub async fn run() -> std::io::Result<()> {
                 actix::Actor::create(|ctx| {
                     ctx.set_mailbox_capacity(ACTOR_MAILBOX_CAPACITY);
                     let actor =
-                        oauth2_actix::actors::TokenActor::new(storage.clone(), jwt_secret.clone())
+                        oauth2_actix::actors::TokenActor::new(storage.clone(), jwt_secret.clone(), issuer.clone())
                             .with_keyset(keyset.clone())
                             .with_access_tokens_opaque(config.jwt.access_tokens_opaque);
                     attach_token_cache(actor, &cache_redis)
@@ -1057,6 +1058,11 @@ pub async fn run() -> std::io::Result<()> {
                 web::scope("/.well-known")
                     .route(
                         "/openid-configuration",
+                        web::get().to(oauth2_actix::handlers::wellknown::openid_configuration),
+                    )
+                    // RFC 8414 §3: authorization server metadata MUST also be served at this path.
+                    .route(
+                        "/oauth-authorization-server",
                         web::get().to(oauth2_actix::handlers::wellknown::openid_configuration),
                     )
                     .route(

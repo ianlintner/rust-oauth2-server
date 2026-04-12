@@ -459,8 +459,8 @@ Items ranked by: **Security Impact** × **Interoperability Gain** × **Standards
 
 | Chunk | Description | Status |
 |---|---|---|
-| 1.A | Quick wins (XS items) | 🔲 Not started |
-| 1.B | Public client support | 🔲 Not started |
+| 1.A | Quick wins (XS items) | ✅ Done |
+| 1.B | Public client support | ✅ Done |
 | 1.C | Issuer consistency & UserInfo | 🔲 Not started |
 | 1.D | OIDC parameter additions | 🔲 Not started |
 | 1.E | Logout & revocation fixes | 🔲 Not started |

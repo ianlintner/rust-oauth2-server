@@ -69,6 +69,32 @@ fn validate_grant_types(grant_types: &[String]) -> Result<(), OAuth2Error> {
     Ok(())
 }
 
+fn validate_token_endpoint_auth_method(
+    method: &str,
+    grant_types: &[String],
+) -> Result<(), OAuth2Error> {
+    const SUPPORTED: [&str; 3] = ["client_secret_basic", "client_secret_post", "none"];
+    if !SUPPORTED.contains(&method) {
+        return Err(OAuth2Error::invalid_request(
+            "unsupported token_endpoint_auth_method",
+        ));
+    }
+    // Public clients (`none`) may only use authorization_code (with PKCE).
+    if method == "none" {
+        let non_pkce: Vec<&str> = grant_types
+            .iter()
+            .filter(|g| g.as_str() != "authorization_code" && g.as_str() != "refresh_token")
+            .map(String::as_str)
+            .collect();
+        if !non_pkce.is_empty() {
+            return Err(OAuth2Error::invalid_request(
+                "public clients (token_endpoint_auth_method=none) may only use authorization_code",
+            ));
+        }
+    }
+    Ok(())
+}
+
 /// Register a new OAuth2 client
 pub async fn register_client(
     registration: web::Json<ClientRegistration>,
@@ -77,6 +103,7 @@ pub async fn register_client(
     // Validate registration input early (OWASP OAuth guidance: strict redirect URI handling).
     let reg: &ClientRegistration = &registration;
     validate_grant_types(&reg.grant_types)?;
+    validate_token_endpoint_auth_method(&reg.token_endpoint_auth_method, &reg.grant_types)?;
 
     if reg.redirect_uris.is_empty() {
         return Err(OAuth2Error::invalid_request(

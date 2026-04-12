@@ -62,8 +62,12 @@ async fn setup_context(
     let jwt_secret = "test_jwt_secret".to_string();
     let metrics = Metrics::new().expect("metrics");
 
-    let token_actor =
-        oauth2_actix::actors::TokenActor::new(storage.clone(), jwt_secret.clone()).start();
+    let token_actor = oauth2_actix::actors::TokenActor::new(
+        storage.clone(),
+        jwt_secret.clone(),
+        "http://localhost".to_string(),
+    )
+    .start();
     let token_pool = TokenActorPool::new(vec![token_actor]);
     let client_actor = oauth2_actix::actors::ClientActor::new(storage.clone()).start();
     let auth_actor = oauth2_actix::actors::AuthActor::new(storage.clone()).start();

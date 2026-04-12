@@ -176,6 +176,9 @@ pub struct AuthorizeQuery {
     code_challenge: Option<String>,
     code_challenge_method: Option<String>,
     nonce: Option<String>,
+    /// OIDC Core §3.1.2.1: optional hint about the login identifier the user may use.
+    /// Stored in session so the login form can pre-fill the username field.
+    login_hint: Option<String>,
 }
 
 /// OAuth2 authorize endpoint
@@ -187,6 +190,7 @@ pub async fn authorize(
     auth_actor: web::Data<Addr<AuthActor>>,
     client_actor: web::Data<Addr<ClientActor>>,
     metrics: web::Data<Metrics>,
+    oidc_config: web::Data<OidcConfig>,
 ) -> Result<HttpResponse, OAuth2Error> {
     // OAuch: reject duplicate parameters (prevents ambiguous parsing).
     ensure_no_duplicate_query_params(&req)?;
@@ -248,6 +252,12 @@ pub async fn authorize(
                 .insert("return_to", &return_to)
                 .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))?;
 
+            // RFC 9207 / OIDC Core §3.1.2.1: forward login_hint to the login form
+            // so the username field can be pre-filled for the user.
+            if let Some(ref hint) = query.login_hint {
+                let _ = session.insert("login_hint", hint);
+            }
+
             return Ok(auth_response_security_headers(
                 HttpResponse::Found()
                     .append_header(("Location", "/auth/login"))
@@ -291,6 +301,8 @@ pub async fn authorize(
         if let Some(state) = &query.state {
             qp.append_pair("state", state);
         }
+        // RFC 9207: include the issuer identifier to prevent mix-up attacks.
+        qp.append_pair("iss", oidc_config.issuer.trim_end_matches('/'));
     }
 
     Ok(auth_response_security_headers(no_store_headers(
@@ -596,15 +608,25 @@ async fn handle_authorization_code_grant(
         ));
     }
 
-    match req.client_secret {
-        Some(secret) => {
-            if !client_secret_matches(&client, &secret) {
-                return Err(OAuth2Error::invalid_client("Invalid client_secret"));
-            }
+    // RFC 6749 §2.3 / RFC 7591: public clients (token_endpoint_auth_method=none)
+    // authenticate via PKCE only — no client secret is required or expected.
+    if client.is_public() {
+        // Public clients MUST NOT present a secret.
+        if req.client_secret.as_deref().map(|s| !s.is_empty()).unwrap_or(false) {
+            return Err(OAuth2Error::invalid_client(
+                "Public clients must not present a client_secret",
+            ));
         }
-        None => {
-            // Require client authentication for the token endpoint.
-            return Err(OAuth2Error::invalid_client("Missing client_secret"));
+    } else {
+        match req.client_secret {
+            Some(ref secret) => {
+                if !client_secret_matches(&client, secret) {
+                    return Err(OAuth2Error::invalid_client("Invalid client_secret"));
+                }
+            }
+            None => {
+                return Err(OAuth2Error::invalid_client("Missing client_secret"));
+            }
         }
     }
 

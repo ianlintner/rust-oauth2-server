@@ -35,6 +35,8 @@ type RedisConn = ();
 pub struct TokenActor {
     db: DynStorage,
     jwt_secret: String,
+    /// Issuer URL included in JWT `iss` claims (RFC 9068 §2.2 / RFC 7519 §4.1.1).
+    issuer: String,
     access_tokens_opaque: bool,
     event_bus: Option<EventBusHandle>,
     keyset: Option<Arc<RwLock<KeySet>>>,
@@ -48,10 +50,11 @@ pub struct TokenActor {
 }
 
 impl TokenActor {
-    pub fn new(db: DynStorage, jwt_secret: String) -> Self {
+    pub fn new(db: DynStorage, jwt_secret: String, issuer: String) -> Self {
         Self {
             db,
             jwt_secret,
+            issuer,
             access_tokens_opaque: false,
             event_bus: None,
             keyset: None,
@@ -61,10 +64,16 @@ impl TokenActor {
         }
     }
 
-    pub fn with_events(db: DynStorage, jwt_secret: String, event_bus: EventBusHandle) -> Self {
+    pub fn with_events(
+        db: DynStorage,
+        jwt_secret: String,
+        issuer: String,
+        event_bus: EventBusHandle,
+    ) -> Self {
         Self {
             db,
             jwt_secret,
+            issuer,
             access_tokens_opaque: false,
             event_bus: Some(event_bus),
             keyset: None,
@@ -131,6 +140,7 @@ impl Handler<CreateToken> for TokenActor {
     fn handle(&mut self, msg: CreateToken, _: &mut Self::Context) -> Self::Result {
         let db = self.db.clone();
         let jwt_secret = self.jwt_secret.clone();
+        let issuer = self.issuer.clone();
         let event_bus = self.event_bus.clone();
         let keyset = self.keyset.clone();
         let access_tokens_opaque = self.access_tokens_opaque;
@@ -183,6 +193,7 @@ impl Handler<CreateToken> for TokenActor {
                         msg.client_id.clone(),
                         msg.scope.clone(),
                         3600, // 1 hour
+                        &issuer,
                     );
 
                     if let Some(ref key) = signing_key {
@@ -200,6 +211,7 @@ impl Handler<CreateToken> for TokenActor {
                         msg.client_id.clone(),
                         msg.scope.clone(),
                         2592000, // 30 days
+                        &issuer,
                     );
                     let token = if let Some(ref key) = signing_key {
                         refresh_claims.encode_with_key(key)

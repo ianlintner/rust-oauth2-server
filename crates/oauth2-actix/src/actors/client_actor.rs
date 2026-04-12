@@ -135,11 +135,18 @@ impl Handler<RegisterClient> for ClientActor {
 
         Box::pin(
             async move {
-                // Generate client credentials
+                // Generate client credentials.
+                // Public clients (`token_endpoint_auth_method == "none"`) receive a
+                // placeholder secret that is never checked; they authenticate via PKCE.
                 let client_id = format!("client_{}", uuid::Uuid::new_v4());
-                let client_secret = generate_secret();
+                let is_public = msg.registration.token_endpoint_auth_method == "none";
+                let client_secret = if is_public {
+                    String::new()
+                } else {
+                    generate_secret()
+                };
 
-                let client = Client::new(
+                let mut client = Client::new(
                     client_id.clone(),
                     client_secret,
                     msg.registration.redirect_uris,
@@ -147,6 +154,8 @@ impl Handler<RegisterClient> for ClientActor {
                     msg.registration.scope.clone(),
                     msg.registration.client_name.clone(),
                 );
+                client.token_endpoint_auth_method =
+                    msg.registration.token_endpoint_auth_method.clone();
 
                 db.save_client(&client).await?;
 

@@ -30,7 +30,11 @@ fn inactive_introspection_response() -> HttpResponse {
         token_type: None,
         exp: None,
         iat: None,
+        nbf: None,
         sub: None,
+        aud: None,
+        jti: None,
+        iss: None,
     }))
 }
 
@@ -185,7 +189,7 @@ pub async fn introspect(
             let response = IntrospectionResponse {
                 active,
                 scope: Some(scope),
-                client_id: Some(client_id),
+                client_id: Some(client_id.clone()),
                 username: user_id.clone(),
                 token_type: Some(token_type),
                 exp: claims
@@ -196,7 +200,21 @@ pub async fn introspect(
                     .as_ref()
                     .map(|c| c.iat)
                     .or(Some(token.created_at.timestamp())),
+                // nbf mirrors iat (token is valid from issuance; no future-dated tokens)
+                nbf: claims
+                    .as_ref()
+                    .map(|c| c.iat)
+                    .or(Some(token.created_at.timestamp())),
                 sub: claims.as_ref().map(|c| c.sub.clone()).or(user_id),
+                aud: claims
+                    .as_ref()
+                    .map(|c| c.aud.clone())
+                    .or(Some(client_id)),
+                jti: claims
+                    .as_ref()
+                    .map(|c| c.jti.clone())
+                    .or(Some(token.id.clone())),
+                iss: claims.as_ref().map(|c| c.iss.clone()),
             };
 
             Ok(no_store_headers(HttpResponse::Ok().json(response)))

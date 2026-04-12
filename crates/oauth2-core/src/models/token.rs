@@ -121,13 +121,19 @@ fn base64_url_encode(data: &[u8]) -> String {
 }
 
 impl Claims {
-    pub fn new(subject: String, client_id: String, scope: String, duration_seconds: i64) -> Self {
+    pub fn new(
+        subject: String,
+        client_id: String,
+        scope: String,
+        duration_seconds: i64,
+        issuer: &str,
+    ) -> Self {
         let now = Utc::now();
         let exp = now + Duration::seconds(duration_seconds);
 
         Self {
             sub: subject,
-            iss: "rust_oauth2_server".to_string(),
+            iss: issuer.to_string(),
             aud: client_id.clone(),
             exp: exp.timestamp(),
             iat: now.timestamp(),
@@ -138,11 +144,9 @@ impl Claims {
     }
 
     pub fn encode(&self, secret: &str) -> Result<String, jsonwebtoken::errors::Error> {
-        jsonwebtoken::encode(
-            &Header::default(),
-            self,
-            &EncodingKey::from_secret(secret.as_ref()),
-        )
+        let mut header = Header::default();
+        header.typ = Some("at+JWT".to_string());
+        jsonwebtoken::encode(&header, self, &EncodingKey::from_secret(secret.as_ref()))
     }
 
     pub fn decode(token: &str, secret: &str) -> Result<Self, jsonwebtoken::errors::Error> {
@@ -161,6 +165,7 @@ impl Claims {
             KeyAlgorithm::RS256 => Header::new(jsonwebtoken::Algorithm::RS256),
         };
         header.kid = Some(key.kid.clone());
+        header.typ = Some("at+JWT".to_string());
 
         let encoding_key = match key.algorithm {
             KeyAlgorithm::HS256 => EncodingKey::from_secret(&key.key_material),
@@ -329,6 +334,18 @@ pub struct IntrospectionResponse {
     pub exp: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub iat: Option<i64>,
+    /// RFC 7662 §2.2: not-before time (seconds since epoch).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub nbf: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sub: Option<String>,
+    /// RFC 7662 §2.2: audience the token was issued for.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub aud: Option<String>,
+    /// RFC 7662 §2.2: unique identifier for the token (JWT ID).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub jti: Option<String>,
+    /// RFC 7662 §2.2: issuer of the token.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub iss: Option<String>,
 }
