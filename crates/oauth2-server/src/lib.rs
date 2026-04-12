@@ -1077,6 +1077,26 @@ pub async fn run() -> std::io::Result<()> {
                         web::get().to(oauth2_actix::handlers::wellknown::jwks),
                     ),
             )
+            // RFC 7591 / RFC 7592: Dynamic Client Registration & Management
+            .service(
+                web::scope("/connect")
+                    .route(
+                        "/register",
+                        web::post().to(oauth2_actix::handlers::client::dynamic_register),
+                    )
+                    .route(
+                        "/register/{client_id}",
+                        web::get().to(oauth2_actix::handlers::client::read_client_configuration),
+                    )
+                    .route(
+                        "/register/{client_id}",
+                        web::put().to(oauth2_actix::handlers::client::update_client_configuration),
+                    )
+                    .route(
+                        "/register/{client_id}",
+                        web::delete().to(oauth2_actix::handlers::client::delete_client_configuration),
+                    ),
+            )
             // Admin endpoints (protected by AdminGuard middleware)
             .service(
                 web::scope("/admin")

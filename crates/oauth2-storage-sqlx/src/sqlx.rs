@@ -167,7 +167,16 @@ impl SqlxStorage {
                 name TEXT NOT NULL,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
-                token_endpoint_auth_method TEXT NOT NULL DEFAULT 'client_secret_basic'
+                token_endpoint_auth_method TEXT NOT NULL DEFAULT 'client_secret_basic',
+                registration_access_token TEXT NOT NULL DEFAULT '',
+                response_types TEXT NOT NULL DEFAULT '["code"]',
+                contacts TEXT NOT NULL DEFAULT '',
+                logo_uri TEXT NOT NULL DEFAULT '',
+                client_uri TEXT NOT NULL DEFAULT '',
+                policy_uri TEXT NOT NULL DEFAULT '',
+                tos_uri TEXT NOT NULL DEFAULT '',
+                jwks TEXT NOT NULL DEFAULT '',
+                jwks_uri TEXT NOT NULL DEFAULT ''
             );
             "#,
         )
@@ -358,8 +367,8 @@ impl Storage for SqlxStorage {
             DatabasePool::Sqlite(pool) => {
                 sqlx::query(
                     r#"
-                    INSERT INTO clients (id, client_id, client_secret, redirect_uris, grant_types, scope, name, created_at, updated_at, token_endpoint_auth_method)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO clients (id, client_id, client_secret, redirect_uris, grant_types, scope, name, created_at, updated_at, token_endpoint_auth_method, registration_access_token, response_types, contacts, logo_uri, client_uri, policy_uri, tos_uri, jwks, jwks_uri)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     "#,
                 )
                 .bind(&client.id)
@@ -372,14 +381,23 @@ impl Storage for SqlxStorage {
                 .bind(client.created_at)
                 .bind(client.updated_at)
                 .bind(&client.token_endpoint_auth_method)
+                .bind(&client.registration_access_token)
+                .bind(&client.response_types)
+                .bind(&client.contacts)
+                .bind(&client.logo_uri)
+                .bind(&client.client_uri)
+                .bind(&client.policy_uri)
+                .bind(&client.tos_uri)
+                .bind(&client.jwks)
+                .bind(&client.jwks_uri)
                 .execute(pool)
                 .await?;
             }
             DatabasePool::Postgres(pool) => {
                 sqlx::query(
                     r#"
-                    INSERT INTO clients (id, client_id, client_secret, redirect_uris, grant_types, scope, name, created_at, updated_at, token_endpoint_auth_method)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                    INSERT INTO clients (id, client_id, client_secret, redirect_uris, grant_types, scope, name, created_at, updated_at, token_endpoint_auth_method, registration_access_token, response_types, contacts, logo_uri, client_uri, policy_uri, tos_uri, jwks, jwks_uri)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
                     "#,
                 )
                 .bind(&client.id)
@@ -392,6 +410,15 @@ impl Storage for SqlxStorage {
                 .bind(client.created_at)
                 .bind(client.updated_at)
                 .bind(&client.token_endpoint_auth_method)
+                .bind(&client.registration_access_token)
+                .bind(&client.response_types)
+                .bind(&client.contacts)
+                .bind(&client.logo_uri)
+                .bind(&client.client_uri)
+                .bind(&client.policy_uri)
+                .bind(&client.tos_uri)
+                .bind(&client.jwks)
+                .bind(&client.jwks_uri)
                 .execute(pool)
                 .await?;
             }
@@ -417,6 +444,100 @@ impl Storage for SqlxStorage {
         };
 
         Ok(client)
+    }
+
+    async fn update_client(&self, client: &Client) -> Result<(), OAuth2Error> {
+        match &self.pool {
+            DatabasePool::Sqlite(pool) => {
+                sqlx::query(
+                    r#"
+                    UPDATE clients SET
+                        client_secret = ?, redirect_uris = ?, grant_types = ?,
+                        scope = ?, name = ?, updated_at = ?,
+                        token_endpoint_auth_method = ?,
+                        registration_access_token = ?,
+                        response_types = ?, contacts = ?,
+                        logo_uri = ?, client_uri = ?,
+                        policy_uri = ?, tos_uri = ?,
+                        jwks = ?, jwks_uri = ?
+                    WHERE client_id = ?
+                    "#,
+                )
+                .bind(&client.client_secret)
+                .bind(&client.redirect_uris)
+                .bind(&client.grant_types)
+                .bind(&client.scope)
+                .bind(&client.name)
+                .bind(client.updated_at)
+                .bind(&client.token_endpoint_auth_method)
+                .bind(&client.registration_access_token)
+                .bind(&client.response_types)
+                .bind(&client.contacts)
+                .bind(&client.logo_uri)
+                .bind(&client.client_uri)
+                .bind(&client.policy_uri)
+                .bind(&client.tos_uri)
+                .bind(&client.jwks)
+                .bind(&client.jwks_uri)
+                .bind(&client.client_id)
+                .execute(pool)
+                .await?;
+            }
+            DatabasePool::Postgres(pool) => {
+                sqlx::query(
+                    r#"
+                    UPDATE clients SET
+                        client_secret = $1, redirect_uris = $2, grant_types = $3,
+                        scope = $4, name = $5, updated_at = $6,
+                        token_endpoint_auth_method = $7,
+                        registration_access_token = $8,
+                        response_types = $9, contacts = $10,
+                        logo_uri = $11, client_uri = $12,
+                        policy_uri = $13, tos_uri = $14,
+                        jwks = $15, jwks_uri = $16
+                    WHERE client_id = $17
+                    "#,
+                )
+                .bind(&client.client_secret)
+                .bind(&client.redirect_uris)
+                .bind(&client.grant_types)
+                .bind(&client.scope)
+                .bind(&client.name)
+                .bind(client.updated_at)
+                .bind(&client.token_endpoint_auth_method)
+                .bind(&client.registration_access_token)
+                .bind(&client.response_types)
+                .bind(&client.contacts)
+                .bind(&client.logo_uri)
+                .bind(&client.client_uri)
+                .bind(&client.policy_uri)
+                .bind(&client.tos_uri)
+                .bind(&client.jwks)
+                .bind(&client.jwks_uri)
+                .bind(&client.client_id)
+                .execute(pool)
+                .await?;
+            }
+        }
+        Ok(())
+    }
+
+    async fn delete_client(&self, client_id: &str) -> Result<(), OAuth2Error> {
+        match &self.pool {
+            DatabasePool::Sqlite(pool) => {
+                sqlx::query("DELETE FROM clients WHERE client_id = ?")
+                    .bind(client_id)
+                    .execute(pool)
+                    .await?;
+            }
+            DatabasePool::Postgres(pool) => {
+                sqlx::query("DELETE FROM clients WHERE client_id = $1")
+                    .bind(client_id)
+                    .execute(pool)
+                    .await?;
+            }
+        }
+        Ok(())
     }
 
     async fn save_user(&self, user: &User) -> Result<(), OAuth2Error> {

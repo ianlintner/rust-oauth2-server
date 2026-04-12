@@ -157,6 +157,37 @@ impl Handler<RegisterClient> for ClientActor {
                 client.token_endpoint_auth_method =
                     msg.registration.token_endpoint_auth_method.clone();
 
+                // RFC 7591 metadata fields
+                if !msg.registration.response_types.is_empty() {
+                    client.response_types =
+                        serde_json::to_string(&msg.registration.response_types).unwrap_or_default();
+                }
+                if !msg.registration.contacts.is_empty() {
+                    client.contacts =
+                        serde_json::to_string(&msg.registration.contacts).unwrap_or_default();
+                }
+                if let Some(ref uri) = msg.registration.logo_uri {
+                    client.logo_uri = uri.clone();
+                }
+                if let Some(ref uri) = msg.registration.client_uri {
+                    client.client_uri = uri.clone();
+                }
+                if let Some(ref uri) = msg.registration.policy_uri {
+                    client.policy_uri = uri.clone();
+                }
+                if let Some(ref uri) = msg.registration.tos_uri {
+                    client.tos_uri = uri.clone();
+                }
+                if let Some(ref jwks_val) = msg.registration.jwks {
+                    client.jwks = serde_json::to_string(jwks_val).unwrap_or_default();
+                }
+                if let Some(ref uri) = msg.registration.jwks_uri {
+                    client.jwks_uri = uri.clone();
+                }
+
+                // Generate a registration_access_token for RFC 7591 §3.2
+                client.registration_access_token = generate_secret_of_length(48);
+
                 db.save_client(&client).await?;
 
                 // Send back to actor for LRU cache insertion.
@@ -407,9 +438,97 @@ impl Handler<ValidateClient> for ClientActor {
     }
 }
 
+// ---------------------------------------------------------------------------
+// UpdateClient — RFC 7592 client update
+// ---------------------------------------------------------------------------
+
+#[derive(Message)]
+#[rtype(result = "Result<Client, OAuth2Error>")]
+pub struct UpdateClient {
+    pub client: Client,
+    pub span: tracing::Span,
+}
+
+impl Handler<UpdateClient> for ClientActor {
+    type Result = ResponseFuture<Result<Client, OAuth2Error>>;
+
+    fn handle(&mut self, msg: UpdateClient, ctx: &mut Self::Context) -> Self::Result {
+        let db = self.db.clone();
+        let self_addr = ctx.address();
+
+        let parent_span = msg.span.clone();
+        let actor_span = tracing::info_span!(
+            parent: &parent_span,
+            "actor.client.update",
+            trace_id = tracing::field::Empty,
+            span_id = tracing::field::Empty,
+            client_id = %msg.client.client_id
+        );
+        annotate_span_with_trace_ids(&actor_span);
+
+        Box::pin(
+            async move {
+                db.update_client(&msg.client).await?;
+
+                let _ = self_addr.try_send(CacheClient {
+                    client: msg.client.clone(),
+                });
+
+                Ok(msg.client)
+            }
+            .instrument(actor_span),
+        )
+    }
+}
+
+// ---------------------------------------------------------------------------
+// DeleteClient — RFC 7592 client deletion
+// ---------------------------------------------------------------------------
+
+#[derive(Message)]
+#[rtype(result = "Result<(), OAuth2Error>")]
+pub struct DeleteClient {
+    pub client_id: String,
+    pub span: tracing::Span,
+}
+
+impl Handler<DeleteClient> for ClientActor {
+    type Result = ResponseFuture<Result<(), OAuth2Error>>;
+
+    fn handle(&mut self, msg: DeleteClient, _ctx: &mut Self::Context) -> Self::Result {
+        let db = self.db.clone();
+        let client_id = msg.client_id.clone();
+
+        let parent_span = msg.span.clone();
+        let actor_span = tracing::info_span!(
+            parent: &parent_span,
+            "actor.client.delete",
+            trace_id = tracing::field::Empty,
+            span_id = tracing::field::Empty,
+            client_id = %msg.client_id
+        );
+        annotate_span_with_trace_ids(&actor_span);
+
+        // Evict from LRU cache eagerly.
+        self.cache.pop(&client_id);
+
+        Box::pin(
+            async move {
+                db.delete_client(&client_id).await?;
+                Ok(())
+            }
+            .instrument(actor_span),
+        )
+    }
+}
+
 fn generate_secret() -> String {
+    generate_secret_of_length(32)
+}
+
+fn generate_secret_of_length(len: usize) -> String {
     let mut rng = rand::rng();
-    let secret: String = (0..32)
+    (0..len)
         .map(|_| {
             let idx = rng.random_range(0..62);
             match idx {
@@ -418,6 +537,5 @@ fn generate_secret() -> String {
                 _ => (b'0' + (idx - 52)) as char,
             }
         })
-        .collect();
-    secret
+        .collect()
 }

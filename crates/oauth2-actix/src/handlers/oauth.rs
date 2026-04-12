@@ -105,6 +105,54 @@ pub(crate) fn client_secret_matches(client: &oauth2_core::Client, presented_secr
         .into()
 }
 
+/// Authenticate a confidential client for the token endpoint.
+///
+/// Dispatches to the correct authentication method based on the client's
+/// `token_endpoint_auth_method`:
+///   - `client_secret_basic` / `client_secret_post`: constant-time secret comparison
+///   - `client_secret_jwt` / `private_key_jwt`: JWT assertion validation (RFC 7523)
+///   - `none`: public client (caller should handle separately)
+fn authenticate_confidential_client(
+    client: &oauth2_core::Client,
+    req: &TokenRequest,
+    token_endpoint_url: &str,
+) -> Result<(), OAuth2Error> {
+    match client.token_endpoint_auth_method.as_str() {
+        "client_secret_basic" | "client_secret_post" => match req.client_secret.as_deref() {
+            Some(secret) => {
+                if !client_secret_matches(client, secret) {
+                    return Err(OAuth2Error::invalid_client("Invalid client_secret"));
+                }
+                Ok(())
+            }
+            None => Err(OAuth2Error::invalid_client("Missing client_secret")),
+        },
+        "client_secret_jwt" | "private_key_jwt" => {
+            let assertion_type = req
+                .client_assertion_type
+                .as_deref()
+                .ok_or_else(|| OAuth2Error::invalid_client("Missing client_assertion_type"))?;
+            if assertion_type != JWT_BEARER_ASSERTION_TYPE {
+                return Err(OAuth2Error::invalid_client(
+                    "Unsupported client_assertion_type",
+                ));
+            }
+            let assertion = req
+                .client_assertion
+                .as_deref()
+                .ok_or_else(|| OAuth2Error::invalid_client("Missing client_assertion"))?;
+            validate_jwt_client_assertion(client, assertion, token_endpoint_url)
+        }
+        "none" => {
+            // Public client — typically handled before this function is called.
+            Ok(())
+        }
+        other => Err(OAuth2Error::invalid_client(&format!(
+            "Unsupported token_endpoint_auth_method: {other}"
+        ))),
+    }
+}
+
 fn no_store_headers(mut resp: HttpResponse) -> HttpResponse {
     resp.headers_mut().insert(
         actix_web::http::header::CACHE_CONTROL,
@@ -402,6 +450,118 @@ pub struct TokenRequest {
     scope: Option<String>,
     code_verifier: Option<String>,
     device_code: Option<String>,
+    /// RFC 7521 §4.2: assertion type (e.g.
+    /// `urn:ietf:params:oauth:client-assertion-type:jwt-bearer`).
+    client_assertion_type: Option<String>,
+    /// RFC 7521 §4.2: the assertion itself (a JWT).
+    client_assertion: Option<String>,
+}
+
+/// JWT Bearer assertion type per RFC 7523 §2.2.
+const JWT_BEARER_ASSERTION_TYPE: &str = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer";
+
+/// Validate a JWT client assertion (RFC 7523 §3).
+///
+/// Supports both `client_secret_jwt` (HMAC / HS256) and `private_key_jwt`
+/// (RSA / RS256) depending on `client.token_endpoint_auth_method`.
+fn validate_jwt_client_assertion(
+    client: &oauth2_core::Client,
+    assertion: &str,
+    token_endpoint_url: &str,
+) -> Result<(), OAuth2Error> {
+    use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
+
+    let header = jsonwebtoken::decode_header(assertion)
+        .map_err(|_| OAuth2Error::invalid_client("Malformed client_assertion JWT"))?;
+
+    match client.token_endpoint_auth_method.as_str() {
+        "client_secret_jwt" => {
+            if header.alg != Algorithm::HS256 {
+                return Err(OAuth2Error::invalid_client(
+                    "client_secret_jwt requires HS256 algorithm",
+                ));
+            }
+            let key = DecodingKey::from_secret(client.client_secret.as_bytes());
+            let mut validation = Validation::new(Algorithm::HS256);
+            // `aud` MUST contain the token endpoint URL (RFC 7523 §3)
+            validation.set_audience(&[token_endpoint_url]);
+            validation.set_required_spec_claims(&["exp", "sub", "iss", "aud"]);
+            let data = decode::<serde_json::Value>(assertion, &key, &validation).map_err(|e| {
+                OAuth2Error::invalid_client(&format!("client_secret_jwt validation failed: {e}"))
+            })?;
+            // `iss` and `sub` MUST equal the client_id (RFC 7523 §3)
+            let claims = data.claims;
+            let iss = claims.get("iss").and_then(|v| v.as_str()).unwrap_or("");
+            let sub = claims.get("sub").and_then(|v| v.as_str()).unwrap_or("");
+            if iss != client.client_id || sub != client.client_id {
+                return Err(OAuth2Error::invalid_client(
+                    "JWT iss/sub must equal client_id",
+                ));
+            }
+            Ok(())
+        }
+        "private_key_jwt" => {
+            if header.alg != Algorithm::RS256 {
+                return Err(OAuth2Error::invalid_client(
+                    "private_key_jwt requires RS256 algorithm",
+                ));
+            }
+            // The client must have registered a JWKS with at least one key.
+            if client.jwks.is_empty() {
+                return Err(OAuth2Error::invalid_client(
+                    "Client has no registered JWKS for private_key_jwt",
+                ));
+            }
+            let jwks: serde_json::Value = serde_json::from_str(&client.jwks)
+                .map_err(|_| OAuth2Error::invalid_client("Client JWKS is not valid JSON"))?;
+            let keys = jwks
+                .get("keys")
+                .and_then(|v| v.as_array())
+                .ok_or_else(|| OAuth2Error::invalid_client("Client JWKS missing 'keys' array"))?;
+
+            // Find matching key by kid (or use the first RSA key).
+            let key_json = if let Some(kid) = &header.kid {
+                keys.iter()
+                    .find(|k| k.get("kid").and_then(|v| v.as_str()) == Some(kid))
+                    .ok_or_else(|| OAuth2Error::invalid_client("No matching kid in client JWKS"))?
+            } else {
+                keys.iter()
+                    .find(|k| k.get("kty").and_then(|v| v.as_str()) == Some("RSA"))
+                    .ok_or_else(|| OAuth2Error::invalid_client("No RSA key found in client JWKS"))?
+            };
+
+            let n = key_json
+                .get("n")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| OAuth2Error::invalid_client("JWKS key missing 'n' component"))?;
+            let e = key_json
+                .get("e")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| OAuth2Error::invalid_client("JWKS key missing 'e' component"))?;
+
+            let decoding_key = DecodingKey::from_rsa_components(n, e).map_err(|_| {
+                OAuth2Error::invalid_client("Failed to construct RSA key from client JWKS")
+            })?;
+            let mut validation = Validation::new(Algorithm::RS256);
+            validation.set_audience(&[token_endpoint_url]);
+            validation.set_required_spec_claims(&["exp", "sub", "iss", "aud"]);
+            let data = decode::<serde_json::Value>(assertion, &decoding_key, &validation).map_err(
+                |e| OAuth2Error::invalid_client(&format!("private_key_jwt validation failed: {e}")),
+            )?;
+            let claims = data.claims;
+            let iss = claims.get("iss").and_then(|v| v.as_str()).unwrap_or("");
+            let sub = claims.get("sub").and_then(|v| v.as_str()).unwrap_or("");
+            if iss != client.client_id || sub != client.client_id {
+                return Err(OAuth2Error::invalid_client(
+                    "JWT iss/sub must equal client_id",
+                ));
+            }
+            Ok(())
+        }
+        _ => Err(OAuth2Error::invalid_client(
+            "Client is not configured for JWT authentication",
+        )),
+    }
 }
 
 /// OAuth2 token endpoint
@@ -452,8 +612,12 @@ pub async fn token(
 
     let client_id = body_client_id
         .or(basic_client_id)
+        .or_else(|| form_map.get("client_id").cloned())
         .ok_or_else(|| OAuth2Error::invalid_request("Missing client_id"))?;
     let client_secret = body_client_secret.or(basic_client_secret);
+
+    let client_assertion_type = form_map.get("client_assertion_type").cloned();
+    let client_assertion = form_map.get("client_assertion").cloned();
 
     let form = TokenRequest {
         grant_type: form_map
@@ -470,6 +634,8 @@ pub async fn token(
         scope: form_map.get("scope").cloned(),
         code_verifier: form_map.get("code_verifier").cloned(),
         device_code: form_map.get("device_code").cloned(),
+        client_assertion_type,
+        client_assertion,
     };
 
     match form.grant_type.as_str() {
@@ -485,10 +651,11 @@ pub async fn token(
             .await
         }
         "client_credentials" => {
-            handle_client_credentials_grant(form, token_actor, client_actor, metrics).await
+            handle_client_credentials_grant(form, token_actor, client_actor, metrics, oidc_config)
+                .await
         }
         "refresh_token" => {
-            handle_refresh_token_grant(form, token_actor, client_actor, metrics).await
+            handle_refresh_token_grant(form, token_actor, client_actor, metrics, oidc_config).await
         }
         DEVICE_CODE_GRANT_TYPE | "device_code" => {
             let storage = storage.ok_or_else(|| {
@@ -527,6 +694,7 @@ async fn handle_device_code_grant(
 ) -> Result<HttpResponse, OAuth2Error> {
     let device_code = req
         .device_code
+        .clone()
         .ok_or_else(|| OAuth2Error::invalid_request("Missing device_code"))?;
 
     let client = client_actor
@@ -537,12 +705,8 @@ async fn handle_device_code_grant(
         .await
         .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))??;
 
-    let client_secret = req
-        .client_secret
-        .ok_or_else(|| OAuth2Error::invalid_client("Missing client_secret"))?;
-    if !client_secret_matches(&client, &client_secret) {
-        return Err(OAuth2Error::invalid_client("Invalid client_secret"));
-    }
+    let token_endpoint_url = format!("{}/oauth/token", oidc_config.issuer.trim_end_matches('/'));
+    authenticate_confidential_client(&client, &req, &token_endpoint_url)?;
 
     if !client.supports_grant_type(DEVICE_CODE_GRANT_TYPE)
         && !client.supports_grant_type("device_code")
@@ -648,6 +812,7 @@ async fn handle_authorization_code_grant(
 ) -> Result<HttpResponse, OAuth2Error> {
     let code = req
         .code
+        .clone()
         .ok_or_else(|| OAuth2Error::invalid_request("Missing code"))?;
 
     if matches!(req.redirect_uri.as_deref(), Some("")) {
@@ -661,8 +826,8 @@ async fn handle_authorization_code_grant(
         .send(ValidateAuthorizationCode {
             code: code.clone(),
             client_id: req.client_id.clone(),
-            redirect_uri: req.redirect_uri,
-            code_verifier: req.code_verifier,
+            redirect_uri: req.redirect_uri.clone(),
+            code_verifier: req.code_verifier.clone(),
             span: tracing::Span::current(),
         })
         .await
@@ -698,16 +863,9 @@ async fn handle_authorization_code_grant(
             ));
         }
     } else {
-        match req.client_secret {
-            Some(ref secret) => {
-                if !client_secret_matches(&client, secret) {
-                    return Err(OAuth2Error::invalid_client("Invalid client_secret"));
-                }
-            }
-            None => {
-                return Err(OAuth2Error::invalid_client("Missing client_secret"));
-            }
-        }
+        let token_endpoint_url =
+            format!("{}/oauth/token", oidc_config.issuer.trim_end_matches('/'));
+        authenticate_confidential_client(&client, &req, &token_endpoint_url)?;
     }
 
     // Only consume (burn) the authorization code after we've authenticated/authorized the client.
@@ -792,6 +950,7 @@ async fn handle_client_credentials_grant(
     token_actor: web::Data<TokenActorPool>,
     client_actor: web::Data<Addr<ClientActor>>,
     metrics: web::Data<Metrics>,
+    oidc_config: web::Data<OidcConfig>,
 ) -> Result<HttpResponse, OAuth2Error> {
     // Validate client exists + grant permissions.
     let client = client_actor
@@ -809,12 +968,8 @@ async fn handle_client_credentials_grant(
     }
 
     // Validate client credentials (required for this grant).
-    let client_secret = req
-        .client_secret
-        .ok_or_else(|| OAuth2Error::invalid_client("Missing client_secret"))?;
-    if !client_secret_matches(&client, &client_secret) {
-        return Err(OAuth2Error::invalid_client("Invalid client_secret"));
-    }
+    let token_endpoint_url = format!("{}/oauth/token", oidc_config.issuer.trim_end_matches('/'));
+    authenticate_confidential_client(&client, &req, &token_endpoint_url)?;
 
     let scope = req.scope.unwrap_or_else(|| "read".to_string());
 
@@ -851,9 +1006,11 @@ async fn handle_refresh_token_grant(
     token_actor: web::Data<TokenActorPool>,
     client_actor: web::Data<Addr<ClientActor>>,
     metrics: web::Data<Metrics>,
+    oidc_config: web::Data<OidcConfig>,
 ) -> Result<HttpResponse, OAuth2Error> {
     let refresh_token_str = req
         .refresh_token
+        .clone()
         .ok_or_else(|| OAuth2Error::invalid_request("Missing refresh_token"))?;
 
     // Authenticate the client.
@@ -865,11 +1022,11 @@ async fn handle_refresh_token_grant(
         .await
         .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))??;
 
-    let client_secret = req
-        .client_secret
-        .ok_or_else(|| OAuth2Error::invalid_client("Missing client_secret"))?;
-    if !client_secret_matches(&client, &client_secret) {
-        return Err(OAuth2Error::invalid_client("Invalid client_secret"));
+    // Public clients skip secret check; others use the unified authenticator.
+    if !client.is_public() {
+        let token_endpoint_url =
+            format!("{}/oauth/token", oidc_config.issuer.trim_end_matches('/'));
+        authenticate_confidential_client(&client, &req, &token_endpoint_url)?;
     }
 
     // Verify the client is authorized to use the refresh_token grant type.

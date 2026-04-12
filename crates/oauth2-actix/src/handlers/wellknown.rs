@@ -70,7 +70,7 @@ pub async fn openid_configuration(
         "userinfo_endpoint": format!("{}/oauth/userinfo", base),
         "device_authorization_endpoint": format!("{}/oauth/device_authorization", base),
         "jwks_uri": format!("{}/.well-known/jwks.json", base),
-        "registration_endpoint": format!("{}/admin/clients/register", base),
+        "registration_endpoint": format!("{}/connect/register", base),
         "scopes_supported": ["openid", "profile", "email", "read", "write", "admin"],
         "response_types_supported": ["code"],
         "grant_types_supported": [
@@ -84,6 +84,8 @@ pub async fn openid_configuration(
         "token_endpoint_auth_methods_supported": [
             "client_secret_basic",
             "client_secret_post",
+            "client_secret_jwt",
+            "private_key_jwt",
             "none"
         ],
         "claims_supported": [

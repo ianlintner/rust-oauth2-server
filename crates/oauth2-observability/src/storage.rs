@@ -76,6 +76,36 @@ impl Storage for ObservedStorage {
             .await
     }
 
+    async fn update_client(&self, client: &Client) -> Result<(), OAuth2Error> {
+        let span = tracing::info_span!(
+            "db",
+            trace_id = field::Empty,
+            span_id = field::Empty,
+            db_system = %self.db_system,
+            db_operation = "update_client",
+            client_id = %client.client_id
+        );
+        annotate_span_with_trace_ids(&span);
+        async move { self.inner.update_client(client).await }
+            .instrument(span)
+            .await
+    }
+
+    async fn delete_client(&self, client_id: &str) -> Result<(), OAuth2Error> {
+        let span = tracing::info_span!(
+            "db",
+            trace_id = field::Empty,
+            span_id = field::Empty,
+            db_system = %self.db_system,
+            db_operation = "delete_client",
+            client_id = %client_id
+        );
+        annotate_span_with_trace_ids(&span);
+        async move { self.inner.delete_client(client_id).await }
+            .instrument(span)
+            .await
+    }
+
     async fn save_user(&self, user: &User) -> Result<(), OAuth2Error> {
         let span = tracing::info_span!(
             "db",
