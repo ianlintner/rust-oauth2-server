@@ -1025,20 +1025,9 @@ async fn userinfo_returns_real_email_when_email_scope_requested() {
     )
     .await;
 
-    // Issue a client_credentials token with user_id set manually
-    // (client_credentials tokens don't have user_id, so we use an auth code flow)
-    // Instead, we'll issue a token and then call userinfo.
-    // Since client_credentials tokens have no user_id, we need to manually
-    // create a token via the actor or use an auth code flow.
-    // For simplicity, let's use the token endpoint with client_credentials
-    // and note that userinfo will reject tokens without user_id.
-    // So we skip that route and directly test with an authorization_code flow.
-
-    // Actually, we can test that email scope-gating works by verifying
-    // the discovery doc advertises it, and test the handler signature.
-    // The full flow requires session + auth code which is complex.
-    // Let's verify the email scope via the existing handler path.
-    // We'll test this via a minimal token creation.
+    // client_credentials tokens have no user_id, so userinfo correctly rejects them.
+    // The full auth code flow with real user claims is tested separately in
+    // userinfo_returns_real_claims_for_auth_code_flow.
 
     let resp = test::call_service(
         &app,

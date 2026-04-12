@@ -255,7 +255,7 @@ pub async fn authorize(
     // prompt=none: the AS must NOT display any UI. If not authenticated, return error.
     if prompt == "none" {
         match user_id {
-            Some(ref _uid) => { /* session exists; continue below */ }
+            Some(_) => { /* session exists; continue below */ }
             None => {
                 // OIDC Core §3.1.2.6: return login_required via redirect.
                 let mut url = Url::parse(&query.redirect_uri)
