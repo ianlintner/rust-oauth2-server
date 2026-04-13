@@ -51,6 +51,10 @@ When docs and assumptions disagree, check these files first:
 - admin routes live under `/admin/*` and are protected by `AdminGuard`
 - `POST /oauth/introspect` and `POST /oauth/revoke` require client authentication by default (`client_secret_post` or `client_secret_basic`); set `OAUTH2_PUBLIC_INTROSPECTION=true` only for deployments that intentionally expose public introspection
 - `POST /events/ingest` requires a bearer token by default (`OAUTH2_EVENTS_INGEST_BEARER_TOKEN`); set `OAUTH2_EVENTS_PUBLIC_INGEST=true` to allow unauthenticated callers (not recommended for production)
+- access tokens are JWTs (HS256 or RS256) by default; set `OAUTH2_ACCESS_TOKENS_OPAQUE=true` to issue opaque reference tokens
+- `POST /oauth/introspect` supports `Accept: application/token-introspection+jwt` (RFC 9701) to return a signed JWT response
+- `POST /connect/register` is the RFC 7591 dynamic client registration endpoint; manage registered clients via RFC 7592 at `GET/PUT/DELETE /connect/register/{client_id}`
+- `POST /oauth/par` implements RFC 9126 Pushed Authorization Requests; the returned `request_uri` is valid for 60 seconds
 
 ## Contributor gate
 

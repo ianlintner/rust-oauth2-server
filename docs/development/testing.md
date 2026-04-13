@@ -46,9 +46,38 @@ export OAUTH2_DATABASE_URL=postgresql://user:pass@localhost:5432/oauth2
 cargo test --test integration
 ```
 
-## BDD tests
+## RFC compliance tests
 
-BDD coverage is under `tests/features/` and runs through the dedicated test target:
+RFC-level compliance tests live in dedicated files under `tests/`. Each file maps test functions to specific RFC sections — see `docs/compliance/RFC_COMPLIANCE.md` for the full coverage matrix.
+
+| File | RFCs covered |
+| ---- | ------------ |
+| `tests/compliance_rfc6749.rs` | RFC 6749 core |
+| `tests/compliance_rfc6750.rs` | RFC 6750 bearer token usage |
+| `tests/compliance_rfc7636.rs` | RFC 7636 PKCE |
+| `tests/compliance_rfc7662_7009.rs` | RFC 7662 introspection + RFC 7009 revocation |
+| `tests/compliance_rfc8414.rs` | RFC 8414 authorization server metadata |
+| `tests/compliance_rfc8628.rs` | RFC 8628 device authorization grant |
+| `tests/compliance_oidc_core.rs` | OIDC Core 1.0 |
+| `tests/compliance_wave3.rs` | RFC 9126 PAR, RFC 8707 resource indicators, RFC 9701 JWT introspection |
+| `tests/phase2_rfc_compliance.rs` | RFC 7591/7592 dynamic client registration, RFC 7523 JWT client auth |
+| `tests/compliance_wave4.rs` | DPoP, mTLS, token exchange, RAR, step-up, protected resource metadata (discovery advertising) |
+
+Run all compliance tests:
+
+```bash
+cargo test --test compliance_rfc6749 --test compliance_rfc6750 \
+  --test compliance_rfc7636 --test compliance_rfc7662_7009 \
+  --test compliance_rfc8414 --test compliance_rfc8628 \
+  --test compliance_oidc_core --test compliance_wave3 \
+  --test phase2_rfc_compliance --test compliance_wave4
+```
+
+Or run all tests at once:
+
+```bash
+cargo test --all-features --locked
+```
 
 ```bash
 cargo test --test bdd

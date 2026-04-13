@@ -83,6 +83,7 @@ These are worth calling out because startup and auth flows depend on them.
 | `OAUTH2_SEED_PASSWORD`            | Required in normal mode; the server aborts on `changeme`.   |
 | `OAUTH2_ALLOW_INSECURE_DEFAULTS`  | Development-only escape hatch. Never set in production.     |
 | `OAUTH2_JWT_STATELESS_VALIDATION` | Skips DB-backed introspection checks for higher throughput. |
+| `OAUTH2_ACCESS_TOKENS_OPAQUE`    | Issue opaque (reference-style) access tokens instead of JWTs. Default `false`. |
 | `OAUTH2_PUBLIC_INTROSPECTION`     | Allows unauthenticated callers to use introspection. Default `false`. |
 
 ## Social login

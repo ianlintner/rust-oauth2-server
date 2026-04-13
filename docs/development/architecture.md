@@ -77,6 +77,8 @@ A few architectural choices matter for operators and contributors:
 - CORS is fail-closed unless allowed origins are configured
 - the root route redirects to `/profile`, not `/auth/login`
 - Okta and Auth0 routes exist but currently return HTTP 503
+- access tokens are JWTs by default; set `OAUTH2_ACCESS_TOKENS_OPAQUE=true` to issue opaque reference tokens
+- introspection and revocation require client authentication by default (`OAUTH2_PUBLIC_INTROSPECTION=false`)
 
 ## Where to look before changing behavior
 

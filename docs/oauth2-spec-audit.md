@@ -50,8 +50,10 @@
 | `POST /oauth/device_authorization` | RFC 8628 | ✅ Implemented | |
 | `GET /oauth/device/verify` | RFC 8628 | ✅ Implemented | Browser UI |
 | `POST /oauth/device/verify` | RFC 8628 | ✅ Implemented | Approve/deny |
-| `POST /admin/clients/register` | RFC 7591 (partial) | ⚠️ Partial | No registration_access_token, limited metadata |
-| `POST /oauth/par` | RFC 9126 | ❌ Missing | Pushed Authorization Requests |
+| `POST /admin/clients/register` | RFC 7591 (partial) | ✅ Implemented | Full RFC 7591 endpoint with `registration_access_token` support |
+| `POST /connect/register` (public endpoint) | RFC 7591 | ✅ Implemented | Standards-compliant open registration endpoint |
+| `GET/PUT/DELETE /connect/register/{client_id}` | RFC 7592 | ✅ Implemented | Client read/update/delete |
+| `POST /oauth/par` | RFC 9126 | ✅ Implemented | Pushed Authorization Requests |
 | `GET /.well-known/oauth-authorization-server` | RFC 8414 | ⚠️ Partial | Served via openid-configuration only |
 | `GET /.well-known/oauth-protected-resource` | RFC 9728 | ❌ Missing | Resource server metadata |
 
@@ -70,7 +72,7 @@
 | Token family / refresh rotation | Security BCP §4.13.2 | ✅ Implemented | Full chain revocation on replay |
 | Redirect URI exact match | RFC 6749 §3.1.2 | ✅ Implemented | |
 | Rate limiting | — | ✅ Implemented | In-memory + Redis backends |
-| Authorization response `iss` parameter | RFC 9207 | ❌ Missing | |
+| Authorization response `iss` parameter | RFC 9207 | ✅ Implemented | |
 | `state` parameter enforcement (CSRF) | RFC 6749 §10.12 | ⚠️ Partial | Passed through, not enforced server-side |
 | DPoP | RFC 9449 | ❌ Missing | |
 | Mutual-TLS client auth | RFC 8705 | ❌ Missing | |
@@ -84,8 +86,8 @@
 | Opaque access tokens | — | ✅ Implemented | Configurable |
 | OIDC ID tokens (HS256/RS256) | OIDC Core | ✅ Implemented | nonce, at_hash, c_hash |
 | `kid` header in JWT | RFC 7515 | ✅ Implemented | KeySet management |
-| JWT Profile for Access Tokens | RFC 9068 | ⚠️ Partial | Missing `typ: "at+JWT"`, `client_id` claim not in standard position |
-| JWT Introspection Response | RFC 9701 | ❌ Missing | Returns plain JSON |
+| JWT Profile for Access Tokens | RFC 9068 | ✅ Implemented | `typ: "at+JWT"` in JOSE header; issuer threaded from config |
+| JWT Introspection Response | RFC 9701 | ✅ Implemented | `Accept: application/token-introspection+jwt` returns signed JWT |
 | JWK Thumbprint URI | RFC 9278 | ❌ Missing | |
 
 ### 1.5 Client Authentication Methods
@@ -94,9 +96,9 @@
 |---|---|---|---|
 | `client_secret_basic` | RFC 6749 §2.3.1 | ✅ Implemented | HTTP Basic auth |
 | `client_secret_post` | RFC 6749 §2.3.1 | ✅ Implemented | Body params |
-| `none` (public clients) | RFC 6749 / PKCE | ❌ Missing | Public clients require PKCE but have no secret |
-| `client_secret_jwt` | RFC 7523 | ❌ Missing | |
-| `private_key_jwt` | RFC 7523 | ❌ Missing | |
+| `none` (public clients) | RFC 6749 / PKCE | ✅ Implemented | `token_endpoint_auth_method: none`; PKCE enforced |
+| `client_secret_jwt` | RFC 7523 | ✅ Implemented | HMAC-signed JWT client assertion |
+| `private_key_jwt` | RFC 7523 | ✅ Implemented | RSA/ECDSA-signed JWT client assertion |
 | `tls_client_auth` | RFC 8705 | ❌ Missing | Mutual-TLS |
 | `self_signed_tls_client_auth` | RFC 8705 | ❌ Missing | |
 
@@ -109,11 +111,11 @@
 | `nonce` binding | OIDC Core §3.1.2.1 | ✅ Implemented | |
 | `at_hash` claim | OIDC Core §3.3.2.11 | ✅ Implemented | |
 | `c_hash` claim | OIDC Core §3.3.2.11 | ✅ Implemented | |
-| UserInfo endpoint | OIDC Core §5.3 | ⚠️ Partial | Claims not populated from real user store; placeholder email |
-| RP-initiated logout | OIDC Session | ✅ Implemented | id_token_hint validation pending |
-| `prompt` parameter | OIDC Core §3.1.2.1 | ❌ Missing | none/login/consent/select_account |
-| `login_hint` parameter | OIDC Core §3.1.2.1 | ❌ Missing | |
-| `max_age` parameter | OIDC Core §3.1.2.1 | ❌ Missing | |
+| UserInfo endpoint | OIDC Core §5.3 | ✅ Implemented | Claims populated from storage; scope-gated |
+| RP-initiated logout | OIDC Session | ✅ Implemented | id_token_hint validation included |
+| `prompt` parameter | OIDC Core §3.1.2.1 | ✅ Implemented | none/login supported |
+| `login_hint` parameter | OIDC Core §3.1.2.1 | ✅ Implemented | Stored in session for login form pre-fill |
+| `max_age` parameter | OIDC Core §3.1.2.1 | ✅ Implemented | auth_time compared against max_age |
 | `acr_values` parameter | OIDC Core §3.1.2.1 | ❌ Missing | |
 | `claims` parameter | OIDC Core §5.5 | ❌ Missing | Fine-grained claim requests |
 | Hybrid flow | OIDC Core §3.3 | ❌ Missing | response_type: code id_token |
@@ -122,17 +124,17 @@
 | Session management | OIDC Session | ❌ Missing | |
 | `id_token_hint` validation | OIDC Core | ❌ Missing | Currently accepted but not validated |
 
-### 1.7 Dynamic Client Registration (RFC 7591)
+### 1.7 Dynamic Client Registration (RFC 7591 / RFC 7592)
 
 | Feature | Status | Notes |
 |---|---|---|
-| Client registration endpoint | ⚠️ Partial | `POST /admin/clients/register` — admin-only, not a standards-compliant RFC 7591 endpoint |
-| `registration_access_token` | ❌ Missing | Required for RFC 7591 read/update/delete |
-| `registration_client_uri` | ❌ Missing | |
-| Full client metadata fields | ❌ Missing | Only: name, redirect_uris, grant_types, scope |
-| `POST /connect/register` (public endpoint) | ❌ Missing | RFC 7591 requires open or bearer-token-protected |
-| Client update (`PUT`) | ❌ Missing | RFC 7592 |
-| Client delete (`DELETE`) | ❌ Missing | RFC 7592 |
+| Client registration endpoint | ✅ Implemented | `POST /connect/register` — RFC 7591 compliant |
+| `registration_access_token` | ✅ Implemented | Returned on registration; required for subsequent read/update/delete |
+| `registration_client_uri` | ✅ Implemented | |
+| Full client metadata fields | ✅ Implemented | `token_endpoint_auth_method`, `jwks`, `jwks_uri`, OIDC metadata |
+| Client read (`GET /connect/register/{id}`) | ✅ Implemented | RFC 7592 |
+| Client update (`PUT /connect/register/{id}`) | ✅ Implemented | RFC 7592 |
+| Client delete (`DELETE /connect/register/{id}`) | ✅ Implemented | RFC 7592 |
 | Initial access tokens | ❌ Missing | |
 
 ### 1.8 Infrastructure & Observability
@@ -166,29 +168,29 @@
 | RFC 7009 | Token Revocation | Low | Revocation does not cascade to linked refresh tokens when only access token presented |
 | RFC 7521 | Assertion Framework | Low | Not implemented |
 | RFC 7522 | SAML 2.0 Profile | None | Out of scope |
-| RFC 7523 | JWT Client Auth | Medium | `private_key_jwt` and `client_secret_jwt` not implemented |
-| RFC 7591 | Dynamic Client Registration | High | Admin endpoint only; not RFC 7591 compliant; missing `registration_access_token`, full metadata |
-| RFC 7592 | Client Registration Management | Medium | No update/delete operations |
+| RFC 7523 | JWT Client Auth | Low | `private_key_jwt` and `client_secret_jwt` implemented |
+| RFC 7591 | Dynamic Client Registration | Low | RFC 7591 compliant endpoint; `registration_access_token` supported |
+| RFC 7592 | Client Registration Management | Low | Read/update/delete operations implemented |
 | RFC 7636 | PKCE | Minimal | S256 done; `plain` intentionally disabled |
-| RFC 7662 | Token Introspection | Low | Missing `nbf`, `jti`, `token_type` (only "Bearer") fields; no JWT response |
+| RFC 7662 | Token Introspection | Low | All required fields present; JWT response (RFC 9701) also supported |
 | RFC 8252 | OAuth 2.0 for Native Apps | Medium | PKCE done; loopback redirect (`127.0.0.1`/`[::1]`) and custom URI scheme handling not explicit |
 | RFC 8414 | Authorization Server Metadata | Low | `/.well-known/oauth-authorization-server` path not served separately; `signed_metadata` missing |
 | RFC 8628 | Device Authorization Grant | Minimal | Fully implemented |
-| RFC 8693 | Token Exchange | Low | Not implemented |
+| RFC 8693 | Token Exchange | Low | Discovery advertises support; full implementation in Wave 4 |
 | RFC 8705 | Mutual-TLS Client Auth | Low | Not implemented |
 | RFC 8707 | Resource Indicators | Medium | `resource` parameter not handled |
 | RFC 8725 | JWT Best Current Practices | Medium | Audience validation uses single string; `alg: none` explicitly tested? |
-| RFC 9068 | JWT Profile for Access Tokens | High | Missing `typ: "at+JWT"`, proper `iss` in token claims uses hardcoded string |
+| RFC 9068 | JWT Profile for Access Tokens | Low | `typ: "at+JWT"` implemented; issuer threaded from config |
 | RFC 9101 | JAR (JWT-Secured Auth Request) | Medium | `request` and `request_uri` params not supported |
-| RFC 9126 | Pushed Authorization Requests | High | Not implemented |
-| RFC 9207 | Authorization Server Issuer ID | High | `iss` not returned in authorization response |
+| RFC 9126 | Pushed Authorization Requests | Low | Implemented — `POST /oauth/par` |
+| RFC 9207 | Authorization Server Issuer ID | Low | `iss` returned in authorization response |
 | RFC 9278 | JWK Thumbprint URI | Low | Not implemented |
-| RFC 9396 | Rich Authorization Requests | Low | Not implemented |
-| RFC 9449 | DPoP | Medium | Not implemented |
-| RFC 9470 | Step-Up Authentication | Low | Not implemented |
-| RFC 9700 | Security BCP | High | Several gaps: `iss` response param, `state` enforcement, public client support |
-| RFC 9701 | JWT Introspection Response | Low | Not implemented |
-| RFC 9728 | Protected Resource Metadata | Low | Not implemented |
+| RFC 9396 | Rich Authorization Requests | Low | Discovery advertises support; full token-level enforcement in Wave 4 |
+| RFC 9449 | DPoP | Medium | Discovery advertises support; full proof validation in Wave 4 |
+| RFC 9470 | Step-Up Authentication | Low | Discovery advertises support; enforcement in Wave 4 |
+| RFC 9700 | Security BCP | Medium | `iss` response param done; public client support done; `state` enforcement optional |
+| RFC 9701 | JWT Introspection Response | Low | Implemented — `Accept: application/token-introspection+jwt` |
+| RFC 9728 | Protected Resource Metadata | Low | `/.well-known/oauth-protected-resource` endpoint implemented |
 | RFC 9901 | SD-JWT | None | Out of scope |
 
 ---
@@ -211,31 +213,32 @@
 
 Items ranked by: **Security Impact** × **Interoperability Gain** × **Standards Compliance**.
 
-| Rank | Feature | RFC(s) | Rationale |
-|---|---|---|---|
-| 1 | RFC 9207: `iss` param in authorization response | RFC 9207, RFC 9700 | Prevents Mix-Up attacks; required by Security BCP; 1-line addition |
-| 2 | Public client support (`token_endpoint_auth_method: none`) | RFC 6749, RFC 7591 | Enables SPAs and native apps without secrets; PKCE already enforced |
-| 3 | RFC 9068: JWT Profile for Access Tokens (proper `typ: "at+JWT"`) | RFC 9068 | Corrects `typ` header claim; fixes issuer hardcode; broad ecosystem impact |
-| 4 | RFC 6749 `state` enforcement option | RFC 6749 §10.12, RFC 9700 | Configurable CSRF protection option; currently passed through but not validated |
-| 5 | RFC 7591 full Dynamic Client Registration | RFC 7591, RFC 7592 | Required for standards-compliant client onboarding; needed by many IdP federations |
-| 6 | RFC 7662 Introspection — missing fields (`nbf`, `jti`, `aud`) | RFC 7662 | Conformance with spec; used by many resource servers |
-| 7 | UserInfo endpoint real claims population | OIDC Core §5.3 | Currently returns placeholder email; breaks OIDC-dependent clients |
-| 8 | OIDC `prompt`, `login_hint`, `max_age` parameters | OIDC Core §3.1.2.1 | Standard OIDC parameters expected by all OIDC relying parties |
-| 9 | RFC 9126 Pushed Authorization Requests (PAR) | RFC 9126 | Prevents request tampering; required by many enterprise/FAPI profiles |
-| 10 | JWT Profile for Client Auth (`private_key_jwt`) | RFC 7523 | Eliminates shared secrets for confidential clients; widely required |
-| 11 | RFC 8707 Resource Indicators | RFC 8707 | Required for multi-resource APIs; FAPI profile dependency |
-| 12 | RFC 8252 Native App handling | RFC 8252 | Loopback redirect support; proper custom URI scheme handling |
-| 13 | RFC 9101 JAR (signed request objects) | RFC 9101 | Integrity-protected authorize requests; FAPI requirement |
-| 14 | RFC 9449 DPoP | RFC 9449 | Sender-constrained tokens; prevents token theft |
-| 15 | RFC 7592 Client Registration Management | RFC 7592 | Update/delete client registrations |
-| 16 | RFC 9701 JWT Introspection Response | RFC 9701 | JWT-formatted introspection; reduces parsing complexity at RS |
-| 17 | RFC 8705 Mutual-TLS Client Auth | RFC 8705 | Certificate-bound tokens; enterprise/banking requirement |
-| 18 | RFC 8693 Token Exchange | RFC 8693 | Delegation/impersonation patterns |
-| 19 | RFC 9396 Rich Authorization Requests | RFC 9396 | Fine-grained permissions; FAPI2 requirement |
-| 20 | RFC 9470 Step-Up Authentication | RFC 9470 | Re-authentication enforcement |
-| 21 | RFC 9728 Protected Resource Metadata | RFC 9728 | Resource server discovery |
-| 22 | OIDC Hybrid Flow | OIDC Core §3.3 | Legacy RP compatibility |
-| 23 | Token Status List | Draft | Efficient distributed revocation |
+Items marked ✅ have been implemented; remaining items are ordered by priority.
+
+| Rank | Feature | RFC(s) | Status | Rationale |
+|---|---|---|---|---|
+| — | RFC 9207: `iss` param in authorization response | RFC 9207, RFC 9700 | ✅ Done | Prevents Mix-Up attacks |
+| — | Public client support (`token_endpoint_auth_method: none`) | RFC 6749, RFC 7591 | ✅ Done | Enables SPAs and native apps without secrets |
+| — | RFC 9068: JWT Profile for Access Tokens (`typ: "at+JWT"`) | RFC 9068 | ✅ Done | Corrects `typ` header claim; fixes issuer hardcode |
+| — | RFC 7591 full Dynamic Client Registration | RFC 7591, RFC 7592 | ✅ Done | RFC-compliant endpoint with registration_access_token |
+| — | RFC 7662 Introspection — missing fields (`nbf`, `jti`, `aud`) | RFC 7662 | ✅ Done | All required RFC 7662 §2.2 fields present |
+| — | UserInfo endpoint real claims population | OIDC Core §5.3 | ✅ Done | Returns real email and profile from storage |
+| — | OIDC `prompt`, `login_hint`, `max_age` parameters | OIDC Core §3.1.2.1 | ✅ Done | none/login supported; max_age enforced |
+| — | RFC 9126 Pushed Authorization Requests (PAR) | RFC 9126 | ✅ Done | `POST /oauth/par` implemented |
+| — | JWT Profile for Client Auth (`private_key_jwt`, `client_secret_jwt`) | RFC 7523 | ✅ Done | Both HMAC and RSA/ECDSA assertion auth implemented |
+| — | RFC 8707 Resource Indicators | RFC 8707 | ✅ Done | `resource` parameter accepted in client credentials |
+| — | RFC 9701 JWT Introspection Response | RFC 9701 | ✅ Done | `Accept: application/token-introspection+jwt` handled |
+| — | RFC 9728 Protected Resource Metadata | RFC 9728 | ✅ Done | `/.well-known/oauth-protected-resource` endpoint |
+| 1 | RFC 6749 `state` enforcement option | RFC 6749 §10.12, RFC 9700 | ❌ Open | Configurable CSRF protection option |
+| 2 | RFC 8252 Native App handling | RFC 8252 | ❌ Open | Loopback redirect support; proper custom URI scheme handling |
+| 3 | RFC 9101 JAR (signed request objects) | RFC 9101 | ❌ Open | Integrity-protected authorize requests; FAPI requirement |
+| 4 | RFC 9449 DPoP (full enforcement) | RFC 9449 | ❌ Open | Discovery advertises; proof validation not yet enforced |
+| 5 | RFC 8705 Mutual-TLS Client Auth | RFC 8705 | ❌ Open | Certificate-bound tokens; enterprise/banking requirement |
+| 6 | RFC 8693 Token Exchange (full enforcement) | RFC 8693 | ❌ Open | Discovery advertises; token exchange grant not yet implemented |
+| 7 | RFC 9396 Rich Authorization Requests (full enforcement) | RFC 9396 | ❌ Open | Discovery advertises; token-level enforcement not yet done |
+| 8 | RFC 9470 Step-Up Authentication (full enforcement) | RFC 9470 | ❌ Open | Discovery advertises; enforcement not yet implemented |
+| 9 | OIDC Hybrid Flow | OIDC Core §3.3 | ❌ Open | Legacy RP compatibility |
+| 10 | Token Status List | Draft | ❌ Open | Efficient distributed revocation |
 
 ---
 
@@ -263,49 +266,49 @@ Items ranked by: **Security Impact** × **Interoperability Gain** × **Standards
 | 1.14 | Add `state` parameter server-side validation option (configurable) | RFC 9700 §4.7 | S |
 | 1.15 | Cascade revocation: revoking refresh token revokes linked access tokens | RFC 7009 | S |
 
-### Phase 2 — New Client Authentication & Registration
+### Phase 2 — New Client Authentication & Registration ✅ Done
 
 **Goal:** Expand client authentication methods and complete Dynamic Client Registration.
 
-| # | Item | RFC(s) | Effort |
+| # | Item | RFC(s) | Status |
 |---|---|---|---|
-| 2.1 | Full RFC 7591 Dynamic Client Registration endpoint (`/connect/register`) | RFC 7591 | L |
-| 2.2 | `registration_access_token` for client configuration endpoint | RFC 7591 §3.2 | M |
-| 2.3 | Client update (`PUT /connect/register/{client_id}`) | RFC 7592 | M |
-| 2.4 | Client delete (`DELETE /connect/register/{client_id}`) | RFC 7592 | S |
-| 2.5 | `private_key_jwt` client authentication | RFC 7523 | L |
-| 2.6 | `client_secret_jwt` client authentication | RFC 7523 | M |
-| 2.7 | Update discovery doc to reflect new auth methods | RFC 8414 | XS |
-| 2.8 | Add full OIDC metadata fields to client registration | OIDC Core | M |
+| 2.1 | Full RFC 7591 Dynamic Client Registration endpoint (`/connect/register`) | RFC 7591 | ✅ Done |
+| 2.2 | `registration_access_token` for client configuration endpoint | RFC 7591 §3.2 | ✅ Done |
+| 2.3 | Client update (`PUT /connect/register/{client_id}`) | RFC 7592 | ✅ Done |
+| 2.4 | Client delete (`DELETE /connect/register/{client_id}`) | RFC 7592 | ✅ Done |
+| 2.5 | `private_key_jwt` client authentication | RFC 7523 | ✅ Done |
+| 2.6 | `client_secret_jwt` client authentication | RFC 7523 | ✅ Done |
+| 2.7 | Update discovery doc to reflect new auth methods | RFC 8414 | ✅ Done |
+| 2.8 | Add full OIDC metadata fields to client registration | OIDC Core | ✅ Done |
 
-### Phase 3 — Advanced Request Security
+### Phase 3 — Advanced Request Security ✅ Done
 
 **Goal:** Hardened request integrity, Resource Indicators, PAR, JAR.
 
-| # | Item | RFC(s) | Effort |
+| # | Item | RFC(s) | Status |
 |---|---|---|---|
-| 3.1 | Pushed Authorization Requests (PAR) | RFC 9126 | L |
-| 3.2 | Resource Indicators (`resource` parameter) | RFC 8707 | M |
-| 3.3 | JWT-Secured Authorization Request (JAR / `request` object) | RFC 9101 | L |
-| 3.4 | `response_mode=form_post` | OAuth2 / OIDC | S |
-| 3.5 | OIDC Hybrid Flow (`response_type: code id_token`) | OIDC Core §3.3 | M |
-| 3.6 | RFC 8252 Native Apps — loopback redirect + custom URI scheme validation | RFC 8252 | S |
-| 3.7 | JWT Token Introspection Response | RFC 9701 | M |
+| 3.1 | Pushed Authorization Requests (PAR) | RFC 9126 | ✅ Done |
+| 3.2 | Resource Indicators (`resource` parameter) | RFC 8707 | ✅ Done |
+| 3.3 | JWT-Secured Authorization Request (JAR / `request` object) | RFC 9101 | ❌ Open |
+| 3.4 | `response_mode=form_post` | OAuth2 / OIDC | ❌ Open |
+| 3.5 | OIDC Hybrid Flow (`response_type: code id_token`) | OIDC Core §3.3 | ❌ Open |
+| 3.6 | RFC 8252 Native Apps — loopback redirect + custom URI scheme validation | RFC 8252 | ❌ Open |
+| 3.7 | JWT Token Introspection Response | RFC 9701 | ✅ Done |
 
-### Phase 4 — Sender-Constrained Tokens & Advanced Features
+### Phase 4 — Sender-Constrained Tokens & Advanced Features (Discovery Advertised)
 
 **Goal:** DPoP, mTLS, Token Exchange, Rich Authorization.
 
-| # | Item | RFC(s) | Effort |
+| # | Item | RFC(s) | Status |
 |---|---|---|---|
-| 4.1 | DPoP (Demonstrating Proof-of-Possession) | RFC 9449 | XL |
-| 4.2 | Mutual-TLS Client Authentication | RFC 8705 | XL |
-| 4.3 | Token Exchange | RFC 8693 | L |
-| 4.4 | Rich Authorization Requests (RAR) | RFC 9396 | L |
-| 4.5 | Step-Up Authentication | RFC 9470 | M |
-| 4.6 | Protected Resource Metadata | RFC 9728 | M |
-| 4.7 | Token Status List | Draft | L |
-| 4.8 | OIDC Claims Request parameter | OIDC Core §5.5 | M |
+| 4.1 | DPoP (Demonstrating Proof-of-Possession) | RFC 9449 | ⚠️ Discovery advertises; proof validation not enforced |
+| 4.2 | Mutual-TLS Client Authentication | RFC 8705 | ⚠️ Discovery advertises; certificate binding not enforced |
+| 4.3 | Token Exchange | RFC 8693 | ⚠️ Discovery advertises; grant not yet implemented |
+| 4.4 | Rich Authorization Requests (RAR) | RFC 9396 | ⚠️ Discovery advertises; token-level enforcement pending |
+| 4.5 | Step-Up Authentication | RFC 9470 | ⚠️ Discovery advertises; enforcement pending |
+| 4.6 | Protected Resource Metadata | RFC 9728 | ✅ Done — `/.well-known/oauth-protected-resource` |
+| 4.7 | Token Status List | Draft | ⚠️ Endpoint skeleton served; list not yet managed |
+| 4.8 | OIDC Claims Request parameter | OIDC Core §5.5 | ⚠️ Discovery advertises; parsing not yet implemented |
 
 ---
 
@@ -452,9 +455,9 @@ Items ranked by: **Security Impact** × **Interoperability Gain** × **Standards
 |---|---|---|---|
 | Spec audit document | ✅ Done | Initial commit | This file |
 | **Phase 1 items** | ✅ Done | claude/oauth2-spec-audit-UheZ5 | All 6 chunks complete |
-| **Phase 2 items** | 🔲 Not started | — | After Phase 1 complete |
-| **Phase 3 items** | 🔲 Not started | — | After Phase 2 complete |
-| **Phase 4 items** | 🔲 Not started | — | Long-term roadmap |
+| **Phase 2 items** | ✅ Done | feat: Wave 2 RFC Additions (#67) | RFC 7591/7592/7523 complete |
+| **Phase 3 items** | ✅ Done (partial) | feat: RFC 9701 + PAR + Resource Indicators | 3.1, 3.2, 3.7 done; 3.3–3.6 open |
+| **Phase 4 items** | ⚠️ In progress | feat: Wave 4 OAuth2/OIDC features | Discovery advertises all; enforcement pending |
 
 ### Phase 1 Chunk Status
 
@@ -467,6 +470,23 @@ Items ranked by: **Security Impact** × **Interoperability Gain** × **Standards
 | 1.E | Logout & revocation fixes | ✅ Done |
 | 1.F | Discovery doc cleanup | ✅ Done |
 
+### Phase 2 Chunk Status
+
+| Chunk | Description | Status |
+|---|---|---|
+| 2.1–2.4 | Dynamic Client Registration (RFC 7591/7592) | ✅ Done |
+| 2.5–2.6 | JWT client authentication (RFC 7523) | ✅ Done |
+| 2.7–2.8 | Discovery update + OIDC metadata | ✅ Done |
+
+### Phase 3 Chunk Status
+
+| Chunk | Description | Status |
+|---|---|---|
+| 3.1 | PAR — `POST /oauth/par` | ✅ Done |
+| 3.2 | Resource Indicators | ✅ Done |
+| 3.7 | JWT Introspection Response (RFC 9701) | ✅ Done |
+| 3.3–3.6 | JAR, form_post, Hybrid Flow, Native Apps | ❌ Open |
+
 ---
 
-*Last updated: 2026-04-12 — Generated from audit of codebase v0.0.10*
+*Last updated: 2026-04-13 — Generated from audit of codebase v0.0.10*
