@@ -29,7 +29,7 @@ jobs:
 
     steps:
       - name: Checkout default branch
-        uses: actions/checkout@v5
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
         with:
           ref: ${{ github.event.repository.default_branch }}
           fetch-depth: 0
@@ -123,7 +123,7 @@ jobs:
           echo "IMAGE_VERSION=${{ steps.ver.outputs.version }}" >> "$GITHUB_ENV"
 
       - name: Install cross (for arm64 builds)
-        uses: taiki-e/install-action@v2
+        uses: taiki-e/install-action@85b24a67ef0c632dfefad70b9d5ce8fddb040754 # v2
         with:
           tool: cross
 
@@ -132,10 +132,10 @@ jobs:
         run: bash .github/scripts/build_release_binaries.sh --include-mongo-variants
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
 
       - name: Decide publishing targets
         id: publish
@@ -149,7 +149,7 @@ jobs:
           fi
 
       - name: Login to GitHub Container Registry (GHCR)
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -157,14 +157,14 @@ jobs:
 
       - name: Login to Docker Hub
         if: steps.publish.outputs.dockerhub == 'true'
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_TOKEN }}
 
       - name: Extract metadata (GHCR)
         id: meta_ghcr
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
         with:
           images: |
             ghcr.io/${{ github.repository_owner }}/oauth2-server
@@ -175,7 +175,7 @@ jobs:
 
       - name: Extract metadata (GHCR, mongo)
         id: meta_ghcr_mongo
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
         with:
           images: |
             ghcr.io/${{ github.repository_owner }}/oauth2-server
@@ -186,7 +186,7 @@ jobs:
 
       - name: Extract metadata (GHCR, mongo-only)
         id: meta_ghcr_mongo_only
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
         with:
           images: |
             ghcr.io/${{ github.repository_owner }}/oauth2-server
@@ -198,7 +198,7 @@ jobs:
       - name: Extract metadata (Docker Hub)
         if: steps.publish.outputs.dockerhub == 'true'
         id: meta_dockerhub
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
         with:
           images: |
             docker.io/${{ secrets.DOCKER_USERNAME }}/oauth2-server
@@ -210,7 +210,7 @@ jobs:
       - name: Extract metadata (Docker Hub, mongo)
         if: steps.publish.outputs.dockerhub == 'true'
         id: meta_dockerhub_mongo
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
         with:
           images: |
             docker.io/${{ secrets.DOCKER_USERNAME }}/oauth2-server
@@ -222,7 +222,7 @@ jobs:
       - name: Extract metadata (Docker Hub, mongo-only)
         if: steps.publish.outputs.dockerhub == 'true'
         id: meta_dockerhub_mongo_only
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
         with:
           images: |
             docker.io/${{ secrets.DOCKER_USERNAME }}/oauth2-server
@@ -232,7 +232,7 @@ jobs:
             type=raw,value=${{ env.IMAGE_VERSION }}-mongo-only
 
       - name: Build and Push (base image)
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5
         with:
           context: .
           push: true
@@ -246,7 +246,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Build and Push (mongo image)
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5
         with:
           context: .
           push: true
@@ -262,7 +262,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Build and Push (mongo-only image; no SQLx)
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5
         with:
           context: .
           push: true

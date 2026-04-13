@@ -89,6 +89,7 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y \
     ca-certificates \
     libssl3 \
+    adduser \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy the built binary from builder

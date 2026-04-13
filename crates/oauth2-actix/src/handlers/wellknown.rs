@@ -72,7 +72,7 @@ pub async fn openid_configuration(
         "jwks_uri": format!("{}/.well-known/jwks.json", base),
         "registration_endpoint": format!("{}/connect/register", base),
         "scopes_supported": ["openid", "profile", "email", "read", "write", "admin"],
-        "response_types_supported": ["code"],
+        "response_types_supported": ["code", "code id_token"],
         "grant_types_supported": [
             "authorization_code",
             "client_credentials",
@@ -96,13 +96,13 @@ pub async fn openid_configuration(
         "code_challenge_methods_supported": ["S256"],
         "authorization_response_iss_parameter_supported": true,
         "prompt_values_supported": ["none", "login"],
-        // RFC 9198: Form Post Response Mode
-        "response_modes_supported": ["query", "form_post"],
+        // RFC 9198: Form Post Response Mode / RFC 9101: JAR fragment mode
+        "response_modes_supported": ["query", "form_post", "fragment"],
         // RFC 9126: Pushed Authorization Requests
         "pushed_authorization_request_endpoint": format!("{}/oauth/par", base),
         "require_pushed_authorization_requests": false,
-        // RFC 9101: JWT-Secured Authorization Requests (JAR) — advertise support
-        "request_parameter_supported": false,
+        // RFC 9101: JWT-Secured Authorization Requests (JAR)
+        "request_parameter_supported": true,
         "request_uri_parameter_supported": true,
         // RFC 8707: Resource Indicators
         "resource_indicators_supported": true,

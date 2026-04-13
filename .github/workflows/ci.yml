@@ -33,7 +33,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
 
       - name: Rust toolchain + cache
         uses: ./.github/actions/rust-setup
@@ -58,7 +58,7 @@ jobs:
     needs: [checks]
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
 
       - name: Rust toolchain + cache
         uses: ./.github/actions/rust-setup
@@ -68,7 +68,7 @@ jobs:
           install-system-deps: "true"
 
       - name: Install cross (for arm64 builds)
-        uses: taiki-e/install-action@v2
+        uses: taiki-e/install-action@85b24a67ef0c632dfefad70b9d5ce8fddb040754 # v2
         with:
           tool: cross
 
@@ -87,14 +87,14 @@ jobs:
           bash .github/scripts/build_release_binaries.sh "${args[@]}"
 
       - name: Upload release binary artifact (linux/amd64)
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: rust_oauth2_server-linux-amd64
           path: target/release/rust_oauth2_server-amd64
           if-no-files-found: error
 
       - name: Upload release binary artifact (linux/arm64)
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: rust_oauth2_server-linux-arm64
           path: target/release/rust_oauth2_server-arm64
@@ -102,7 +102,7 @@ jobs:
 
       - name: Upload release binary artifact (linux/amd64, mongo feature)
         if: github.event_name == 'push' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) || startsWith(github.ref, 'refs/tags/'))
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: rust_oauth2_server-mongo-linux-amd64
           path: target/release/rust_oauth2_server-mongo-amd64
@@ -110,7 +110,7 @@ jobs:
 
       - name: Upload release binary artifact (linux/arm64, mongo feature)
         if: github.event_name == 'push' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) || startsWith(github.ref, 'refs/tags/'))
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: rust_oauth2_server-mongo-linux-arm64
           path: target/release/rust_oauth2_server-mongo-arm64
@@ -118,7 +118,7 @@ jobs:
 
       - name: Upload release binary artifact (linux/amd64, mongo-only; no SQLx)
         if: github.event_name == 'push' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) || startsWith(github.ref, 'refs/tags/'))
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: rust_oauth2_server-mongo-only-linux-amd64
           path: target/release/rust_oauth2_server-mongo-only-amd64
@@ -126,7 +126,7 @@ jobs:
 
       - name: Upload release binary artifact (linux/arm64, mongo-only; no SQLx)
         if: github.event_name == 'push' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) || startsWith(github.ref, 'refs/tags/'))
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: rust_oauth2_server-mongo-only-linux-arm64
           path: target/release/rust_oauth2_server-mongo-only-arm64
@@ -138,7 +138,7 @@ jobs:
     needs: [checks]
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
 
       - name: Rust toolchain + cache
         uses: ./.github/actions/rust-setup
@@ -148,17 +148,15 @@ jobs:
           install-system-deps: "true"
 
       - name: Install cargo-audit
-        uses: taiki-e/install-action@v2
+        uses: taiki-e/install-action@85b24a67ef0c632dfefad70b9d5ce8fddb040754 # v2
         with:
           tool: cargo-audit
 
       - name: Security Audit (cargo-audit)
-        continue-on-error: true
         run: cargo audit
 
       - name: Check Dependencies (cargo-deny)
-        continue-on-error: true
-        uses: EmbarkStudios/cargo-deny-action@v1
+        uses: EmbarkStudios/cargo-deny-action@3f4a782664881cf5725d0ffd23969fcce89fd868 # v1
         with:
           command: check
 
@@ -170,7 +168,7 @@ jobs:
     if: github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
 
       - name: Rust toolchain + cache
         uses: ./.github/actions/rust-setup
@@ -180,7 +178,7 @@ jobs:
           install-system-deps: "true"
 
       - name: Install tarpaulin
-        uses: taiki-e/install-action@v2
+        uses: taiki-e/install-action@85b24a67ef0c632dfefad70b9d5ce8fddb040754 # v2
         with:
           tool: cargo-tarpaulin
 
@@ -188,7 +186,7 @@ jobs:
         run: cargo tarpaulin --out Xml --output-dir ./coverage --all-features --locked
 
       - name: Upload Coverage to Codecov
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@75cd11691c0faa626561e295848008c8a7dddffe # v5
         with:
           files: ./coverage/cobertura.xml
           fail_ci_if_error: false
@@ -214,7 +212,7 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
 
       - name: Rust toolchain + cache
         uses: ./.github/actions/rust-setup
@@ -246,7 +244,7 @@ jobs:
     needs: [checks]
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
 
       - name: Rust toolchain + cache
         uses: ./.github/actions/rust-setup
@@ -298,16 +296,16 @@ jobs:
             binary_suffix: -mongo-only
             tag_suffix: -mongo-only
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
 
       - name: Download prebuilt server binary (amd64)
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
         with:
           name: ${{ matrix.artifact_prefix }}-linux-amd64
           path: target/release
 
       - name: Download prebuilt server binary (arm64)
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
         with:
           name: ${{ matrix.artifact_prefix }}-linux-arm64
           path: target/release
@@ -319,10 +317,10 @@ jobs:
             "target/release/rust_oauth2_server${{ matrix.binary_suffix }}-arm64"
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
 
       - name: Decide publishing targets
         id: publish
@@ -336,7 +334,7 @@ jobs:
           fi
 
       - name: Login to GitHub Container Registry (GHCR)
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -344,7 +342,7 @@ jobs:
 
       - name: Login to Docker Hub
         if: steps.publish.outputs.dockerhub == 'true'
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_TOKEN }}
@@ -367,7 +365,7 @@ jobs:
 
       - name: Extract metadata (GHCR)
         id: meta_ghcr
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
         with:
           images: |
             ghcr.io/${{ github.repository_owner }}/oauth2-server
@@ -379,7 +377,7 @@ jobs:
       - name: Extract metadata (Docker Hub)
         if: steps.publish.outputs.dockerhub == 'true'
         id: meta_dockerhub
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
         with:
           images: |
             docker.io/${{ secrets.DOCKER_USERNAME }}/oauth2-server
@@ -389,7 +387,7 @@ jobs:
             type=raw,value=${{ env.IMAGE_VERSION }}${{ matrix.tag_suffix }},enable=${{ startsWith(github.ref, 'refs/tags/') }}
 
       - name: Build and push image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5
         with:
           context: .
           push: true
@@ -449,7 +447,7 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
 
       - name: Rust toolchain + cache
         uses: ./.github/actions/rust-setup
@@ -462,12 +460,12 @@ jobs:
         run: cargo doc --no-deps --all-features
 
       - name: Setup Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
         with:
           python-version: "3.11"
 
       - name: Cache pip
-        uses: actions/cache@v5
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5
         with:
           path: ~/.cache/pip
           key: ${{ runner.os }}-pip-${{ hashFiles('requirements-docs.txt', 'mkdocs.yml') }}
@@ -491,7 +489,7 @@ jobs:
           fi
 
       - name: Configure GitHub Pages
-        uses: actions/configure-pages@v6
+        uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6
 
       - name: Prepare docs for deployment
         run: |
@@ -507,11 +505,11 @@ jobs:
           fi
 
       - name: Upload artifact
-        uses: actions/upload-pages-artifact@v4
+        uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4
 
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v5
+        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5
 
   # Quality Gate
   gate:

@@ -318,9 +318,11 @@ pub struct AuthorizeQuery {
     claims: Option<String>,
     /// RFC 9396: Rich Authorization Request (JSON array string).
     authorization_details: Option<String>,
+    /// RFC 9101: JWT-Secured Authorization Request (JAR) — inline request object JWT.
+    /// If present, the JWT payload claims override the corresponding query parameters.
+    /// Supported signing: `alg=none` (public clients only), HS256, RS256.
+    request: Option<String>,
 }
-
-/// RFC 9198 §4.2 / OAuth 2.0 Form Post Response Mode helper: HTML-escape attribute values.
 fn html_escape_attr(s: &str) -> String {
     s.replace('&', "&amp;")
         .replace('"', "&quot;")
@@ -348,6 +350,127 @@ fn form_post_response(redirect_uri: &str, params: &[(&str, &str)]) -> HttpRespon
     HttpResponse::Ok()
         .content_type("text/html; charset=utf-8")
         .body(body)
+}
+
+/// RFC 9101 §4: Verify and extract claims from a JWT-Secured Authorization Request (JAR).
+///
+/// - Public clients (`token_endpoint_auth_method = "none"`): accepted without signature
+///   verification (no client secret available).
+/// - `client_secret_basic` / `client_secret_post` / `client_secret_jwt`: HS256 with
+///   the client_secret.
+/// - `private_key_jwt`: RS256 with the client's registered inline JWKS.
+///
+/// Returns the decoded JWT claims on success.
+fn process_jar(
+    client: &oauth2_core::Client,
+    jar_jwt: &str,
+    authorization_endpoint_url: &str,
+) -> Result<serde_json::Value, OAuth2Error> {
+    use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
+
+    let parts: Vec<&str> = jar_jwt.splitn(3, '.').collect();
+    if parts.len() < 3 {
+        return Err(OAuth2Error::invalid_request(
+            "JAR request is not a valid JWT (expected header.payload.signature)",
+        ));
+    }
+
+    match client.token_endpoint_auth_method.as_str() {
+        // Public clients: decode payload without signature verification.
+        "none" => {
+            let payload_bytes = general_purpose::URL_SAFE_NO_PAD
+                .decode(parts[1])
+                .or_else(|_| general_purpose::URL_SAFE.decode(parts[1]))
+                .map_err(|_| {
+                    OAuth2Error::invalid_request("JAR JWT payload is not valid base64url")
+                })?;
+            let claims: serde_json::Value = serde_json::from_slice(&payload_bytes)
+                .map_err(|_| OAuth2Error::invalid_request("JAR JWT payload is not valid JSON"))?;
+            Ok(claims)
+        }
+        // Shared-secret clients: verify HS256 with client_secret.
+        "client_secret_basic" | "client_secret_post" | "client_secret_jwt" => {
+            let key = DecodingKey::from_secret(client.client_secret.as_bytes());
+            let mut validation = Validation::new(Algorithm::HS256);
+            validation.set_audience(&[authorization_endpoint_url]);
+            validation.set_required_spec_claims(&["exp", "iss"]);
+            let data = decode::<serde_json::Value>(jar_jwt, &key, &validation).map_err(|e| {
+                OAuth2Error::invalid_request(&format!("JAR HS256 verification failed: {e}"))
+            })?;
+            let iss = data
+                .claims
+                .get("iss")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            if iss != client.client_id {
+                return Err(OAuth2Error::invalid_request(
+                    "JAR 'iss' claim must equal client_id",
+                ));
+            }
+            Ok(data.claims)
+        }
+        // Asymmetric-key clients: verify RS256 with the client's registered JWKS.
+        "private_key_jwt" => {
+            let header = jsonwebtoken::decode_header(jar_jwt)
+                .map_err(|_| OAuth2Error::invalid_request("JAR JWT header is malformed"))?;
+            let jwks_str = client.jwks.trim();
+            if jwks_str.is_empty() {
+                return Err(OAuth2Error::invalid_request(
+                    "JAR requires client to have an inline jwks registered",
+                ));
+            }
+            let jwks: serde_json::Value = serde_json::from_str(jwks_str)
+                .map_err(|_| OAuth2Error::invalid_request("Client JWKS is not valid JSON"))?;
+            let keys = jwks
+                .get("keys")
+                .and_then(|v| v.as_array())
+                .ok_or_else(|| OAuth2Error::invalid_request("Client JWKS missing 'keys' array"))?;
+            let key_json = if let Some(kid) = &header.kid {
+                keys.iter()
+                    .find(|k| k.get("kid").and_then(|v| v.as_str()) == Some(kid))
+                    .ok_or_else(|| {
+                        OAuth2Error::invalid_request("No matching kid in client JWKS for JAR")
+                    })?
+            } else {
+                keys.iter()
+                    .find(|k| k.get("kty").and_then(|v| v.as_str()) == Some("RSA"))
+                    .ok_or_else(|| {
+                        OAuth2Error::invalid_request("No RSA key found in client JWKS for JAR")
+                    })?
+            };
+            let n = key_json
+                .get("n")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| OAuth2Error::invalid_request("JWKS key missing 'n' component"))?;
+            let e = key_json
+                .get("e")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| OAuth2Error::invalid_request("JWKS key missing 'e' component"))?;
+            let dk = DecodingKey::from_rsa_components(n, e).map_err(|_| {
+                OAuth2Error::invalid_request("Failed to construct RSA key from client JWKS")
+            })?;
+            let mut validation = Validation::new(Algorithm::RS256);
+            validation.set_audience(&[authorization_endpoint_url]);
+            validation.set_required_spec_claims(&["exp", "iss"]);
+            let data = decode::<serde_json::Value>(jar_jwt, &dk, &validation).map_err(|e| {
+                OAuth2Error::invalid_request(&format!("JAR RS256 verification failed: {e}"))
+            })?;
+            let iss = data
+                .claims
+                .get("iss")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            if iss != client.client_id {
+                return Err(OAuth2Error::invalid_request(
+                    "JAR 'iss' claim must equal client_id",
+                ));
+            }
+            Ok(data.claims)
+        }
+        other => Err(OAuth2Error::invalid_request(&format!(
+            "Unsupported token_endpoint_auth_method '{other}' for JAR signing"
+        ))),
+    }
 }
 
 /// OAuth2 authorize endpoint
@@ -424,9 +547,15 @@ pub async fn authorize(
     let redirect_uri =
         eff_redirect_uri.ok_or_else(|| OAuth2Error::invalid_request("Missing redirect_uri"))?;
 
-    // Only Authorization Code flow is supported.
-    if query.response_type != "code" {
-        return Err(OAuth2Error::invalid_request("Unsupported response_type"));
+    // Authorization Code (RFC 6749 §4.1) and OIDC Hybrid Code/ID-Token (OIDC Core §3.3)
+    // flows are supported.  When a JAR `request` parameter is present the response_type
+    // may be overridden by the JWT payload; the effective value is re-validated after
+    // JAR processing below.
+    let rt = query.response_type.as_str();
+    if query.request.is_none() && rt != "code" && rt != "code id_token" {
+        return Err(OAuth2Error::invalid_request(
+            "Unsupported response_type; supported values: code, code id_token",
+        ));
     }
 
     // Validate client and redirect_uri to prevent open redirect / code exfiltration.
@@ -444,15 +573,99 @@ pub async fn authorize(
         ));
     }
 
+    // RFC 9101 §4: If a JAR `request` parameter is present, verify its signature and
+    // overlay the JWT payload claims on top of the current effective parameters.
+    // JAR claims take precedence over the corresponding query-string parameters.
+    let (
+        redirect_uri,
+        eff_scope,
+        eff_code_challenge,
+        eff_code_challenge_method,
+        eff_nonce,
+        eff_resource,
+        eff_state,
+        eff_authorization_details,
+        eff_claims,
+        eff_acr_values,
+        is_hybrid,
+        jar_response_mode,
+    ) = if let Some(ref jar_jwt) = query.request {
+        let jar_claims = process_jar(
+            &client,
+            jar_jwt,
+            &format!("{}/oauth/authorize", oidc_config.issuer),
+        )?;
+        let jar_str = |k: &str, fallback: Option<String>| -> Option<String> {
+            jar_claims
+                .get(k)
+                .and_then(|v| v.as_str())
+                .map(str::to_owned)
+                .or(fallback)
+        };
+        let jar_rt = jar_claims
+            .get("response_type")
+            .and_then(|v| v.as_str())
+            .unwrap_or(query.response_type.as_str());
+        let hybrid = jar_rt == "code id_token";
+        if jar_rt != "code" && !hybrid {
+            return Err(OAuth2Error::invalid_request(
+                "Unsupported response_type in JAR; supported values: code, code id_token",
+            ));
+        }
+        let jar_redirect_uri = jar_claims
+            .get("redirect_uri")
+            .and_then(|v| v.as_str())
+            .map(str::to_owned)
+            .unwrap_or(redirect_uri);
+        (
+            jar_redirect_uri,
+            jar_str("scope", eff_scope),
+            jar_str("code_challenge", eff_code_challenge),
+            jar_str("code_challenge_method", eff_code_challenge_method),
+            jar_str("nonce", eff_nonce),
+            jar_str("resource", eff_resource),
+            jar_str("state", eff_state),
+            jar_str("authorization_details", eff_authorization_details),
+            jar_str("claims", eff_claims),
+            jar_str("acr_values", eff_acr_values),
+            hybrid,
+            jar_claims
+                .get("response_mode")
+                .and_then(|v| v.as_str())
+                .map(str::to_owned),
+        )
+    } else {
+        let hybrid = query.response_type == "code id_token";
+        (
+            redirect_uri,
+            eff_scope,
+            eff_code_challenge,
+            eff_code_challenge_method,
+            eff_nonce,
+            eff_resource,
+            eff_state,
+            eff_authorization_details,
+            eff_claims,
+            eff_acr_values,
+            hybrid,
+            None::<String>,
+        )
+    };
+
     if !client.validate_redirect_uri(&redirect_uri) {
         return Err(OAuth2Error::invalid_request("Invalid redirect_uri"));
     }
 
-    // Validate response_mode.
-    let response_mode = query.response_mode.as_deref().unwrap_or("query");
-    if response_mode != "query" && response_mode != "form_post" {
+    // Determine and validate response_mode.
+    // OIDC Core §3.3.2.3: default response_mode for hybrid flows is "fragment".
+    let default_response_mode = if is_hybrid { "fragment" } else { "query" };
+    let response_mode = jar_response_mode
+        .as_deref()
+        .or(query.response_mode.as_deref())
+        .unwrap_or(default_response_mode);
+    if !matches!(response_mode, "query" | "form_post" | "fragment") {
         return Err(OAuth2Error::invalid_request(
-            "Unsupported response_mode; supported values: query, form_post",
+            "Unsupported response_mode; supported values: query, form_post, fragment",
         ));
     }
 
@@ -643,6 +856,47 @@ pub async fn authorize(
 
     metrics.oauth_authorization_codes_issued.inc();
 
+    // OIDC Hybrid §3.3: for `code id_token` flows, issue an id_token at the authorize
+    // endpoint.  The id_token carries `c_hash` computed from the authorization code.
+    let id_token_opt: Option<String> =
+        if is_hybrid && auth_code.scope.split_whitespace().any(|s| s == "openid") {
+            let mut id_claims = IdTokenClaims::new(
+                &oidc_config.issuer,
+                auth_code.user_id.clone(),
+                auth_code.client_id.clone(),
+                3600,
+                None,
+            );
+            id_claims.nonce = auth_code.nonce.clone();
+            // c_hash: OIDC Core §3.3.2.11 — base64url(left-half(SHA-256(ascii(code)))).
+            {
+                use sha2::{Digest, Sha256};
+                let hash = Sha256::digest(auth_code.code.as_bytes());
+                id_claims.c_hash = Some(general_purpose::URL_SAFE_NO_PAD.encode(&hash[..16]));
+            }
+            let encoded = if oidc_config.id_token_alg.eq_ignore_ascii_case("RS256") {
+                let pem = oidc_config
+                    .id_token_private_key_pem
+                    .as_deref()
+                    .ok_or_else(|| {
+                        OAuth2Error::new(
+                            "server_error",
+                            Some("RS256 configured but private key is missing"),
+                        )
+                    })?;
+                id_claims
+                    .encode_rs256(pem, oidc_config.id_token_kid.as_deref())
+                    .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))?
+            } else {
+                id_claims
+                    .encode(&oidc_config.jwt_secret)
+                    .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))?
+            };
+            Some(encoded)
+        } else {
+            None
+        };
+
     // Deliver authorization response according to response_mode.
     if response_mode == "form_post" {
         let code_str = auth_code.code.as_str();
@@ -651,8 +905,33 @@ pub async fn authorize(
         if let Some(ref s) = eff_state {
             params.push(("state", s.as_str()));
         }
+        if let Some(ref it) = id_token_opt {
+            params.push(("id_token", it.as_str()));
+        }
         return Ok(auth_response_security_headers(no_store_headers(
             form_post_response(&redirect_uri, &params),
+        )));
+    }
+
+    if response_mode == "fragment" {
+        // RFC 9101 / OIDC Core §3.3.2.5: deliver response parameters in the URL fragment.
+        use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
+        let enc = |s: &str| utf8_percent_encode(s, NON_ALPHANUMERIC).to_string();
+        let mut frag_parts = vec![
+            format!("code={}", enc(&auth_code.code)),
+            format!("iss={}", enc(&oidc_config.issuer)),
+        ];
+        if let Some(ref state) = eff_state {
+            frag_parts.push(format!("state={}", enc(state)));
+        }
+        if let Some(ref id_token) = id_token_opt {
+            frag_parts.push(format!("id_token={}", enc(id_token)));
+        }
+        let location = format!("{}#{}", redirect_uri, frag_parts.join("&"));
+        return Ok(auth_response_security_headers(no_store_headers(
+            HttpResponse::Found()
+                .append_header(("Location", location))
+                .finish(),
         )));
     }
 
@@ -672,6 +951,9 @@ pub async fn authorize(
         }
         // RFC 9207: include the issuer identifier to prevent mix-up attacks.
         qp.append_pair("iss", &oidc_config.issuer);
+        if let Some(ref id_token) = id_token_opt {
+            qp.append_pair("id_token", id_token);
+        }
     }
 
     Ok(auth_response_security_headers(no_store_headers(

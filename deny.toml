@@ -1,0 +1,94 @@
+# cargo-deny configuration
+# https://embarkstudios.github.io/cargo-deny/
+#
+# This file enforces supply chain security policies for the rust-oauth2-server
+# workspace. It is used by:
+#   - CI via `cargo deny check` (blocks PRs on violations)
+#   - Local development via `cargo deny check`
+
+# ── Advisories ───────────────────────────────────────────────────────────────
+
+[advisories]
+# Fail the build on any known vulnerability.
+vulnerability = "deny"
+# Treat unmaintained crates as warnings (not blockers) since many ecosystem
+# crates lag on official deprecation.
+unmaintained = "warn"
+# Yanked crates are suspicious — deny them.
+yanked = "deny"
+# Advisories that are not yet actionable (no fix exists).
+notice = "warn"
+
+# Specific advisories to ignore (must have an expiry and justification).
+ignore = [
+    # RUSTSEC-2023-0071: Marvin Attack (RSA timing side-channel)
+    # Affected path: rsa 0.9.x → used by jsonwebtoken (JWT RS256 signing)
+    #                and oauth2-actix (JWKS RSA key generation)
+    # No fix available upstream yet. Tracked for migration to ES256/EdDSA.
+    # Re-evaluate monthly — remove this ignore once rsa ≥ 0.10 ships a fix.
+    { id = "RUSTSEC-2023-0071", reason = "no upstream fix; tracked for ES256/EdDSA migration" },
+]
+
+# ── Licenses ─────────────────────────────────────────────────────────────────
+
+[licenses]
+# Deny any crate whose license is not in the allow list.
+unlicensed = "deny"
+# Copyleft licenses are denied by default (not in the allow list).
+default = "deny"
+
+# Licenses that are acceptable for this project.
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "Zlib",
+    "BSL-1.0",
+    "CC0-1.0",
+    "OpenSSL",
+    "MPL-2.0",
+]
+
+# ring uses a non-standard license file; tell cargo-deny where it lives.
+[[licenses.clarify]]
+name = "ring"
+expression = "MIT AND ISC AND OpenSSL"
+license-files = [{ path = "LICENSE", hash = 0xbd0eed23 }]
+
+# Some older crates use Unicode-DFS-2016 but report it inconsistently.
+[[licenses.clarify]]
+name = "unicode-ident"
+expression = "(MIT OR Apache-2.0) AND Unicode-DFS-2016"
+license-files = [{ path = "LICENSE-UNICODE", hash = 0x3fb01745 }]
+
+# ── Bans ─────────────────────────────────────────────────────────────────────
+
+[bans]
+# Warn on multiple versions of the same crate (version fragmentation).
+multiple-versions = "warn"
+# Wildcards in version requirements are sloppy — deny them.
+wildcards = "deny"
+# Allow specific duplicate crates that are hard to unify (transitive deps).
+skip = [
+    # base64 — three ecosystem versions co-exist while migration is ongoing
+    { name = "base64", version = ">=0.20, <0.22" },
+    # rand — 0.8 still pulled transitively by some deps (aes-gcm, rsa, etc.)
+    { name = "rand", version = "=0.8.5" },
+    { name = "rand_chacha", version = "=0.3.1" },
+    { name = "rand_core", version = "=0.6.4" },
+]
+
+# ── Sources ──────────────────────────────────────────────────────────────────
+
+[sources]
+# Only allow crates from crates.io and our own workspace.
+unknown-registry = "deny"
+unknown-git = "deny"
+# Allow crates.io as a source.
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

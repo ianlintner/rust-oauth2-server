@@ -1,14 +1,22 @@
 # Configuration for cargo-audit
 # This file configures which advisories to ignore
+#
+# IMPORTANT: deny.toml is the primary policy file for cargo-deny.
+# This file is used only by `cargo audit` (standalone).
 
 [advisories]
-# Ignore specific vulnerabilities that cannot be fixed or are not applicable
+# Ignore advisories with no upstream fix yet.
 
-# RUSTSEC-2023-0071: RSA timing attack vulnerability
-# Status: No fix available
-# Reason: Transitive dependency via sqlx-mysql. Application does not use MySQL
-#         or perform RSA encryption/decryption operations.
-# Severity: Medium (5.9)
+# RUSTSEC-2023-0071: Marvin Attack — RSA PKCS#1 v1.5 timing side-channel
+# Affected crate: rsa 0.9.x
+# Affected code paths:
+#   - jsonwebtoken (JWT RS256 signing/verification)
+#   - oauth2-actix admin_keys handler (RSA key generation for JWKS)
+# Status: No fix available upstream (rsa crate). Tracked for migration to
+#         ES256 (P-256) or EdDSA which eliminates RSA entirely.
+# Severity: Medium (CVSS 5.9) — requires network access to exploit timing.
+# Review date: 2025-04-13
+# Next review: Remove this suppression once rsa >= 0.10 ships a fix.
 ignore = [
     "RUSTSEC-2023-0071",
 ]

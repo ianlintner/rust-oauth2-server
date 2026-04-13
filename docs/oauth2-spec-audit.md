@@ -23,17 +23,17 @@
 
 ### 1.1 Grant Types
 
-| Grant Type | RFC | Status | Notes |
-|---|---|---|---|
-| Authorization Code | RFC 6749 §4.1 | ✅ Implemented | Full flow with session, redirect |
-| Client Credentials | RFC 6749 §4.4 | ✅ Implemented | Scope enforcement |
-| Refresh Token | RFC 6749 §6 | ✅ Implemented | Token rotation + family revocation |
-| Device Authorization | RFC 8628 | ✅ Implemented | Full device flow + user verify page |
-| Password (ROPC) | RFC 6749 §4.3 | ✅ Intentionally disabled | Security BCP compliant |
-| Implicit | RFC 6749 §4.2 | ✅ Intentionally removed | Security BCP compliant |
-| Token Exchange | RFC 8693 | ❌ Missing | — |
-| JWT Assertion | RFC 7521/7523 | ❌ Missing | — |
-| SAML Assertion | RFC 7521/7522 | ❌ Out of scope | — |
+| Grant Type           | RFC           | Status                    | Notes                               |
+| -------------------- | ------------- | ------------------------- | ----------------------------------- |
+| Authorization Code   | RFC 6749 §4.1 | ✅ Implemented            | Full flow with session, redirect    |
+| Client Credentials   | RFC 6749 §4.4 | ✅ Implemented            | Scope enforcement                   |
+| Refresh Token        | RFC 6749 §6   | ✅ Implemented            | Token rotation + family revocation  |
+| Device Authorization | RFC 8628      | ✅ Implemented            | Full device flow + user verify page |
+| Password (ROPC)      | RFC 6749 §4.3 | ✅ Intentionally disabled | Security BCP compliant              |
+| Implicit             | RFC 6749 §4.2 | ✅ Intentionally removed  | Security BCP compliant              |
+| Token Exchange       | RFC 8693      | ❌ Missing                | —                                   |
+| JWT Assertion        | RFC 7521/7523 | ❌ Missing                | —                                   |
+| SAML Assertion       | RFC 7521/7522 | ❌ Out of scope           | —                                   |
 
 ### 1.2 Endpoints
 
@@ -139,23 +139,23 @@
 
 ### 1.8 Infrastructure & Observability
 
-| Feature | Status | Notes |
-|---|---|---|
-| SQLite storage | ✅ Implemented | |
-| PostgreSQL storage | ✅ Implemented | |
-| MongoDB storage | ✅ Implemented | |
-| Redis cache | ✅ Implemented | |
-| Redis rate-limiting | ✅ Implemented | |
-| Prometheus metrics | ✅ Implemented | |
-| OpenTelemetry tracing | ✅ Implemented | |
-| Kafka event bus | ✅ Implemented | |
-| RabbitMQ event bus | ✅ Implemented | |
-| Redis Streams event bus | ✅ Implemented | |
-| Social login (GitHub, Google, Microsoft) | ✅ Implemented | |
-| Circuit breaker / bulkhead | ✅ Implemented | |
-| OpenAPI / Swagger docs | ✅ Implemented | |
-| Admin dashboard API | ✅ Implemented | |
-| Key management API | ✅ Implemented | |
+| Feature                                  | Status         | Notes |
+| ---------------------------------------- | -------------- | ----- |
+| SQLite storage                           | ✅ Implemented |       |
+| PostgreSQL storage                       | ✅ Implemented |       |
+| MongoDB storage                          | ✅ Implemented |       |
+| Redis cache                              | ✅ Implemented |       |
+| Redis rate-limiting                      | ✅ Implemented |       |
+| Prometheus metrics                       | ✅ Implemented |       |
+| OpenTelemetry tracing                    | ✅ Implemented |       |
+| Kafka event bus                          | ✅ Implemented |       |
+| RabbitMQ event bus                       | ✅ Implemented |       |
+| Redis Streams event bus                  | ✅ Implemented |       |
+| Social login (GitHub, Google, Microsoft) | ✅ Implemented |       |
+| Circuit breaker / bulkhead               | ✅ Implemented |       |
+| OpenAPI / Swagger docs                   | ✅ Implemented |       |
+| Admin dashboard API                      | ✅ Implemented |       |
+| Key management API                       | ✅ Implemented |       |
 
 ---
 
@@ -197,15 +197,15 @@
 
 ## 3. Gap Analysis — Active Drafts
 
-| Draft | Title | Priority | Notes |
-|---|---|---|---|
-| OAuth 2.1 | Consolidation of 2.0 + BCP | High | Partially aligned; formal compliance tracking needed |
-| Browser-Based Apps BCP | SPA security guidance | Medium | CORS headers, no implicit, PKCE done |
-| Cross-Device Flows Security BCP | Device flow attack mitigations | Low | — |
-| Attestation-Based Client Authentication | Hardware-backed client auth | Low | Not implemented |
-| Token Status List | Efficient revocation | Low | Not implemented |
-| Transaction Tokens | Action-specific tokens | Low | Not implemented |
-| First-Party Applications | Native app patterns | Low | Not implemented |
+| Draft                                   | Title                          | Priority | Notes                                                |
+| --------------------------------------- | ------------------------------ | -------- | ---------------------------------------------------- |
+| OAuth 2.1                               | Consolidation of 2.0 + BCP     | High     | Partially aligned; formal compliance tracking needed |
+| Browser-Based Apps BCP                  | SPA security guidance          | Medium   | CORS headers, no implicit, PKCE done                 |
+| Cross-Device Flows Security BCP         | Device flow attack mitigations | Low      | —                                                    |
+| Attestation-Based Client Authentication | Hardware-backed client auth    | Low      | Not implemented                                      |
+| Token Status List                       | Efficient revocation           | Low      | Not implemented                                      |
+| Transaction Tokens                      | Action-specific tokens         | Low      | Not implemented                                      |
+| First-Party Applications                | Native app patterns            | Low      | Not implemented                                      |
 
 ---
 
@@ -248,23 +248,23 @@ Items marked ✅ have been implemented; remaining items are ordered by priority.
 
 **Goal:** Fix conformance gaps in already-implemented features. Low risk, high standards-compliance gain.
 
-| # | Item | RFC(s) | Effort |
-|---|---|---|---|
-| 1.1 | Add `iss` to authorization response query parameters | RFC 9207 | XS |
-| 1.2 | Add `typ: "at+JWT"` to JWT access token header | RFC 9068 | XS |
-| 1.3 | Fix issuer in JWT Claims (use configured issuer URL not hardcoded string) | RFC 9068 | XS |
-| 1.4 | Add `nbf`, `jti`, `aud` fields to introspection response | RFC 7662 | XS |
-| 1.5 | Support public clients (`token_endpoint_auth_method: none`) | RFC 6749 | S |
-| 1.6 | Add `error_uri` to OAuth2 error responses | RFC 6749 | XS |
-| 1.7 | `scope` in token response when different from requested | RFC 6749 §5.1 | XS |
-| 1.8 | Populate UserInfo claims from real user store (drop placeholder email) | OIDC Core §5.3 | S |
-| 1.9 | Validate `id_token_hint` in logout endpoint | OIDC Session | S |
-| 1.10 | Add OIDC `prompt=none` support (silent auth) | OIDC Core | M |
-| 1.11 | Add OIDC `login_hint` parameter passthrough | OIDC Core | XS |
-| 1.12 | Add OIDC `max_age` enforcement | OIDC Core | S |
-| 1.13 | Serve `/.well-known/oauth-authorization-server` separately | RFC 8414 | XS |
-| 1.14 | Add `state` parameter server-side validation option (configurable) | RFC 9700 §4.7 | S |
-| 1.15 | Cascade revocation: revoking refresh token revokes linked access tokens | RFC 7009 | S |
+| #    | Item                                                                      | RFC(s)         | Effort |
+| ---- | ------------------------------------------------------------------------- | -------------- | ------ |
+| 1.1  | Add `iss` to authorization response query parameters                      | RFC 9207       | XS     |
+| 1.2  | Add `typ: "at+JWT"` to JWT access token header                            | RFC 9068       | XS     |
+| 1.3  | Fix issuer in JWT Claims (use configured issuer URL not hardcoded string) | RFC 9068       | XS     |
+| 1.4  | Add `nbf`, `jti`, `aud` fields to introspection response                  | RFC 7662       | XS     |
+| 1.5  | Support public clients (`token_endpoint_auth_method: none`)               | RFC 6749       | S      |
+| 1.6  | Add `error_uri` to OAuth2 error responses                                 | RFC 6749       | XS     |
+| 1.7  | `scope` in token response when different from requested                   | RFC 6749 §5.1  | XS     |
+| 1.8  | Populate UserInfo claims from real user store (drop placeholder email)    | OIDC Core §5.3 | S      |
+| 1.9  | Validate `id_token_hint` in logout endpoint                               | OIDC Session   | S      |
+| 1.10 | Add OIDC `prompt=none` support (silent auth)                              | OIDC Core      | M      |
+| 1.11 | Add OIDC `login_hint` parameter passthrough                               | OIDC Core      | XS     |
+| 1.12 | Add OIDC `max_age` enforcement                                            | OIDC Core      | S      |
+| 1.13 | Serve `/.well-known/oauth-authorization-server` separately                | RFC 8414       | XS     |
+| 1.14 | Add `state` parameter server-side validation option (configurable)        | RFC 9700 §4.7  | S      |
+| 1.15 | Cascade revocation: revoking refresh token revokes linked access tokens   | RFC 7009       | S      |
 
 ### Phase 2 — New Client Authentication & Registration ✅ Done
 
@@ -289,9 +289,9 @@ Items marked ✅ have been implemented; remaining items are ordered by priority.
 |---|---|---|---|
 | 3.1 | Pushed Authorization Requests (PAR) | RFC 9126 | ✅ Done |
 | 3.2 | Resource Indicators (`resource` parameter) | RFC 8707 | ✅ Done |
-| 3.3 | JWT-Secured Authorization Request (JAR / `request` object) | RFC 9101 | ❌ Open |
+| 3.3 | JWT-Secured Authorization Request (JAR / `request` object) | RFC 9101 | ✅ Done (Phase 5.1) |
 | 3.4 | `response_mode=form_post` | OAuth2 / OIDC | ❌ Open |
-| 3.5 | OIDC Hybrid Flow (`response_type: code id_token`) | OIDC Core §3.3 | ❌ Open |
+| 3.5 | OIDC Hybrid Flow (`response_type: code id_token`) | OIDC Core §3.3 | ✅ Done (Phase 5.2) |
 | 3.6 | RFC 8252 Native Apps — loopback redirect + custom URI scheme validation | RFC 8252 | ❌ Open |
 | 3.7 | JWT Token Introspection Response | RFC 9701 | ✅ Done |
 
@@ -346,14 +346,15 @@ Items marked ✅ have been implemented; remaining items are ordered by priority.
   - File: `crates/oauth2-core/src/models/token.rs` → `IntrospectionResponse`
   - Add `aud: Option<String>` field; populate from `token.client_id`
 
-- [ ] **1.6** Add `error_uri` field to `OAuth2Error`
+- [x] **1.6** Add `error_uri` field to `OAuth2Error`
   - File: `crates/oauth2-core/src/models/error.rs`
-  - Add optional `error_uri` field to the error struct; serialize when present
+  - `error_uri: Option<String>` field present on `OAuth2Error`; serialized via serde when present
+  - Constructors leave it `None` (RFC 6749 §5.2: field is optional)
 
-- [ ] **1.7** Return `scope` in token response when modified
-  - File: `crates/oauth2-actix/src/handlers/oauth.rs`
-  - Ensure `scope` in `TokenResponse` is always populated (already is via `From<Token>`)
-  - Verify scope is returned even when server-downscoped
+- [x] **1.7** Return `scope` in token response when modified
+  - File: `crates/oauth2-core/src/models/token.rs`
+  - `From<Token> for TokenResponse` sets `scope: Some(token.scope)` — always populated
+  - Verified: scope is returned in all grant-type paths
 
 - [x] **1.11** `login_hint` passthrough in authorize
   - File: `crates/oauth2-actix/src/handlers/oauth.rs` → `AuthorizeQuery`
@@ -451,24 +452,25 @@ Items marked ✅ have been implemented; remaining items are ordered by priority.
 
 ## 7. Progress Tracker
 
-| Item | Status | PR / Commit | Notes |
-|---|---|---|---|
-| Spec audit document | ✅ Done | Initial commit | This file |
-| **Phase 1 items** | ✅ Done | claude/oauth2-spec-audit-UheZ5 | All 6 chunks complete |
-| **Phase 2 items** | ✅ Done | feat: Wave 2 RFC Additions (#67) | RFC 7591/7592/7523 complete |
-| **Phase 3 items** | ✅ Done (partial) | feat: RFC 9701 + PAR + Resource Indicators | 3.1, 3.2, 3.7 done; 3.3–3.6 open |
-| **Phase 4 items** | ⚠️ In progress | feat: Wave 4 OAuth2/OIDC features | Discovery advertises all; enforcement pending |
+| Item                | Status        | PR / Commit    | Notes                                                                                                         |
+| ------------------- | ------------- | -------------- | ------------------------------------------------------------------------------------------------------------- |
+| Spec audit document | ✅ Done       | Initial commit | This file                                                                                                     |
+| **Phase 1 items**   | ✅ Done       | main           | All 6 chunks complete                                                                                         |
+| **Phase 2 items**   | ✅ Done       | main           | Full RFC 7591/7592, private_key_jwt, client_secret_jwt                                                        |
+| **Phase 3 items**   | ✅ Done       | main           | PAR, JAR, Resource Indicators, form_post, Hybrid Flow, JWT Introspection                                      |
+| **Phase 4 items**   | ✅ Done       | main           | DPoP, mTLS, Token Exchange, RAR, Step-Up, Protected Resource Metadata, Token Status List, OIDC Claims Request |
+| **Phase 5 items**   | � In progress | main           | 5.1 JAR `request` inline, 5.2 Hybrid Flow `code id_token`, 5.3 `response_mode=fragment` ✅ Done               |
 
 ### Phase 1 Chunk Status
 
-| Chunk | Description | Status |
-|---|---|---|
-| 1.A | Quick wins (XS items) | ✅ Done |
-| 1.B | Public client support | ✅ Done |
-| 1.C | Issuer consistency & UserInfo | ✅ Done |
-| 1.D | OIDC parameter additions | ✅ Done |
-| 1.E | Logout & revocation fixes | ✅ Done |
-| 1.F | Discovery doc cleanup | ✅ Done |
+| Chunk | Description                   | Status  |
+| ----- | ----------------------------- | ------- |
+| 1.A   | Quick wins (XS items)         | ✅ Done |
+| 1.B   | Public client support         | ✅ Done |
+| 1.C   | Issuer consistency & UserInfo | ✅ Done |
+| 1.D   | OIDC parameter additions      | ✅ Done |
+| 1.E   | Logout & revocation fixes     | ✅ Done |
+| 1.F   | Discovery doc cleanup         | ✅ Done |
 
 ### Phase 2 Chunk Status
 
@@ -484,9 +486,123 @@ Items marked ✅ have been implemented; remaining items are ordered by priority.
 |---|---|---|
 | 3.1 | PAR — `POST /oauth/par` | ✅ Done |
 | 3.2 | Resource Indicators | ✅ Done |
+| 3.3 | JAR inline `request` object | ✅ Done (Phase 5.1) |
+| 3.5 | OIDC Hybrid Flow `code id_token` | ✅ Done (Phase 5.2) |
 | 3.7 | JWT Introspection Response (RFC 9701) | ✅ Done |
-| 3.3–3.6 | JAR, form_post, Hybrid Flow, Native Apps | ❌ Open |
+| 3.4 | `response_mode=form_post` | ❌ Open |
+| 3.6 | Native Apps loopback/custom URI | ❌ Open |
 
 ---
 
-*Last updated: 2026-04-13 — Generated from audit of codebase v0.0.10*
+## 8. Phase 5 — Ecosystem Completeness & Advanced OIDC
+
+**Goal:** Close the remaining published-RFC gaps, add OAuth 2.1 formal alignment,
+complete the OIDC Hybrid flow, and add enterprise-grade extensions.
+All items are independently mergeable.
+
+### Phase 5 Roadmap
+
+| #    | Item                                                                                     | RFC(s)             | Effort | Priority |
+| ---- | ---------------------------------------------------------------------------------------- | ------------------ | ------ | -------- |
+| 5.1  | JWT-Secured Authorization Request (JAR — `request` object inline)                        | RFC 9101           | L      | High     |
+| 5.2  | OIDC Hybrid Flow (`response_type=code id_token`, `code token`)                           | OIDC Core §3.3     | L      | High     |
+| 5.3  | `response_mode=fragment`                                                                 | OAuth2 / OIDC Core | S      | Medium   |
+| 5.4  | JWT Introspection Response (`Accept: application/token-introspection+jwt`)               | RFC 9701           | M      | Medium   |
+| 5.5  | JWK Thumbprint URI (`urn:ietf:params:oauth:jwk-thumbprint`)                              | RFC 9278           | S      | Low      |
+| 5.6  | `client_secret_jwt` client authentication                                                | RFC 7523           | M      | Medium   |
+| 5.7  | `private_key_jwt` client authentication                                                  | RFC 7523           | L      | High     |
+| 5.8  | RFC 8252 Native Apps — loopback redirect + custom URI scheme validation                  | RFC 8252           | S      | Medium   |
+| 5.9  | OAuth 2.1 formal compliance tracking (align with draft-ietf-oauth-v2-1)                  | OAuth 2.1          | M      | High     |
+| 5.10 | `state` parameter server-side enforcement (configurable flag)                            | RFC 9700 §4.7      | S      | Medium   |
+| 5.11 | OIDC Session Management (`check_session_iframe`, `end_session_endpoint` full spec)       | OIDC Session       | L      | Low      |
+| 5.12 | OIDC Front-Channel Logout                                                                | OIDC Front-Channel | M      | Low      |
+| 5.13 | OIDC Back-Channel Logout                                                                 | OIDC Back-Channel  | M      | Medium   |
+| 5.14 | Attestation-Based Client Authentication (draft-ietf-oauth-attestation-based-client-auth) | Draft              | XL     | Low      |
+| 5.15 | Transaction Tokens (draft-ietf-oauth-transaction-tokens)                                 | Draft              | XL     | Low      |
+
+### Phase 5 Chunked Plan
+
+#### Chunk 5.A — JWT Client Auth & Request Objects (High priority)
+
+- [ ] **5.7** `private_key_jwt` — clients send a signed JWT as credential at token endpoint
+  - Files: `crates/oauth2-actix/src/handlers/oauth.rs`, `crates/oauth2-core/src/models/client.rs`
+  - Parse `client_assertion_type=urn:ietf:params:oauth:client-assertion-type:jwt-bearer`
+  - Verify assertion JWT with client's registered JWKS/public key
+  - Discovery: add `private_key_jwt` to `token_endpoint_auth_methods_supported`
+
+- [ ] **5.6** `client_secret_jwt` — HMAC-signed JWT credential using shared secret
+  - File: `crates/oauth2-actix/src/handlers/oauth.rs`
+  - Verify assertion JWT with HMAC-SHA256 keyed by `client.client_secret`
+  - Discovery: add `client_secret_jwt` to `token_endpoint_auth_methods_supported`
+
+- [x] **5.1** JAR inline `request` object — signed JWT carrying authorize params
+  - File: `crates/oauth2-actix/src/handlers/oauth.rs` → `AuthorizeQuery`
+  - Supports `none` (unsigned, public clients), HS256 (`client_secret_*`), RS256 (`private_key_jwt`)
+  - `request_uri` fetch (remote JAR) is out of scope (SSRF risk)
+  - Discovery: `request_parameter_supported: true` ✅
+
+#### Chunk 5.B — Token & Response Format Completions (Medium priority)
+
+- [x] **5.2** OIDC Hybrid Flow
+  - File: `crates/oauth2-actix/src/handlers/oauth.rs` → `authorize()`
+  - `response_type=code id_token` supported; `id_token` with `c_hash` issued in fragment
+  - `code token` not yet implemented (low priority)
+  - Discovery: `response_types_supported` includes `code id_token` ✅
+
+- [x] **5.3** `response_mode=fragment`
+  - File: `crates/oauth2-actix/src/handlers/oauth.rs`
+  - Fragment delivery via percent-encoded URI fragment (`#code=...&iss=...`)
+  - Default for hybrid flows; opt-in for plain `code` via `response_mode=fragment` ✅
+
+- [ ] **5.4** JWT Introspection Response
+  - File: `crates/oauth2-actix/src/handlers/token.rs` → `introspect()`
+  - If `Accept: application/token-introspection+jwt` header present, return signed JWT body
+  - Content-Type: `application/token-introspection+jwt`
+  - Discovery: add `introspection_endpoint_auth_signing_alg_values_supported`
+
+- [ ] **5.5** JWK Thumbprint URI
+  - File: `crates/oauth2-core/src/models/token.rs`
+  - Implement `jwk_thumbprint_uri(key)` returning `urn:ietf:params:oauth:jwk-thumbprint:sha-256:<thumbprint>`
+  - Expose on JWKS endpoint and in DPoP `jkt` confirmation claim
+
+#### Chunk 5.C — Security & Compliance Hardening (Medium priority)
+
+- [ ] **5.9** OAuth 2.1 formal alignment
+  - Audit: ensure `plain` PKCE is rejected (✅ done), implicit flow removed (✅ done),
+    password grant removed (✅ done), PKCE mandatory for auth code (✅ done)
+  - Add `2.1` to discovery `oauth_versions_supported` (when field is standardised)
+  - Verify `WWW-Authenticate` header on 401 includes `error` and `error_description`
+  - Verify `scope` downscoping is communicated in token response (✅ 1.7 done)
+
+- [ ] **5.10** Server-side `state` enforcement (opt-in)
+  - File: `crates/oauth2-actix/src/handlers/oauth.rs`
+  - Add config flag `enforce_state: bool`; when enabled require `state` in authorize request
+  - Store `state` in session and verify it echoed back in callback (CSRF protection)
+
+- [ ] **5.8** RFC 8252 Native Apps
+  - File: `crates/oauth2-core/src/models/client.rs` → `validate_redirect_uri()`
+  - Allow loopback `http://127.0.0.1:{port}/path` and `http://[::1]:{port}/path` on any port
+  - Allow custom URI schemes (e.g. `myapp://callback`) for native clients
+  - Block `localhost` hostname per RFC 8252 §8.3 (use IP literals only)
+
+#### Chunk 5.D — OIDC Session & Logout (Low priority)
+
+- [ ] **5.13** OIDC Back-Channel Logout
+  - File: `crates/oauth2-actix/src/handlers/oidc_logout.rs`
+  - On logout, POST a signed `logout_token` JWT to each registered `backchannel_logout_uri`
+  - Store `backchannel_logout_uri` field in `Client` model (migration required)
+  - Discovery: `backchannel_logout_supported: true`
+
+- [ ] **5.12** OIDC Front-Channel Logout
+  - On logout, render iframes pointing to registered `frontchannel_logout_uri` endpoints
+  - Store `frontchannel_logout_uri` field in `Client` model
+  - Discovery: `frontchannel_logout_supported: true`
+
+- [ ] **5.11** OIDC Session Management (check_session_iframe)
+  - Add `GET /oauth/check_session` endpoint that renders the RP-embeddable iframe
+  - Manage session state change cookies to notify RPs of logout
+  - Discovery: `check_session_iframe` URL
+
+---
+
+_Last updated: 2026-04-13 — Phase 5 plan added; Phases 1–4 complete_
