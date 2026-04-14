@@ -1,0 +1,103 @@
+# .github/maintainer/config.yml — repo-specific caretaker configuration
+version: v1
+
+orchestrator:
+  schedule: weekly
+  summary_issue: true
+  dry_run: false
+
+pr_agent:
+  enabled: true
+  auto_merge:
+    copilot_prs: true
+    dependabot_prs: true
+    human_prs: false
+    merge_method: squash
+  copilot:
+    max_retries: 2
+    retry_window_hours: 24
+    context_injection: true
+  ci:
+    flaky_retries: 1
+    ignore_jobs: []
+  review:
+    auto_approve_copilot: false
+    nitpick_threshold: low
+
+issue_agent:
+  enabled: true
+  auto_assign_bugs: true
+  auto_assign_features: false
+  auto_close_stale_days: 30
+  auto_close_questions: true
+  labels:
+    bug: ["bug"]
+    feature: ["enhancement", "feature"]
+    question: ["question"]
+
+upgrade_agent:
+  enabled: true
+  strategy: auto-minor  # auto-minor | auto-patch | latest | pinned
+
+devops_agent:
+  enabled: true
+  target_branch: main
+  max_issues_per_run: 3
+  dedup_open_issues: true
+
+self_heal_agent:
+  enabled: true
+  report_upstream: true
+
+security_agent:
+  enabled: true
+  min_severity: medium
+  max_issues_per_run: 5
+  false_positive_rules: []
+  include_dependabot: true
+  include_code_scanning: true
+  include_secret_scanning: true
+
+dependency_agent:
+  enabled: true
+  auto_merge_patch: true
+  auto_merge_minor: true
+  merge_method: squash
+  post_digest: true
+
+docs_agent:
+  enabled: true
+  lookback_days: 7
+  changelog_path: CHANGELOG.md
+  update_readme: false
+
+stale_agent:
+  enabled: true
+  stale_days: 60
+  close_after: 14
+  close_stale_prs: true
+  delete_merged_branches: true
+  exempt_labels:
+    - pinned
+    - security
+    - security:finding
+    - dependencies:major-upgrade
+    - caretaker:self-heal
+    - devops:build-failure
+
+human_escalation:
+  enabled: true
+  post_digest_issue: true
+  notify_assignees: []
+
+escalation:
+  targets: []
+  stale_days: 7
+  labels: ["maintainer:escalated"]
+
+llm:
+  claude_enabled: auto
+  claude_features:
+    - ci_log_analysis
+    - architectural_review
+    - issue_decomposition
