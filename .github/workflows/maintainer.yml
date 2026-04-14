@@ -38,7 +38,6 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          cache: "pip"
 
       - name: Install caretaker
         run: |
@@ -50,11 +49,13 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           CARETAKER_EVENT_PAYLOAD: ${{ toJSON(github.event) }}
+          CARETAKER_RUN_MODE: ${{ github.event.inputs.mode || 'full' }}
+          CARETAKER_EVENT_TYPE: ${{ github.event_name }}
         run: |
           caretaker run \
             --config .github/maintainer/config.yml \
-            --mode "${{ github.event.inputs.mode || 'full' }}" \
-            --event-type "${{ github.event_name }}" \
+            --mode "$CARETAKER_RUN_MODE" \
+            --event-type "$CARETAKER_EVENT_TYPE" \
             --event-payload "$CARETAKER_EVENT_PAYLOAD"
 
   # When the caretaker run itself fails, trigger the self-heal agent
@@ -70,7 +71,6 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          cache: "pip"
 
       - name: Install caretaker
         run: |
