@@ -214,3 +214,11 @@ data:
     -- These columns are nullable so existing rows continue to read as NULL.
     ALTER TABLE authorization_codes ADD COLUMN authorization_details TEXT;
     ALTER TABLE authorization_codes ADD COLUMN claims_request TEXT;
+
+  V16__add_oidc_session_logout_fields.sql: |
+    -- OIDC Back-Channel Logout, Front-Channel Logout, and RP-Initiated Logout fields
+    ALTER TABLE clients ADD COLUMN backchannel_logout_uri TEXT NOT NULL DEFAULT '';
+    ALTER TABLE clients ADD COLUMN backchannel_logout_session_required BOOLEAN NOT NULL DEFAULT FALSE;
+    ALTER TABLE clients ADD COLUMN frontchannel_logout_uri TEXT NOT NULL DEFAULT '';
+    ALTER TABLE clients ADD COLUMN frontchannel_logout_session_required BOOLEAN NOT NULL DEFAULT FALSE;
+    ALTER TABLE clients ADD COLUMN post_logout_redirect_uris TEXT NOT NULL DEFAULT '';
