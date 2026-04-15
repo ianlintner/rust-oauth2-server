@@ -2,7 +2,7 @@ name: Caretaker
 
 on:
   schedule:
-    - cron: "0 8 * * 1"
+    - cron: "0 8 * * *"
   pull_request:
     types: [opened, synchronize, reopened]
   pull_request_review:
@@ -42,11 +42,15 @@ jobs:
       - name: Install caretaker
         run: |
           VERSION=$(cat .github/maintainer/.version)
-          pip install "caretaker @ git+https://github.com/ianlintner/caretaker.git@${VERSION}"
+          pip install "caretaker @ git+https://github.com/ianlintner/caretaker.git@v${VERSION}"
 
       - name: Run
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Fine-grained PAT for a real write-capable user or machine user.
+          # Caretaker uses this for Copilot issue assignment and @copilot comments
+          # that must not be authored as github-actions[bot].
+          COPILOT_PAT: ${{ secrets.COPILOT_PAT }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           CARETAKER_EVENT_PAYLOAD: ${{ toJSON(github.event) }}
           CARETAKER_RUN_MODE: ${{ github.event.inputs.mode || 'full' }}
@@ -75,11 +79,13 @@ jobs:
       - name: Install caretaker
         run: |
           VERSION=$(cat .github/maintainer/.version)
-          pip install "caretaker @ git+https://github.com/ianlintner/caretaker.git@${VERSION}"
+          pip install "caretaker @ git+https://github.com/ianlintner/caretaker.git@v${VERSION}"
 
       - name: Self-heal — analyse own failure
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Fine-grained PAT for a real write-capable user or machine user.
+          COPILOT_PAT: ${{ secrets.COPILOT_PAT }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           CARETAKER_FAILED_RUN_ID: ${{ github.run_id }}
           CARETAKER_EVENT_PAYLOAD: >-
