@@ -31,7 +31,7 @@ tokio = { version = "1.35", features = ["sync"] }
 tracing = "0.1"
 
 chrono = { version = "0.4", features = ["serde"] }
-rand = "0.9"
+rand = { version = "0.9.4", default-features = false, features = ["std", "std_rng", "os_rng"] }
 uuid = { version = "1.6", features = ["v4", "serde"] }
 subtle = "2.5"
 lru = "0.16"

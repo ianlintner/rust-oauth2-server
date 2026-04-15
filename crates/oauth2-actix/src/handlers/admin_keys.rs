@@ -55,9 +55,9 @@ pub async fn rotate_key(
     // Generate new key material
     let key_material = match algorithm {
         Algorithm::HS256 => {
-            use rand::RngCore;
+            use rand::{RngCore, SeedableRng};
             let mut secret = vec![0u8; 48];
-            rand::rng().fill_bytes(&mut secret);
+            rand::rngs::StdRng::from_os_rng().fill_bytes(&mut secret);
             secret
         }
         Algorithm::RS256 => {

@@ -3,7 +3,7 @@ use lru::LruCache;
 use oauth2_events::{AuthEvent, EventBusHandle, EventEnvelope, EventSeverity, EventType};
 use oauth2_observability::annotate_span_with_trace_ids;
 use oauth2_ports::DynStorage;
-use rand::Rng;
+use rand::{Rng, SeedableRng};
 use std::num::NonZeroUsize;
 use std::time::{Duration, Instant};
 use tracing::Instrument;
@@ -545,7 +545,7 @@ fn generate_secret() -> String {
 }
 
 fn generate_secret_of_length(len: usize) -> String {
-    let mut rng = rand::rng();
+    let mut rng = rand::rngs::StdRng::from_os_rng();
     (0..len)
         .map(|_| {
             let idx = rng.random_range(0..62);

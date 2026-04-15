@@ -6,7 +6,7 @@ use actix::prelude::*;
 use oauth2_events::{AuthEvent, EventBusHandle, EventEnvelope, EventSeverity, EventType};
 use oauth2_observability::annotate_span_with_trace_ids;
 use oauth2_ports::DynStorage;
-use rand::Rng;
+use rand::{Rng, SeedableRng};
 use tracing::Instrument;
 use uuid::Uuid;
 
@@ -320,7 +320,7 @@ impl Handler<GetPARRequest> for AuthActor {
 }
 
 fn generate_code() -> String {
-    let mut rng = rand::rng();
+    let mut rng = rand::rngs::StdRng::from_os_rng();
     let code: String = (0..32)
         .map(|_| {
             let idx = rng.random_range(0..62);

@@ -32,10 +32,10 @@ pub struct DeviceVerifyForm {
 }
 
 fn generate_user_code() -> String {
-    use rand::Rng;
+    use rand::{Rng, SeedableRng};
 
     const ALPHABET: &[u8] = b"ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-    let mut rng = rand::rng();
+    let mut rng = rand::rngs::StdRng::from_os_rng();
 
     let mut buf = String::with_capacity(9);
     for i in 0..8 {
@@ -50,10 +50,10 @@ fn generate_user_code() -> String {
 }
 
 fn generate_device_code() -> String {
-    use rand::Rng;
+    use rand::{Rng, SeedableRng};
 
     const ALPHABET: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-    let mut rng = rand::rng();
+    let mut rng = rand::rngs::StdRng::from_os_rng();
 
     let mut buf = String::with_capacity(48);
     for _ in 0..48 {
