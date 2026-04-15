@@ -376,7 +376,7 @@ if [[ "${active}" != "true" ]]; then
 fi
 
 echo "==> Checking /metrics (smoke)"
-curl -fsS "${BASE_URL}/metrics" | head -20 >/dev/null
+curl -fsS "${BASE_URL}/metrics" >/dev/null
 
 echo "\n✅ E2E OK (cluster=${CLUSTER_NAME}, namespace=${NAMESPACE}, base_url=${BASE_URL})"
 

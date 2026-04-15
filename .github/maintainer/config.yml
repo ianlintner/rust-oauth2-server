@@ -26,7 +26,7 @@ pr_agent:
 
 issue_agent:
   enabled: true
-  auto_assign_bugs: true
+  auto_assign_bugs: false
   auto_assign_features: false
   auto_close_stale_days: 30
   auto_close_questions: true
