@@ -88,9 +88,8 @@ trim_whitespace() {
 csv_to_markdown_list() {
 	local csv="$1"
 	local output=""
-	# nosemgrep: bash.lang.security.ifs-tampering
 	# IFS is declared with `local`, so it is scoped to this function and does not affect the global shell environment.
-	local IFS=','
+	local IFS=',' # nosemgrep: bash.lang.security.ifs-tampering.ifs-tampering
 	read -r -a values <<< "$csv"
 
 	for value in "${values[@]}"; do
@@ -113,9 +112,8 @@ validate_server_name() {
 normalize_server_csv() {
 	local raw_csv="$1"
 	local normalized=""
-	# nosemgrep: bash.lang.security.ifs-tampering
 	# IFS is declared with `local`, so it is scoped to this function and does not affect the global shell environment.
-	local IFS=','
+	local IFS=',' # nosemgrep: bash.lang.security.ifs-tampering.ifs-tampering
 	read -r -a values <<< "$raw_csv"
 
 	for value in "${values[@]}"; do

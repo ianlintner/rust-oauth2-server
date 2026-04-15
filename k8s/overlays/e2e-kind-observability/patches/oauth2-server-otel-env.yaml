@@ -4,7 +4,8 @@ metadata:
   name: oauth2-server
 spec:
   template:
-    spec:
+    spec: # nosemgrep: yaml.kubernetes.security.run-as-non-root.run-as-non-root
+      # This is a Kustomize patch file; the base deployment already defines runAsNonRoot: true.
       containers:
         - name: oauth2-server
           env:

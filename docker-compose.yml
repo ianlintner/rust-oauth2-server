@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   # PostgreSQL database (optional - can use SQLite instead)
-  postgres:
+  postgres: # nosemgrep: yaml.docker-compose.security.writable-filesystem-service.writable-filesystem-service
     image: postgres:15-alpine
     container_name: oauth2_postgres
     environment:
@@ -13,7 +13,6 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    # nosemgrep: yaml.docker-compose.security.writable-filesystem-service
     # PostgreSQL requires a writable filesystem for /var/run/postgresql and /tmp;
     # data persistence is already constrained to the named volume above.
     security_opt:
@@ -25,14 +24,13 @@ services:
       retries: 5
 
   # MongoDB database (optional - build with `--features mongo` and use a mongodb:// URL)
-  mongo:
+  mongo: # nosemgrep: yaml.docker-compose.security.writable-filesystem-service.writable-filesystem-service
     image: mongo:7
     container_name: oauth2_mongo
     ports:
       - "27017:27017"
     volumes:
       - mongo_data:/data/db
-    # nosemgrep: yaml.docker-compose.security.writable-filesystem-service
     # MongoDB requires a writable filesystem for /tmp and socket files;
     # data persistence is already constrained to the named volume above.
     security_opt:
@@ -44,7 +42,7 @@ services:
       retries: 10
 
   # Flyway migration service
-  flyway:
+  flyway: # nosemgrep: yaml.docker-compose.security.writable-filesystem-service.writable-filesystem-service
     image: flyway/flyway:10-alpine
     container_name: oauth2_flyway
     command: migrate
@@ -57,7 +55,6 @@ services:
       - FLYWAY_PASSWORD=oauth2_password
       - FLYWAY_SCHEMAS=public
       - FLYWAY_LOCATIONS=filesystem:/flyway/sql
-    # nosemgrep: yaml.docker-compose.security.writable-filesystem-service
     # Flyway writes temporary files during migration execution.
     security_opt:
       - no-new-privileges:true

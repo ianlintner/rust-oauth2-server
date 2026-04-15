@@ -4,15 +4,13 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>OAuth2 Server - My Profile</title>
-    <!-- nosemgrep: html.security.audit.missing-integrity -->
     <!-- Tailwind CDN Play serves a dynamically-built script; SRI is not applicable. -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    <!-- nosemgrep: html.security.audit.missing-integrity -->
+    <script src="https://cdn.tailwindcss.com"></script> <!-- nosemgrep: html.security.audit.missing-integrity.missing-integrity -->
     <!-- Google Fonts serves dynamically-generated CSS; SRI is not applicable. -->
     <link
       href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap"
       rel="stylesheet"
-    />
+    /> <!-- nosemgrep: html.security.audit.missing-integrity.missing-integrity -->
     <style>
       body {
         font-family: "Inter", sans-serif;
@@ -43,10 +41,9 @@
           </div>
           <h1 class="text-2xl font-bold text-gray-900">My Profile</h1>
         </div>
-        <!-- nosemgrep: python.django.security.django-no-csrf-token -->
         <!-- This is an Actix-web (Rust) template, not a Django template; this Django-specific
              Semgrep rule is not applicable here. -->
-        <form action="/auth/logout" method="POST">
+        <form action="/auth/logout" method="POST"> <!-- nosemgrep: python.django.security.django-no-csrf-token.django-no-csrf-token -->
           <button
             type="submit"
             class="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
