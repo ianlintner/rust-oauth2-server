@@ -1,7 +1,7 @@
 version: '3.8'
 
 services:
-  jaeger: # nosemgrep: yaml.docker-compose.security.writable-filesystem-service.writable-filesystem-service
+  jaeger: # nosemgrep: yaml.docker-compose.security.writable-filesystem-service
     image: jaegertracing/all-in-one:latest
     container_name: oauth2_jaeger
     environment:
@@ -14,7 +14,7 @@ services:
     # Jaeger writes span data to memory/tmp; read_only would require tmpfs mounts.
     restart: unless-stopped
 
-  otel_collector: # nosemgrep: yaml.docker-compose.security.writable-filesystem-service.writable-filesystem-service
+  otel_collector: # nosemgrep: yaml.docker-compose.security.writable-filesystem-service
     image: otel/opentelemetry-collector:0.103.0
     container_name: oauth2_otel_collector
     command: ["--config=/etc/otelcol/config.yml"]
@@ -29,7 +29,7 @@ services:
       - jaeger
     restart: unless-stopped
 
-  prometheus: # nosemgrep: yaml.docker-compose.security.writable-filesystem-service.writable-filesystem-service
+  prometheus: # nosemgrep: yaml.docker-compose.security.writable-filesystem-service
     image: prom/prometheus:v2.55.0
     container_name: oauth2_prometheus
     ports:
@@ -46,7 +46,7 @@ services:
     # Prometheus writes TSDB data; persistence is constrained to the named volume above.
     restart: unless-stopped
 
-  grafana: # nosemgrep: yaml.docker-compose.security.writable-filesystem-service.writable-filesystem-service
+  grafana: # nosemgrep: yaml.docker-compose.security.writable-filesystem-service
     image: grafana/grafana:11.3.0
     container_name: oauth2_grafana
     ports:

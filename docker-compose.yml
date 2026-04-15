@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   # PostgreSQL database (optional - can use SQLite instead)
-  postgres: # nosemgrep: yaml.docker-compose.security.writable-filesystem-service.writable-filesystem-service
+  postgres: # nosemgrep: yaml.docker-compose.security.writable-filesystem-service
     image: postgres:15-alpine
     container_name: oauth2_postgres
     environment:
@@ -24,7 +24,7 @@ services:
       retries: 5
 
   # MongoDB database (optional - build with `--features mongo` and use a mongodb:// URL)
-  mongo: # nosemgrep: yaml.docker-compose.security.writable-filesystem-service.writable-filesystem-service
+  mongo: # nosemgrep: yaml.docker-compose.security.writable-filesystem-service
     image: mongo:7
     container_name: oauth2_mongo
     ports:
@@ -42,7 +42,7 @@ services:
       retries: 10
 
   # Flyway migration service
-  flyway: # nosemgrep: yaml.docker-compose.security.writable-filesystem-service.writable-filesystem-service
+  flyway: # nosemgrep: yaml.docker-compose.security.writable-filesystem-service
     image: flyway/flyway:10-alpine
     container_name: oauth2_flyway
     command: migrate

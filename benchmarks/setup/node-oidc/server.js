@@ -120,7 +120,7 @@ async function main() {
 
   // This is a benchmark-only OIDC provider. CSRF protection is not required here since
   // it is an internal service with no user-facing forms that could be targeted cross-site.
-  const app = express(); // nosemgrep: javascript.express.security.audit.express-check-csurf-middleware-usage.express-check-csurf-middleware-usage
+  const app = express(); // nosemgrep: javascript.express.security.audit.express-check-csurf-middleware-usage
 
   // Health check endpoint
   app.get("/health", (req, res) => {
