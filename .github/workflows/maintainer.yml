@@ -22,6 +22,12 @@ on:
         type: choice
         options: [full, pr-only, issue-only, upgrade-only, dry-run]
 
+# Prevent concurrent caretaker runs so each run sees the up-to-date memory
+# store written by the previous run.
+concurrency:
+  group: caretaker
+  cancel-in-progress: false
+
 permissions:
   contents: write
   issues: write
@@ -38,6 +44,14 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+
+      - name: Restore memory store cache
+        uses: actions/cache@v4
+        with:
+          path: .caretaker-memory.db
+          key: caretaker-memory-${{ github.repository }}
+          restore-keys: |
+            caretaker-memory-
 
       - name: Install caretaker
         run: |
@@ -61,6 +75,17 @@ jobs:
             --mode "$CARETAKER_RUN_MODE" \
             --event-type "$CARETAKER_EVENT_TYPE" \
             --event-payload "$CARETAKER_EVENT_PAYLOAD"
+
+      # Upload a JSON snapshot of the memory store so it can be downloaded for
+      # auditing or used to manually restore a known-good state.
+      - name: Upload memory store snapshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: caretaker-memory-snapshot-${{ github.run_number }}
+          path: .caretaker-memory-snapshot.json
+          if-no-files-found: ignore
+          retention-days: 30
 
   # When the caretaker run itself fails, trigger the self-heal agent
   self-heal-on-failure:
