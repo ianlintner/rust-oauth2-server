@@ -1,30 +1,5 @@
 ## [2026-W16] — 2026-04-17
 
-- weekly reconciliation 2026-04-09 — client auth defaults, revoke example, benchmark CI (#60)
-- add LLM-driven security scanning framework (#61)
-- Restore Semgrep code scanning workflow (#62)
-- security: Address 56 Semgrep findings — fix shell injection, root containers, K8s securityContext; annotate intentional test fixtures (#64)
-- Wave 2 — OIDC Core Compliance & Refresh Token Security (#65)
-- Add comprehensive OAuth 2.0 specification audit and roadmap (#66)
-- Implement Wave 2 RFC Additions (RFC 7591/7592/7523) (#67)
-- weekly reconciliation 2026-04-13 — Wave 2/3/4 RFCs, opaque tokens, PAR, JWT introspection (#69)
-- add adduser package to Dockerfile runtime stage for trixie-slim (#70)
-- setup caretaker (#72)
-- add V16 OIDC session logout migration to k8s ConfigMap (#73)
-- Pin caretaker install to v0.1.1 (#76)
-- Bump caretaker runtime pin to v0.2.0 and fix related CI workflow failures (#78)
-- Mitigate rand ThreadRng unsoundness path in OAuth token/code generation (#98)
-- Fix Semgrep inline suppressions: move nosemgrep annotations onto flagged lines (#100)
-- update caretaker to v0.2.1 and sync templates (#102)
-- [WIP] Install Claude agent md improvement for this repo (#104)
-- upgrade rustls-webpki 0.103.10 → 0.103.12 (RUSTSEC-2026-0098, RUSTSEC-2026-0099) (#108)
-- upgrade caretaker from 0.2.1 to 0.4.0 (#110)
-- reconcile CHANGELOG — 2026-W16 (#111)
-- reconcile CHANGELOG — 2026-W16 (#112)
-
-## [2026-W16] — 2026-04-16
-
-- docs: weekly documentation reconciliation (2026-04-09) — client auth for introspection/revocation, event ingest bearer token, database pool config (#58)
 - docs: weekly reconciliation 2026-04-09 — client auth defaults, revoke example, benchmark CI (#60)
 - feat: add LLM-driven security scanning framework — kustomize K8s config variants (prod-hardened, dev-relaxed, misconfig), OAuth2 flow/timing/entropy/error-leakage scanners, CI validation workflow (#61)
 - fix: restore Semgrep code scanning workflow using modern `semgrep/semgrep` container with SARIF upload to GitHub code scanning (#62)
@@ -41,8 +16,9 @@
 - security: replace `rand::ThreadRng` with `StdRng::from_os_rng()` in OAuth token/code generation paths to eliminate ThreadRng unsoundness under reentrancy (#98)
 - fix: move Semgrep `nosemgrep` suppression annotations onto flagged lines — resolves 20 previously un-suppressed code scanning alerts (#100)
 - chore: update caretaker to v0.2.1 and sync CI workflow templates (#102)
-- chore: improve CLAUDE.md with Karpathy-inspired behavioral guidelines for AI coding agents (Think Before Coding, Simplicity First, Surgical Changes, Goal-Driven Execution) (#104)
+- chore: improve `CLAUDE.md` with Karpathy-inspired behavioral guidelines for AI coding agents (Think Before Coding, Simplicity First, Surgical Changes, Goal-Driven Execution) (#104)
 - fix: upgrade `rustls-webpki` 0.103.10 → 0.103.12 (RUSTSEC-2026-0098: URI name constraints bypass; RUSTSEC-2026-0099: wildcard certificate name constraint bypass) (#108)
 - chore: upgrade caretaker from 0.2.1 to 0.4.0 — updates orchestrator workflow, agent instruction templates, and CI pin (#110)
-- docs: reconcile CHANGELOG — 2026-W16, adding expanded descriptions for PRs #58–#110 (#111)
+- docs: reconcile CHANGELOG — 2026-W16, adding expanded descriptions for PRs #60–#110 (#111)
+- docs: reconcile CHANGELOG — 2026-W16, consolidate duplicate sections and expand cryptic titles (#112)
 
