@@ -22,7 +22,7 @@
 - Dashboard stats: `GET /admin/api/dashboard`
 - OpenAPI docs: `http://localhost:8080/swagger-ui`
 
-**Authentication:** All `/admin/*` routes require admin session (login at `/auth/login`)
+**Authentication:** All `/admin/*` routes require an authenticated **admin** session. Access is granted only to users with `role == "admin"` or whose email is on the admin allowlist. Non-admin authenticated users are redirected (default `/profile`, configurable via `OAUTH2_NON_ADMIN_REDIRECT`). Log in at `/auth/login`.
 
 ---
 

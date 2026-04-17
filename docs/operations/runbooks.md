@@ -23,13 +23,13 @@ curl http://localhost:8080/health     # Basic liveness
 curl http://localhost:8080/ready      # Storage connectivity
 curl http://localhost:8080/metrics    # Current metrics
 kubectl get pods -n oauth2-server     # Pod status
-kubectl logs -l app=oauth2-server     # Recent logs
+kubectl logs -n oauth2-server -l app=oauth2-server     # Recent logs
 ```
 
 **Quick actions:**
-- Roll back: `kubectl rollout undo deployment/oauth2-server`
-- Restart: `kubectl rollout restart deployment/oauth2-server`
-- Scale: `kubectl scale deployment/oauth2-server --replicas=3`
+- Roll back: `kubectl rollout undo deployment/oauth2-server -n oauth2-server`
+- Restart: `kubectl rollout restart deployment/oauth2-server -n oauth2-server`
+- Scale: `kubectl scale deployment/oauth2-server --replicas=3 -n oauth2-server`
 
 ---
 

@@ -22,7 +22,7 @@
 - `.env.example` - Canonical reference for all config keys
 - `application.conf.example` - HOCON example
 
-**Configuration precedence:** Environment variables → application.conf → built-in defaults
+**Configuration precedence:** HOCON file (`application.conf`) is loaded first with environment variable substitution; a handful of env vars (e.g. `OAUTH2_ALLOWED_ORIGINS`) are applied as explicit overrides on top. If no HOCON file is present the server falls back to environment variables only.
 
 ---
 

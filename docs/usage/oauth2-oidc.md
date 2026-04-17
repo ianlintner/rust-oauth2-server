@@ -21,7 +21,7 @@
 - Authorization: `GET /oauth/authorize` (with PKCE required)
 - Token exchange: `POST /oauth/token`
 - Introspection: `POST /oauth/introspect`
-- UserInfo: `GET /oauth/userinfo`
+- UserInfo: `GET|POST /oauth/userinfo`
 
 ---
 
