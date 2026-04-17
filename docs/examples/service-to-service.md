@@ -1,5 +1,33 @@
 # Service-to-service (Client Credentials + Introspection)
 
+## For AI Agents
+
+> **Prompt:** "Set up a service-to-service authentication example using client credentials grant and token introspection between two services"
+
+**What this example demonstrates:**
+1. Service A obtains access token using client credentials grant
+2. Service A calls Service B with the token in Authorization header
+3. Service B validates the token using introspection endpoint
+4. Service B enforces scope-based authorization
+
+**Common tasks:**
+
+| Task | Prompt Example |
+|------|----------------|
+| Run example locally | "Run the service-to-service example with the Node.js resource server" |
+| Test client credentials | "Get an access token for service A using client credentials" |
+| Validate token | "Call the introspection endpoint to validate a token and check scopes" |
+| Deploy to K8s | "Deploy the service-to-service example to KIND with both services" |
+| Debug auth failure | "Service B is rejecting tokens - help debug the introspection flow" |
+| Add scope check | "Add a new scope requirement 'admin:write' to Service B" |
+
+**Key endpoints:**
+- Token request: `POST /oauth/token` (grant_type=client_credentials)
+- Introspection: `POST /oauth/introspect`
+- Example resource server: `examples/resource-server-node/`
+
+---
+
 This cookbook demonstrates a common **machine-to-machine** pattern:
 
 1. **Service A** (client) obtains an access token using the **Client Credentials**
