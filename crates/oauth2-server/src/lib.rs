@@ -1,8 +1,9 @@
 use actix::Actor;
 use actix_cors::Cors;
 use actix_files::Files;
-use actix_session::{storage::CookieSessionStore, SessionMiddleware};
+use actix_session::{config::PersistentSession, storage::CookieSessionStore, SessionMiddleware};
 use actix_web::body::MessageBody;
+use actix_web::cookie::{time::Duration as CookieDuration, SameSite};
 use actix_web::dev::{ServiceRequest, ServiceResponse};
 use actix_web::middleware::Condition;
 use actix_web::{cookie::Key, middleware as actix_middleware, web, App, HttpResponse, HttpServer};
@@ -900,7 +901,22 @@ pub async fn run() -> std::io::Result<()> {
                     .add(("X-Frame-Options", "DENY"))
                     .add(("X-Content-Type-Options", "nosniff"))
                     .add(("Referrer-Policy", "no-referrer"))
-                    .add(("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:")),
+                    // HSTS (RFC 6797): forces browsers to upgrade HTTP to HTTPS
+                    // for this host for 1 year. `includeSubDomains` protects
+                    // sibling hosts. `preload` is opt-in — operators submit
+                    // their host to hstspreload.org separately; we advertise
+                    // readiness by default.
+                    .add((
+                        "Strict-Transport-Security",
+                        "max-age=31536000; includeSubDomains",
+                    ))
+                    // CSP: existing templates still include inline
+                    // `<script>` blocks, so `script-src` must retain
+                    // 'unsafe-inline' until those scripts are moved to
+                    // external files or converted to nonce/hash-based CSP.
+                    // `style-src` also retains 'unsafe-inline' for
+                    // Tailwind utility classes.
+                    .add(("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'")),
             )
             .wrap(cors)
             .wrap(oauth2_observability::actix::MetricsMiddleware::new(
@@ -909,10 +925,32 @@ pub async fn run() -> std::io::Result<()> {
             .wrap(actix_middleware::Compress::default())
             .wrap(actix_middleware::Logger::default())
             .wrap(TracingLogger::<OtelRootSpanBuilder>::new())
-            .wrap(SessionMiddleware::new(
-                CookieSessionStore::default(),
-                session_key.clone(),
-            ))
+            // Session cookie hardening (W2-H5):
+            //   - `Secure` is enabled unless `OAUTH2_ALLOW_INSECURE_DEFAULTS=1`
+            //     (matches the same env convention used by `validate_for_production()`
+            //     and the seed-password check). Production deployments MUST leave
+            //     the variable unset so the cookie is never sent over plaintext HTTP.
+            //   - `HttpOnly` blocks `document.cookie` access from JavaScript.
+            //   - `SameSite=Lax` is required because the OAuth authorize redirect
+            //     returns via a top-level navigation; `Strict` would drop the
+            //     session on return and break the login flow.
+            //   - Persistent session TTL = 12h; browsers expire the cookie even
+            //     when the tab stays open.
+            .wrap(
+                SessionMiddleware::builder(
+                    CookieSessionStore::default(),
+                    session_key.clone(),
+                )
+                .cookie_secure(
+                    std::env::var("OAUTH2_ALLOW_INSECURE_DEFAULTS").as_deref() != Ok("1"),
+                )
+                .cookie_http_only(true)
+                .cookie_same_site(SameSite::Lax)
+                .session_lifecycle(
+                    PersistentSession::default().session_ttl(CookieDuration::hours(12)),
+                )
+                .build(),
+            )
             .wrap(rl_middleware)
             // Resilience is the outermost layer (last .wrap() call).
             // Tripped circuit / full concurrency pool → 503 on the cheapest
@@ -935,6 +973,16 @@ pub async fn run() -> std::io::Result<()> {
             .app_data(web::Data::new(key_rotation_grace_hours))
             // Stateless JWT validation flag (skips DB lookup during introspection)
             .app_data(web::Data::new(app_config.jwt.stateless_validation));
+
+        // Login rate-limiter (W2-H1): per-IP and per-username credential-stuffing
+        // protection.  Registered as optional app_data so tests that don't supply
+        // it can still compile without needing a real limiter instance.
+        app = app.app_data(web::Data::new(
+            oauth2_actix::handlers::login::LoginRateLimiter::default(),
+        ));
+
+        // Trust proxy headers flag — shared with rate limit middleware and login handler.
+        app = app.app_data(web::Data::new(server_config.trust_proxy_headers));
 
         // Shared, best-effort in-memory idempotency cache for event ingest.
         app = app.app_data(web::Data::new(ingest_idempotency.clone()));

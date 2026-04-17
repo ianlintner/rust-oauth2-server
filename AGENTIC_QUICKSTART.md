@@ -4,48 +4,65 @@ This guide helps you get started with the OAuth2 Server in an AI-assisted develo
 
 ## Overview
 
-The OAuth2 Server project is now fully equipped for modern agentic AI development with:
+The OAuth2 Server project is fully equipped for modern agentic AI development with:
 
-- 🤖 **MCP Server** for AI integration
+- 💡 **Skills** (`.skills/`) - 7 reusable AI workflows for complex tasks
+- ⚡ **Slash Commands** (`.claude/commands/`) - 8 quick-access operations
+- 🤖 **MCP Server** (`mcp-server/`) - OAuth2 operations via Model Context Protocol
+- 📚 **Agent Instructions** (`.github/agents/`) - 9 specialized domain guides
+- 🧠 **Agent Memory** (`CLAUDE.md`) - Behavioral guidelines and project context
 - ☸️ **Kubernetes** manifests for production deployment
 - 🔄 **CI/CD** with E2E testing
-- 📚 **Agent Instructions** for specialized assistance
 - 📖 **Comprehensive Documentation** with runbooks
 
 ## For AI Assistants
 
-### Available Agent Roles
+### Skills - Reusable AI Workflows
 
-You can invoke specialized agents for different tasks:
+**Location**: `.skills/` directory
 
-1. **Development Agent** ([`.github/agents/development.md`](.github/agents/development.md))
-   - Coding guidelines and patterns
-   - Adding new features
-   - Testing and debugging
-   - Code quality and style
+Skills are structured prompts for complex, multi-step tasks.
 
-2. **Operations Agent** ([`.github/agents/operations.md`](.github/agents/operations.md))
-   - Deployment procedures
-   - Monitoring and alerting
-   - Troubleshooting
-   - Scaling and performance
+**Available Skills:**
+- **oauth2-test-flow** - Test OAuth2 flows end-to-end
+- **oauth2-register-client** - Register OAuth2 clients
+- **oauth2-debug-token** - Debug JWT token issues
+- **rfc-compliance-check** - Verify RFC compliance
+- **db-migration** - Create database migrations
+- **deploy-k8s** - Deploy to Kubernetes
+- **add-endpoint** - Add new HTTP endpoints
 
-3. **Database Agent** ([`.github/agents/database.md`](.github/agents/database.md))
-   - Database operations
-   - Migrations and schema changes
-   - Query optimization
-   - Backup and restore
+**Usage**: `"Use the oauth2-test-flow skill to test authorization code + PKCE"`
 
-4. **Security Agent** ([`.github/agents/security.md`](.github/agents/security.md))
-   - Security best practices
-   - Vulnerability scanning
-   - Incident response
-   - Compliance
+### Slash Commands - Quick Operations
 
-### Using the MCP Server
+**Location**: `.claude/commands/` directory
 
-The MCP server enables AI assistants to interact with the OAuth2 Server API directly:
+**Available Commands:**
+- `/test` - Run tests with filters
+- `/ci` - Run CI gate checks
+- `/deploy` - Deploy to environment
+- `/rfc` - Check RFC compliance
+- `/security` - Run security scans
+- `/migrate` - Create migration
+- `/docs` - Generate documentation
+- `/benchmark` - Run benchmarks
 
+### Agent Instructions - Specialized Expertise
+
+**Location**: `.github/agents/` directory
+
+1. **Development** ([`development.md`](.github/agents/development.md)) - Coding guidelines
+2. **Operations** ([`operations.md`](.github/agents/operations.md)) - Deployment procedures
+3. **Database** ([`database.md`](.github/agents/database.md)) - Database operations
+4. **Security** ([`security.md`](.github/agents/security.md)) - Security practices
+5. **Maintainer Agents** - Autonomous maintenance (caretaker integration)
+
+### MCP Server - OAuth2 Operations
+
+**Location**: `mcp-server/` directory
+
+**Setup:**
 ```bash
 cd mcp-server
 npm install
@@ -53,7 +70,15 @@ cp .env.example .env
 npm start
 ```
 
-Configure your AI assistant (e.g., Claude Desktop) to use the MCP server for OAuth2 operations.
+**Tools**: Token operations, client registration, health/metrics, OIDC discovery
+
+See [`mcp-server/README.md`](mcp-server/README.md) for configuration.
+
+### Agent Memory - CLAUDE.md
+
+**Location**: `CLAUDE.md` (root directory)
+
+**Read this first** - Contains behavioral guidelines, project context, RFC compliance, common pitfalls, and CI requirements.
 
 ## For Developers
 

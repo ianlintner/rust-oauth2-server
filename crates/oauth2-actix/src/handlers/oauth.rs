@@ -376,8 +376,33 @@ fn process_jar(
     }
 
     match client.token_endpoint_auth_method.as_str() {
-        // Public clients: decode payload without signature verification.
+        // Public clients: the JWS must be structurally unsigned (alg=none + empty signature).
+        // Without this check, an attacker could submit any JWT-shaped string and the server
+        // would blindly extract payload claims — a signature-bypass primitive.
         "none" => {
+            // Verify the JOSE header explicitly declares alg=none.
+            let header_bytes = general_purpose::URL_SAFE_NO_PAD
+                .decode(parts[0])
+                .or_else(|_| general_purpose::URL_SAFE.decode(parts[0]))
+                .map_err(|_| {
+                    OAuth2Error::invalid_request("JAR JWT header is not valid base64url")
+                })?;
+            let header: serde_json::Value = serde_json::from_slice(&header_bytes)
+                .map_err(|_| OAuth2Error::invalid_request("JAR JWT header is not valid JSON"))?;
+            let alg = header.get("alg").and_then(|v| v.as_str()).unwrap_or("");
+            if alg != "none" {
+                return Err(OAuth2Error::invalid_request(
+                    "JAR from public client must use alg=none; signed JARs require a \
+                     confidential client authentication method",
+                ));
+            }
+            // RFC 7515 §6: with alg=none, the JWS signature MUST be the empty string.
+            if !parts[2].is_empty() {
+                return Err(OAuth2Error::invalid_request(
+                    "JAR with alg=none must have an empty signature",
+                ));
+            }
+
             let payload_bytes = general_purpose::URL_SAFE_NO_PAD
                 .decode(parts[1])
                 .or_else(|_| general_purpose::URL_SAFE.decode(parts[1]))
