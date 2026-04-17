@@ -65,7 +65,6 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          cache: "pip"
 
       - name: Restore memory store cache
         uses: actions/cache@v4
@@ -141,7 +140,6 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          cache: "pip"
 
       - name: Install caretaker
         run: |
