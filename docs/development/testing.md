@@ -1,5 +1,49 @@
 # Testing
 
+## For AI Agents
+
+> **Prompt:** "Run the full CI test suite for rust-oauth2-server, including formatting, linting, and all tests"
+
+**Common testing tasks:**
+
+| Task | Prompt Example |
+|------|----------------|
+| Run full CI gate | "Run all CI checks: formatting, clippy, and tests" |
+| Fix formatting | "Auto-fix all formatting issues with cargo fmt" |
+| Run specific tests | "Run only the OAuth2 integration tests in oauth2-actix crate" |
+| Run RFC tests | "Run the RFC compliance test suite" |
+| Debug test failure | "The test 'test_pkce_flow' is failing - help me debug it" |
+| Add new test | "Add a new integration test for device authorization flow" |
+| Run BDD tests | "Run the Cucumber BDD feature tests" |
+| Benchmark | "Run the benchmark suite and compare performance" |
+
+**Quick test commands:**
+```bash
+# Full CI gate (required before PR)
+cargo fmt --all -- --check
+cargo clippy --all-targets --all-features -- -D warnings
+cargo test --verbose --all-features --locked
+
+# Auto-fix formatting
+cargo fmt --all
+
+# Fast iteration
+cargo check --all-features
+cargo test -p oauth2-actix
+cargo test --test rfc_compliance
+
+# Docs validation
+python3 -m mkdocs build --strict
+```
+
+**Key test files:**
+- `tests/rfc_compliance.rs` - RFC spec compliance
+- `tests/security_http.rs` - Security integration tests
+- `tests/device_flow.rs` - Device authorization flow
+- `tests/bdd/` - BDD feature tests
+
+---
+
 This repo has fast local checks, database-backed integration tests, KIND-based end-to-end flows, and a benchmark harness. The only rule that really matters: run the full gate before you call a change done.
 
 ## Local CI gate
