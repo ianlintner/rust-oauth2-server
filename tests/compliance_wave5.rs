@@ -666,6 +666,198 @@ async fn wave5_jar_tampered_hs256_is_rejected() {
 }
 
 // ---------------------------------------------------------------------------
+// Wave 2 hardening — C1: JAR public-client alg-bypass regression tests
+// ---------------------------------------------------------------------------
+
+/// Build a JWT-shaped string with a caller-chosen header and non-empty
+/// signature part.  Payload is always valid JSON so the only reason for
+/// rejection is the header / signature invariant check in `process_jar`.
+fn make_jar_with_header_and_sig(header_json: &str, claims: Value, signature: &str) -> String {
+    let header_b64 = general_purpose::URL_SAFE_NO_PAD.encode(header_json.as_bytes());
+    let payload_b64 =
+        general_purpose::URL_SAFE_NO_PAD.encode(serde_json::to_vec(&claims).unwrap().as_slice());
+    let sig_b64 = general_purpose::URL_SAFE_NO_PAD.encode(signature.as_bytes());
+    format!("{header_b64}.{payload_b64}.{sig_b64}")
+}
+
+/// C1: A public client must NOT be able to submit a JAR with a header claiming
+/// `alg: "HS256"` (or any non-`none` algorithm).  Before the fix, the server
+/// would blindly base64-decode the payload without inspecting the header or
+/// signature — a signature-bypass primitive.
+#[actix_web::test]
+async fn wave2_c1_public_client_jar_rejects_non_none_alg_header() {
+    let mut client = Client::new(
+        "client_c1_pub".to_string(),
+        "".to_string(),
+        vec!["https://cb.example/cb".to_string()],
+        vec!["authorization_code".to_string()],
+        "openid read".to_string(),
+        "test".to_string(),
+    );
+    client.token_endpoint_auth_method = "none".to_string();
+
+    let (token_actor, client_actor, auth_actor, jwt_secret, metrics, oidc_config) =
+        setup_context(client).await;
+    let app = plain_app!(
+        token_actor,
+        client_actor,
+        auth_actor,
+        jwt_secret,
+        metrics,
+        oidc_config
+    );
+
+    let challenge = s256_challenge("verifier_c1_pub");
+    let jar_claims = json!({
+        "redirect_uri": "https://cb.example/cb",
+        "scope": "openid read",
+        "code_challenge": challenge,
+        "code_challenge_method": "S256",
+    });
+    // Header lies about alg; payload otherwise looks legitimate.
+    let jar =
+        make_jar_with_header_and_sig(r#"{"alg":"HS256","typ":"JWT"}"#, jar_claims, "anybytes");
+
+    let req = test::TestRequest::get()
+        .uri(&format!(
+            "/oauth/authorize?response_type=code&client_id=client_c1_pub\
+             &redirect_uri=https%3A%2F%2Fcb.example%2Fcb\
+             &scope=openid+read&code_challenge={challenge}&code_challenge_method=S256\
+             &request={jar}"
+        ))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+
+    assert_eq!(
+        resp.status(),
+        400,
+        "public-client JAR with non-none alg header must be rejected"
+    );
+    let body: OAuth2Error = test::read_body_json(resp).await;
+    assert_eq!(body.error, "invalid_request");
+}
+
+/// C1: A public client JAR whose header says `alg: "none"` but carries a
+/// non-empty signature must also be rejected (RFC 7515 §6).
+#[actix_web::test]
+async fn wave2_c1_public_client_jar_rejects_nonempty_signature_with_alg_none() {
+    let mut client = Client::new(
+        "client_c1_sig".to_string(),
+        "".to_string(),
+        vec!["https://cb.example/cb".to_string()],
+        vec!["authorization_code".to_string()],
+        "openid read".to_string(),
+        "test".to_string(),
+    );
+    client.token_endpoint_auth_method = "none".to_string();
+
+    let (token_actor, client_actor, auth_actor, jwt_secret, metrics, oidc_config) =
+        setup_context(client).await;
+    let app = plain_app!(
+        token_actor,
+        client_actor,
+        auth_actor,
+        jwt_secret,
+        metrics,
+        oidc_config
+    );
+
+    let challenge = s256_challenge("verifier_c1_sig");
+    let jar_claims = json!({
+        "redirect_uri": "https://cb.example/cb",
+        "scope": "openid read",
+        "code_challenge": challenge,
+        "code_challenge_method": "S256",
+    });
+    // alg=none but signature is non-empty — structurally invalid per RFC 7515.
+    let jar = make_jar_with_header_and_sig(
+        r#"{"alg":"none","typ":"JWT"}"#,
+        jar_claims,
+        "trailing_garbage",
+    );
+
+    let req = test::TestRequest::get()
+        .uri(&format!(
+            "/oauth/authorize?response_type=code&client_id=client_c1_sig\
+             &redirect_uri=https%3A%2F%2Fcb.example%2Fcb\
+             &scope=openid+read&code_challenge={challenge}&code_challenge_method=S256\
+             &request={jar}"
+        ))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+
+    assert_eq!(
+        resp.status(),
+        400,
+        "alg=none with non-empty signature must be rejected"
+    );
+    let body: OAuth2Error = test::read_body_json(resp).await;
+    assert_eq!(body.error, "invalid_request");
+}
+
+// ---------------------------------------------------------------------------
+// Wave 2 hardening — C3: Password (ROPC) grant regression test
+// ---------------------------------------------------------------------------
+
+/// C3 (regression): the Resource Owner Password Credentials grant (RFC 6749
+/// §4.3) is disabled per OAuth 2.0 Security BCP.  Token endpoint must reject
+/// `grant_type=password` with `unsupported_grant_type` regardless of client
+/// authentication state.
+#[actix_web::test]
+async fn wave2_c3_password_grant_is_rejected() {
+    use std::sync::Arc;
+    use tokio::sync::RwLock;
+
+    let client = Client::new(
+        "client_c3_ropc".to_string(),
+        "ropc_secret".to_string(),
+        vec!["https://cb.example/cb".to_string()],
+        vec!["authorization_code".to_string()],
+        "read".to_string(),
+        "test".to_string(),
+    );
+    let (token_actor, client_actor, auth_actor, jwt_secret, metrics, oidc_config) =
+        setup_context(client).await;
+
+    // Build App inline to register the /oauth/token route (plain_app! only
+    // registers /oauth/authorize).
+    let keyset = Arc::new(RwLock::new(oauth2_core::key_set::KeySet::default()));
+    let app = test::init_service(
+        App::new()
+            .app_data(web::Data::new(token_actor))
+            .app_data(web::Data::new(client_actor))
+            .app_data(web::Data::new(auth_actor))
+            .app_data(web::Data::new(jwt_secret))
+            .app_data(web::Data::new(metrics))
+            .app_data(web::Data::new(oidc_config))
+            .app_data(web::Data::new(keyset))
+            .app_data(web::Data::new(false))
+            .service(web::scope("/oauth").route(
+                "/token",
+                web::post().to(oauth2_actix::handlers::oauth::token),
+            )),
+    )
+    .await;
+
+    let form = "grant_type=password&username=testuser&password=whatever\
+                &client_id=client_c3_ropc&client_secret=ropc_secret";
+    let req = test::TestRequest::post()
+        .uri("/oauth/token")
+        .insert_header(("Content-Type", "application/x-www-form-urlencoded"))
+        .set_payload(form)
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+
+    assert_eq!(
+        resp.status(),
+        400,
+        "password grant must be rejected with 400"
+    );
+    let body: OAuth2Error = test::read_body_json(resp).await;
+    assert_eq!(body.error, "unsupported_grant_type");
+}
+
+// ---------------------------------------------------------------------------
 // Discovery document — Phase 5 fields
 // ---------------------------------------------------------------------------
 

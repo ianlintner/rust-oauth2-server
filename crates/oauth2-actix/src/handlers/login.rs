@@ -5,13 +5,82 @@
 //! `/oauth/authorize` with the original query string so the authorization
 //! code grant can complete.
 
+use std::sync::Arc;
+
 use actix_session::Session;
-use actix_web::{web, HttpResponse};
+use actix_web::{web, HttpRequest, HttpResponse};
 use argon2::{Argon2, PasswordHash, PasswordVerifier};
 use serde::Deserialize;
 
 use oauth2_core::utils::redirect::is_safe_redirect;
 use oauth2_ports::DynStorage;
+use oauth2_ratelimit::RateLimiter;
+
+fn extract_client_ip(req: &HttpRequest, trust_proxy_headers: bool) -> String {
+    // Only trust proxy-provided client IP headers when explicitly configured.
+    // Otherwise, an attacker can spoof X-Forwarded-For and evade per-IP
+    // login rate limiting.
+    if trust_proxy_headers {
+        if let Some(forwarded) = req.headers().get("X-Forwarded-For") {
+            if let Ok(value) = forwarded.to_str() {
+                if let Some(first) = value.split(',').next() {
+                    return first.trim().to_string();
+                }
+            }
+        }
+    }
+    req.peer_addr()
+        .map(|a| a.ip().to_string())
+        .unwrap_or_else(|| "unknown".to_string())
+}
+
+/// Rate-limit login attempts (W2-H1).
+///
+/// Keyed by IP and by username independently. Hitting either bucket rejects
+/// the attempt with a redirect to `/auth/login?error=too_many_attempts`.
+/// Defaults are tuned for credential-stuffing: 10 attempts per 15 minutes —
+/// the legitimate user never reaches this unless they've forgotten their
+/// password many times.
+///
+/// Uses an in-memory backend; acceptable for a single-node deployment but
+/// multi-node production should front this with a shared Redis limiter.
+pub struct LoginRateLimiter {
+    inner: Arc<dyn RateLimiter>,
+}
+
+impl LoginRateLimiter {
+    /// Construct with default credential-stuffing limits (10 attempts / 15 min).
+    pub fn new() -> Self {
+        Self::with_limits(10, 15 * 60)
+    }
+
+    pub fn with_limits(max_requests: u32, window_secs: u64) -> Self {
+        Self {
+            inner: Arc::new(oauth2_ratelimit::in_memory::InMemoryRateLimiter::new(
+                max_requests,
+                window_secs,
+            )),
+        }
+    }
+
+    /// Returns `Err(retry_after_seconds)` when the request should be rejected.
+    pub async fn check(&self, ip: &str, username: &str) -> Result<(), u64> {
+        for key in [format!("login:ip:{ip}"), format!("login:user:{username}")] {
+            let res = self.inner.check(&key).await.map_err(|_| 60u64)?;
+            if !res.allowed {
+                let retry = res.retry_after.map(|d| d.as_secs()).unwrap_or(60);
+                return Err(retry.max(1));
+            }
+        }
+        Ok(())
+    }
+}
+
+impl Default for LoginRateLimiter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 /// Query parameters accepted by `GET /auth/login`.
 #[derive(Debug, Deserialize)]
@@ -38,8 +107,10 @@ pub async fn login_page(query: web::Query<LoginQuery>) -> actix_web::Result<Http
     if let Some(ref error) = query.error {
         let message = match error.as_str() {
             "invalid_credentials" => "Invalid username or password. Please try again.",
-            "account_disabled" => "This account has been disabled.",
             "login_required" => "Please log in to continue.",
+            "too_many_attempts" => {
+                "Too many login attempts. Please wait a few minutes and try again."
+            }
             _ => "An error occurred. Please try again.",
         };
         let error_html = format!(
@@ -68,10 +139,34 @@ pub async fn login_page(query: web::Query<LoginQuery>) -> actix_web::Result<Http
 ///
 /// On failure the user is redirected back to `GET /auth/login?error=…`.
 pub async fn login_submit(
+    req: HttpRequest,
     session: Session,
     form: web::Form<LoginForm>,
     storage: web::Data<DynStorage>,
+    rate_limiter: Option<web::Data<LoginRateLimiter>>,
+    trust_proxy_headers: Option<web::Data<bool>>,
 ) -> actix_web::Result<HttpResponse> {
+    // Rate-limit by IP and by username to block credential-stuffing.
+    // Check on every attempt — not just failures — to prevent evasion via
+    // unknown usernames (which return early but would skip token consumption).
+    if let Some(limiter) = rate_limiter {
+        let trust_proxy = trust_proxy_headers.map(|d| **d).unwrap_or(false);
+        let ip = extract_client_ip(&req, trust_proxy);
+        // Err(retry_after_secs): request blocked (or backend error mapped to 60s).
+        // Ok(()): allowed — continue.
+        if let Err(retry_after) = limiter.check(&ip, &form.username).await {
+            tracing::warn!(
+                client_ip = %ip,
+                retry_after_secs = retry_after,
+                "Login rate limit exceeded"
+            );
+            return Ok(HttpResponse::Found()
+                .append_header(("Location", "/auth/login?error=too_many_attempts"))
+                .append_header(("Retry-After", retry_after.to_string()))
+                .finish());
+        }
+    }
+
     // Look up user by username
     let user = storage
         .get_user_by_username(&form.username)
@@ -83,14 +178,20 @@ pub async fn login_submit(
 
     let user = match user {
         Some(u) if u.enabled => u,
-        Some(_) => {
-            // Account exists but is disabled
+        Some(u) => {
+            // Account exists but is disabled — return generic error identical to
+            // the "unknown user" branch to prevent enumeration of disabled
+            // accounts. Log internally for operational visibility.
+            tracing::info!(
+                user_id = %u.id,
+                "Login attempt against disabled account"
+            );
             return Ok(HttpResponse::Found()
-                .append_header(("Location", "/auth/login?error=account_disabled"))
+                .append_header(("Location", "/auth/login?error=invalid_credentials"))
                 .finish());
         }
         None => {
-            // Unknown username — return generic error to avoid user enumeration
+            // Unknown username — return generic error to avoid user enumeration.
             return Ok(HttpResponse::Found()
                 .append_header(("Location", "/auth/login?error=invalid_credentials"))
                 .finish());

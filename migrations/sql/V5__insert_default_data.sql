@@ -1,5 +1,15 @@
--- Insert default data for development/testing only
--- WARNING: Remove or regenerate these credentials before production deployment
+-- Insert default data for LOCAL DEVELOPMENT AND TESTING ONLY.
+--
+-- SECURITY WARNING: This migration seeds a well-known client and user.
+-- Production deployments MUST skip this migration (configure Flyway with
+-- `-target=V4`) OR rotate the default client secret and disable/delete
+-- the seed user post-deploy.
+--
+-- Wave 2 hardening (2026-04-17):
+--   - Removed the `password` grant type from default grant_types (OAuth 2.0
+--     Security BCP / OAuth 2.1 explicitly forbid ROPC).
+--   - Removed `admin` from the default scope — dev clients should not receive
+--     admin privileges by default.
 
 INSERT INTO clients (id, client_id, client_secret, redirect_uris, grant_types, scope, name, created_at, updated_at)
 VALUES (
@@ -8,8 +18,8 @@ VALUES (
     -- Generate a secure secret before production: openssl rand -hex 32
     'INSECURE_DEFAULT_SECRET_REGENERATE_FOR_PRODUCTION',
     '["http://localhost:3000/callback"]',
-    '["authorization_code", "client_credentials", "password", "refresh_token"]',
-    'read write admin',
+    '["authorization_code", "client_credentials", "refresh_token"]',
+    'read write',
     'Default Client',
     NOW(),
     NOW()
