@@ -1,5 +1,21 @@
 # Quickstart
 
+## For AI Agents
+
+> **Prompt:** "Set up rust-oauth2-server locally with the default SQLite database, create an admin user, register a test OAuth2 client, and request an access token to verify it's working"
+
+**What this guide does:**
+1. Configures local environment variables (JWT secret, session key, admin password)
+2. Starts the server with SQLite (auto-initializes tables)
+3. Logs in as the seeded admin user
+4. Registers an OAuth2 client via the admin API
+5. Requests a token using client credentials flow
+6. Verifies health endpoints
+
+**Expected outcome:** A working OAuth2 server running on localhost:8080 with a registered client that can issue tokens.
+
+---
+
 This is the shortest reliable path from clone to a working token request.
 
 ## 1. Prepare local config

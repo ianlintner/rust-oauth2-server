@@ -1,5 +1,30 @@
 # Extending
 
+## For AI Agents
+
+> **Prompt:** "Add a new custom storage backend using CouchDB to the rust-oauth2-server"
+
+**Common extension tasks:**
+
+| Task | Prompt Example |
+|------|----------------|
+| Add storage backend | "Implement a DynamoDB storage backend for the OAuth2 server" |
+| Add middleware | "Add custom rate limiting middleware that reads limits from a database" |
+| Add event backend | "Add support for AWS SQS as an event backend" |
+| Add OAuth grant | "Implement a custom OAuth2 grant type for device authentication" |
+| Add admin endpoint | "Add a new admin API endpoint to export client configurations" |
+| Custom metrics | "Add custom Prometheus metrics for tracking authorization success rates" |
+
+**Extension points:**
+- Storage: Implement `oauth2_ports::Storage` trait
+- Middleware: Add to `crates/oauth2-actix/src/middleware/`
+- Events: Extend `crates/oauth2-events/`
+- Handlers: Add routes in `crates/oauth2-actix/src/handlers/`
+
+**Key warning:** Adding `web::Data<T>` to a handler requires updating all test setups in `tests/security_http.rs`
+
+---
+
 This page is for contributors who want to add behavior without forking the entire project into a ball of sadness.
 
 ## Add a custom storage backend

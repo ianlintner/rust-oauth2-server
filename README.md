@@ -7,6 +7,22 @@
 <br/>
 Self-Hosted OAuth2 and OIDC in Rust with Actix, an admin UI, generated OpenAPI, eventing, and kubernetes-ready deployment assets.
 
+## For AI Agents
+
+> **Quick Start Prompt:** "Set up the rust-oauth2-server locally with SQLite, then register a test client and request an access token"
+
+> **Deploy Prompt:** "Deploy the rust-oauth2-server to Kubernetes using the production overlay"
+
+> **Integrate Prompt:** "Help me integrate OAuth2 authentication with authorization code + PKCE flow for my web application"
+
+> **Troubleshoot Prompt:** "The server is returning 500 errors on token endpoint - help me debug this"
+
+**Key Agent Resources:**
+- [`CLAUDE.md`](CLAUDE.md) - Complete agent memory and behavioral guidelines
+- [`AGENTIC_QUICKSTART.md`](AGENTIC_QUICKSTART.md) - Agent-focused quickstart
+- [`.github/copilot-instructions.md`](.github/copilot-instructions.md) - Copilot-specific instructions
+- [`.github/agents/`](.github/agents/) - Specialized agent roles
+
 ## Start in 60 seconds
 
 ```bash

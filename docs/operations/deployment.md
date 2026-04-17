@@ -1,5 +1,27 @@
 # Deployment
 
+## For AI Agents
+
+> **Prompt:** "Deploy rust-oauth2-server to Kubernetes using the production overlay with PostgreSQL backend and proper secrets configuration"
+
+**Common deployment tasks:**
+
+| Task | Prompt Example |
+|------|----------------|
+| Local development | "Run the OAuth2 server locally with all dependencies using Docker Compose" |
+| Kubernetes dev | "Deploy to Kubernetes dev environment with the dev overlay" |
+| Kubernetes production | "Deploy to production Kubernetes with the production overlay, including proper secrets and PostgreSQL" |
+| Distributed setup | "Deploy with distributed profile (Redis cache, rate limiting, event bus)" |
+| Docker only | "Build and run the OAuth2 server as a Docker container with environment configuration" |
+
+**Key files for deployment:**
+- `k8s/overlays/production/` - Production Kubernetes manifests
+- `k8s/overlays/production-distributed/` - HA distributed setup
+- `docker-compose.yml` - Local multi-service setup
+- `.env.example` - Environment variable reference
+
+---
+
 This page is intentionally opinionated: start with the smallest thing that works, then scale up only when you need to.
 
 ## Pick a runtime path

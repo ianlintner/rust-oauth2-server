@@ -1,5 +1,29 @@
 # Architecture
 
+## For AI Agents
+
+> **Prompt:** "Explain the architecture of rust-oauth2-server, including the workspace structure, actor model, storage layer, and request flow"
+
+**Common architecture tasks:**
+
+| Task | Prompt Example |
+|------|----------------|
+| Understand workspace | "Show me the Cargo workspace structure and explain what each crate does" |
+| Trace request flow | "Walk me through what happens when a client requests an access token" |
+| Storage layer | "Explain how the storage abstraction works and how to add a new backend" |
+| Actor system | "Describe the Actix actors used in the OAuth2 server and their responsibilities" |
+| Add feature | "I want to add a new OAuth2 grant type - which crates and files do I need to modify?" |
+| Feature flags | "Show me all available feature flags and what they enable" |
+
+**Key architectural patterns:**
+- Cargo workspace with domain-driven crate separation
+- Actix actors for hot paths (TokenActor, ClientActor, AuthActor)
+- Storage trait abstraction (`oauth2-ports`) with multiple backends
+- Middleware pipeline for resilience, rate limiting, and observability
+- Feature flags for optional dependencies (Redis, MongoDB, event buses)
+
+---
+
 This repo is a Cargo workspace, not a single giant crate pretending to be a plan.
 
 ## Workspace map
