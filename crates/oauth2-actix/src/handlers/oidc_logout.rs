@@ -236,14 +236,46 @@ pub async fn logout(
     });
 
     // If id_token_hint is provided, validate and extract claims.
+    //
+    // W2-H3: The server can issue id_tokens as either HS256 (signed with
+    // `jwt_secret`) or RS256 (signed with `id_token_private_key_pem`). The
+    // `alg` in the JOSE header is the authoritative source of truth for
+    // which key material to check against. Never trust the token to pick its
+    // own algorithm — that is the classic `alg` confusion attack. We read the
+    // header only to pick the matching *configured* key, then pin
+    // `Validation::new(alg)` so jsonwebtoken will reject any token whose
+    // signature algorithm does not match.
     if let Some(ref id_token_hint) = query.id_token_hint {
-        let mut validation = jsonwebtoken::Validation::default();
-        validation.validate_aud = false;
-        validation.set_issuer(&[&oidc.issuer]);
-
-        let decoding_key = jsonwebtoken::DecodingKey::from_secret(oidc.jwt_secret.as_bytes());
-        let token_result =
-            jsonwebtoken::decode::<serde_json::Value>(id_token_hint, &decoding_key, &validation);
+        let token_result = (|| -> Result<jsonwebtoken::TokenData<serde_json::Value>, jsonwebtoken::errors::Error> {
+            let header = jsonwebtoken::decode_header(id_token_hint)?;
+            let (decoding_key, alg) = match header.alg {
+                jsonwebtoken::Algorithm::HS256 => (
+                    jsonwebtoken::DecodingKey::from_secret(oidc.jwt_secret.as_bytes()),
+                    jsonwebtoken::Algorithm::HS256,
+                ),
+                jsonwebtoken::Algorithm::RS256 => {
+                    let pem = oidc.id_token_private_key_pem.as_deref().ok_or_else(|| {
+                        jsonwebtoken::errors::Error::from(
+                            jsonwebtoken::errors::ErrorKind::InvalidAlgorithm,
+                        )
+                    })?;
+                    (
+                        jsonwebtoken::DecodingKey::from_rsa_pem(pem.as_bytes())?,
+                        jsonwebtoken::Algorithm::RS256,
+                    )
+                }
+                // Any other algorithm (including `none`) is rejected.
+                _ => {
+                    return Err(jsonwebtoken::errors::Error::from(
+                        jsonwebtoken::errors::ErrorKind::InvalidAlgorithm,
+                    ));
+                }
+            };
+            let mut validation = jsonwebtoken::Validation::new(alg);
+            validation.validate_aud = false;
+            validation.set_issuer(&[&oidc.issuer]);
+            jsonwebtoken::decode::<serde_json::Value>(id_token_hint, &decoding_key, &validation)
+        })();
 
         if let Ok(token_data) = token_result {
             let audiences = extract_audiences(&serde_json::Value::Object(
