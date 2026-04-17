@@ -437,10 +437,10 @@ Example: "Following the Development Agent guidelines, add a new endpoint..."
 
 ## Next Steps
 
-1. Review [CLAUDE.md](../CLAUDE.md) for agent memory and guidelines
+1. Review [CLAUDE.md](https://github.com/ianlintner/rust-oauth2-server/blob/main/CLAUDE.md) for agent memory and guidelines
 2. Explore [.skills/](../.skills/) directory for available skills
 3. Try [.claude/commands/](../.claude/commands/) slash commands
-4. Configure MCP server: [mcp-server/README.md](../mcp-server/README.md)
+4. Configure MCP server: [mcp-server/README.md](https://github.com/ianlintner/rust-oauth2-server/blob/main/mcp-server/README.md)
 5. Read specialized agent instructions in [.github/agents/](../.github/agents/)
 
 ## Contributing New Examples

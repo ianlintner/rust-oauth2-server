@@ -330,9 +330,9 @@ This implementation positions the project as a leader in AI-assisted OAuth2/OIDC
 - **Enhancement Plan**: [docs/AI_TOOLING_ENHANCEMENTS.md](AI_TOOLING_ENHANCEMENTS.md)
 - **MCP Strategy**: [docs/MCP_ENHANCEMENT_PLAN.md](MCP_ENHANCEMENT_PLAN.md)
 - **Usage Examples**: [docs/ai-workflows/EXAMPLES.md](ai-workflows/EXAMPLES.md)
-- **Skills Catalog**: [.skills/README.md](../.skills/README.md)
-- **Agent Memory**: [CLAUDE.md](../CLAUDE.md)
-- **Quick Start**: [AGENTIC_QUICKSTART.md](../AGENTIC_QUICKSTART.md)
+- **Skills Catalog**: [.skills/README.md](https://github.com/ianlintner/rust-oauth2-server/blob/main/.skills/README.md)
+- **Agent Memory**: [CLAUDE.md](https://github.com/ianlintner/rust-oauth2-server/blob/main/CLAUDE.md)
+- **Quick Start**: [AGENTIC_QUICKSTART.md](https://github.com/ianlintner/rust-oauth2-server/blob/main/AGENTIC_QUICKSTART.md)
 
 ## Contributing
 
