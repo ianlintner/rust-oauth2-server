@@ -12,6 +12,25 @@ Run it locally, deploy it with Docker or Kubernetes, inspect it with metrics and
 
 </div>
 
+## For AI Agents
+
+If you're an AI assistant helping a user with this OAuth2 server, here are common tasks phrased as natural language prompts:
+
+| User Need | Example Prompt |
+|-----------|----------------|
+| **First-time setup** | "Set up rust-oauth2-server locally using SQLite, create the admin user, and verify it's working" |
+| **Client registration** | "Register a new OAuth2 client with redirect URI http://localhost:3000/callback and authorization_code grant" |
+| **Token requests** | "Get an access token using client credentials grant for client ID abc123" |
+| **Kubernetes deployment** | "Deploy the OAuth2 server to Kubernetes using the production overlay with PostgreSQL" |
+| **Debugging** | "The /oauth/token endpoint is returning errors - check logs and configuration" |
+| **Integration** | "Help me integrate this OAuth2 server with my React app using PKCE flow" |
+| **Add features** | "Add a new OAuth2 scope called 'admin:write' and update the authorization logic" |
+
+**Key agent resources:**
+- [CLAUDE.md](https://github.com/ianlintner/rust-oauth2-server/blob/main/CLAUDE.md) - Complete agent memory file
+- [AGENTIC_QUICKSTART.md](https://github.com/ianlintner/rust-oauth2-server/blob/main/AGENTIC_QUICKSTART.md) - Agent-focused quickstart
+- [.github/agents/](https://github.com/ianlintner/rust-oauth2-server/tree/main/.github/agents) - Specialized agent instructions
+
 ## Start with the job you have today
 
 <div class="grid cards" markdown>

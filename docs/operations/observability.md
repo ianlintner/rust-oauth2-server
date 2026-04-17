@@ -1,5 +1,37 @@
 # Observability
 
+## For AI Agents
+
+> **Prompt:** "Set up observability for the rust-oauth2-server with Prometheus metrics, health checks, and OpenTelemetry tracing"
+
+**Common observability tasks:**
+
+| Task | Prompt Example |
+|------|----------------|
+| Check health | "Verify the OAuth2 server is healthy and responding" |
+| View metrics | "Show me the current Prometheus metrics from the server" |
+| Set up monitoring | "Configure Prometheus to scrape metrics from the OAuth2 server" |
+| Enable tracing | "Enable OpenTelemetry tracing and export to Jaeger" |
+| Debug performance | "Check the metrics for slow token endpoint responses" |
+| Monitor rate limits | "Show metrics for rate limit rejections and current usage" |
+| Event health | "Check the health status of the event backend" |
+
+**Key endpoints:**
+- Health check: `GET /health` - Basic liveness probe
+- Readiness check: `GET /ready` - Storage readiness (for K8s)
+- Metrics: `GET /metrics` - Prometheus format metrics
+- Event health: `GET /events/health` - Event backend status
+
+**What's monitored:**
+- HTTP request volume, latency, and status codes
+- Token operations (issuance, introspection, revocation)
+- Actor performance and message processing
+- Cache hit/miss rates (when Redis cache enabled)
+- Rate limiting rejections
+- Circuit breaker states and resilience metrics
+
+---
+
 The observability surface is intentionally small and code-backed:
 
 - liveness: `/health`

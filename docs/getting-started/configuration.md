@@ -1,5 +1,31 @@
 # Configuration
 
+## For AI Agents
+
+> **Prompt:** "Configure the rust-oauth2-server with PostgreSQL database, proper JWT secret, and Redis caching enabled"
+
+**Common configuration tasks:**
+
+| Task | Prompt Example |
+|------|----------------|
+| Basic local setup | "Set up minimal environment variables for local development with SQLite" |
+| Production config | "Configure production environment with PostgreSQL, strong secrets, and proper session keys" |
+| Enable Redis cache | "Configure Redis cache for distributed deployment" |
+| Database migration | "Switch from SQLite to PostgreSQL and migrate the database" |
+| Enable CORS | "Configure CORS to allow requests from https://myapp.example.com" |
+| Social login | "Enable Google OAuth login with client ID and secret" |
+| Distributed mode | "Enable all distributed features (Redis cache, rate limiting, event bus)" |
+
+**Key config files:**
+- `.env` - Runtime environment variables (create from `.env.example`)
+- `application.conf` - HOCON configuration file (optional, overridden by env vars)
+- `.env.example` - Canonical reference for all config keys
+- `application.conf.example` - HOCON example
+
+**Configuration precedence:** HOCON file (`application.conf`) is loaded first with environment variable substitution; a handful of env vars (e.g. `OAUTH2_ALLOWED_ORIGINS`) are applied as explicit overrides on top. If no HOCON file is present the server falls back to environment variables only.
+
+---
+
 Use this page for the settings you are actually likely to touch. When you need exact keys, defaults, or comments, use `.env.example` and `application.conf.example` as the canonical contract.
 
 ## Source of truth

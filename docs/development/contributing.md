@@ -1,5 +1,39 @@
 # Contributing
 
+## For AI Agents
+
+> **Prompt:** "Help me contribute a new feature to rust-oauth2-server - guide me through the proper workflow, testing, and documentation requirements"
+
+**Common contribution tasks:**
+
+| Task | Prompt Example |
+|------|----------------|
+| Fix a bug | "I found a bug in the PKCE validation - help me fix it and add a regression test" |
+| Add a feature | "Add support for JWT-secured authorization requests (RFC 9101)" |
+| Update docs | "Update the deployment documentation to include new Kubernetes security policies" |
+| Add storage backend | "Contribute a new DynamoDB storage backend implementation" |
+| Add OAuth grant | "Implement the SAML 2.0 bearer assertion grant type" |
+| Improve tests | "Add more comprehensive tests for the device authorization flow" |
+| Update dependencies | "Upgrade actix-web to the latest version and fix any breaking changes" |
+
+**Contribution workflow:**
+1. Fork and branch from `main`
+2. Make minimal surgical changes
+3. Add/update tests for your changes
+4. Update relevant documentation
+5. Run full CI gate locally
+6. Open PR with clear description and verification steps
+
+**Before submitting PR - must pass:**
+```bash
+cargo fmt --all -- --check
+cargo clippy --all-targets --all-features -- -D warnings
+cargo test --verbose --all-features --locked
+python3 -m mkdocs build --strict  # if docs changed
+```
+
+---
+
 Thanks for helping. This repo is a workspace with a lot of surface area, so the shortest path to a good contribution is: change the smallest thing that solves the problem, update the real source of truth, and run the full gate before you declare victory.
 
 ## Required local gate

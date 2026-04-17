@@ -7,6 +7,62 @@
 <br/>
 Self-Hosted OAuth2 and OIDC in Rust with Actix, an admin UI, generated OpenAPI, eventing, and kubernetes-ready deployment assets.
 
+## For AI Agents
+
+This project is fully equipped for AI-assisted development with **Skills**, **Slash Commands**, **MCP Server**, and specialized **Agent Instructions**.
+
+### Quick Start Prompts
+
+> **Setup:** "Set up the rust-oauth2-server locally with SQLite, then register a test client and request an access token"
+
+> **Test Flow:** "Use the oauth2-test-flow skill to verify authorization code + PKCE flow"
+
+> **Deploy:** "Use the deploy-k8s skill to deploy to staging environment"
+
+> **Debug:** "Use the oauth2-debug-token skill to debug this JWT token: eyJ..."
+
+> **Troubleshoot:** "The server is returning 500 errors on token endpoint - help me debug this"
+
+### AI Tooling
+
+**Skills** (`.skills/`) - Reusable AI workflows for complex tasks:
+- `oauth2-test-flow` - Test complete OAuth2 flows
+- `oauth2-register-client` - Register new OAuth2 clients
+- `oauth2-debug-token` - Debug JWT token issues
+- `rfc-compliance-check` - Verify RFC compliance
+- `db-migration` - Create database migrations
+- `deploy-k8s` - Deploy to Kubernetes
+- `add-endpoint` - Add new HTTP endpoints
+
+**Slash Commands** (`.claude/commands/`) - Quick access to common operations:
+- `/test` - Run tests with filters
+- `/ci` - Run CI gate checks
+- `/deploy` - Deploy to environment
+- `/rfc` - Check RFC compliance
+- `/security` - Run security scans
+- `/migrate` - Create migration
+- `/docs` - Generate documentation
+- `/benchmark` - Run performance tests
+
+**MCP Server** (`mcp-server/`) - OAuth2 operations via Model Context Protocol:
+- Token operations (get, exchange, refresh, introspect, revoke)
+- Client registration
+- Server health and metrics
+- OIDC discovery
+
+**Agent Instructions** (`.github/agents/`) - Specialized domain expertise:
+- `development.md` - Coding guidelines and patterns
+- `operations.md` - Deployment and ops procedures
+- `database.md` - Database management
+- `security.md` - Security best practices
+
+### Core Documentation
+
+- [`CLAUDE.md`](CLAUDE.md) - **Start here**: Agent memory, behavioral guidelines, and project context
+- [`AGENTIC_QUICKSTART.md`](AGENTIC_QUICKSTART.md) - Quick start for AI-assisted development
+- [`docs/AI_TOOLING_ENHANCEMENTS.md`](docs/AI_TOOLING_ENHANCEMENTS.md) - AI tooling enhancement plan
+- [`.github/copilot-instructions.md`](.github/copilot-instructions.md) - Copilot-specific instructions
+
 ## Start in 60 seconds
 
 ```bash

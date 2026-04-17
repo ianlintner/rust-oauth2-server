@@ -1,5 +1,38 @@
 # Operational Runbooks
 
+## For AI Agents
+
+> **Prompt:** "The OAuth2 server is down in production - help me diagnose and fix the issue using the runbooks"
+
+**Common operational scenarios:**
+
+| Scenario | Prompt Example |
+|----------|----------------|
+| Service health check | "Check if the OAuth2 server is healthy and ready" |
+| High latency | "The token endpoint is slow - help diagnose the performance issue" |
+| Failed deployment | "The latest deployment failed - help me roll back safely" |
+| Database issues | "The readiness check is failing - troubleshoot database connectivity" |
+| Token errors | "Users are getting 'invalid_token' errors - diagnose the issue" |
+| Storage full | "The database is running out of space - help me clean up old tokens" |
+| Memory leak | "The server memory usage is growing - help identify the leak" |
+| Rate limit tuning | "Too many rate limit rejections - adjust the thresholds" |
+
+**First-response checklist:**
+```bash
+curl http://localhost:8080/health     # Basic liveness
+curl http://localhost:8080/ready      # Storage connectivity
+curl http://localhost:8080/metrics    # Current metrics
+kubectl get pods -n oauth2-server     # Pod status
+kubectl logs -n oauth2-server -l app=oauth2-server     # Recent logs
+```
+
+**Quick actions:**
+- Roll back: `kubectl rollout undo deployment/oauth2-server -n oauth2-server`
+- Restart: `kubectl rollout restart deployment/oauth2-server -n oauth2-server`
+- Scale: `kubectl scale deployment/oauth2-server --replicas=3 -n oauth2-server`
+
+---
+
 This page is the first-response sheet, not an operations novel. Use it when the service is unhealthy, slow, or freshly deployed and suspicious.
 
 ## First five minutes

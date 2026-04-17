@@ -1,5 +1,31 @@
 # Admin & API
 
+## For AI Agents
+
+> **Prompt:** "Use the admin API to register a new OAuth2 client and view all existing clients"
+
+**Common admin tasks:**
+
+| Task | Prompt Example |
+|------|----------------|
+| Register client | "Register a new OAuth2 client with name 'My App' and redirect URI http://localhost:3000/callback" |
+| List clients | "Show me all registered OAuth2 clients" |
+| Revoke token | "Revoke the access token with ID abc123" |
+| View dashboard | "Get dashboard statistics showing total clients, tokens, and users" |
+| Rotate keys | "Rotate the JWT signing keys" |
+| List users | "Show all users in the system" |
+| Login as admin | "Log in as the admin user to get an authenticated session" |
+
+**Key endpoints:**
+- Admin UI: `http://localhost:8080/admin`
+- Client registration: `POST /admin/clients/register`
+- Dashboard stats: `GET /admin/api/dashboard`
+- OpenAPI docs: `http://localhost:8080/swagger-ui`
+
+**Authentication:** All `/admin/*` routes require an authenticated **admin** session. Access is granted only to users with `role == "admin"` or whose email is on the admin allowlist. Non-admin authenticated users are redirected (default `/profile`, configurable via `OAUTH2_NON_ADMIN_REDIRECT`). Log in at `/auth/login`.
+
+---
+
 This page covers the operator-facing HTTP surface: the admin UI, JSON admin API, health endpoints, and the generated OpenAPI docs.
 
 ## Admin authentication

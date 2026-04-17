@@ -1,5 +1,30 @@
 # OAuth & OIDC
 
+## For AI Agents
+
+> **Prompt:** "Help me integrate OAuth2 authentication using the authorization code + PKCE flow with this rust-oauth2-server"
+
+**Common integration tasks:**
+
+| Task | Prompt Example |
+|------|----------------|
+| Authorization Code + PKCE | "Set up authorization code flow with PKCE for my React web app" |
+| Client Credentials | "Implement service-to-service authentication using client credentials grant" |
+| Token introspection | "Validate an access token by calling the introspection endpoint" |
+| Device flow | "Implement device authorization flow for my CLI application" |
+| OIDC UserInfo | "Get user profile information from the UserInfo endpoint after authentication" |
+| Token refresh | "Exchange a refresh token for a new access token" |
+| Dynamic registration | "Register a new OAuth2 client programmatically using RFC 7591" |
+
+**Quick reference:**
+- Discovery endpoint: `/.well-known/openid-configuration`
+- Authorization: `GET /oauth/authorize` (with PKCE required)
+- Token exchange: `POST /oauth/token`
+- Introspection: `POST /oauth/introspect`
+- UserInfo: `GET|POST /oauth/userinfo`
+
+---
+
 This server is an OAuth2 authorization server with a practical OIDC surface: discovery, JWKS, and UserInfo. This page covers the endpoints and behaviors you actually need when integrating a client.
 
 ## What is supported
