@@ -1,5 +1,32 @@
 ## [2026-W16] — 2026-04-17
 
+- weekly reconciliation 2026-04-09 — client auth defaults, revoke example, benchmark CI (#60)
+- add LLM-driven security scanning framework (#61)
+- Restore Semgrep code scanning workflow (#62)
+- security: Address 56 Semgrep findings — fix shell injection, root containers, K8s securityContext; annotate intentional test fixtures (#64)
+- Wave 2 — OIDC Core Compliance & Refresh Token Security (#65)
+- Add comprehensive OAuth 2.0 specification audit and roadmap (#66)
+- Implement Wave 2 RFC Additions (RFC 7591/7592/7523) (#67)
+- weekly reconciliation 2026-04-13 — Wave 2/3/4 RFCs, opaque tokens, PAR, JWT introspection (#69)
+- add adduser package to Dockerfile runtime stage for trixie-slim (#70)
+- setup caretaker (#72)
+- add V16 OIDC session logout migration to k8s ConfigMap (#73)
+- Pin caretaker install to v0.1.1 (#76)
+- Bump caretaker runtime pin to v0.2.0 and fix related CI workflow failures (#78)
+- Mitigate rand ThreadRng unsoundness path in OAuth token/code generation (#98)
+- Fix Semgrep inline suppressions: move nosemgrep annotations onto flagged lines (#100)
+- update caretaker to v0.2.1 and sync templates (#102)
+- [WIP] Install Claude agent md improvement for this repo (#104)
+- upgrade rustls-webpki 0.103.10 → 0.103.12 (RUSTSEC-2026-0098, RUSTSEC-2026-0099) (#108)
+- upgrade caretaker from 0.2.1 to 0.4.0 (#110)
+- reconcile CHANGELOG — 2026-W16 (#111)
+- reconcile CHANGELOG — 2026-W16 (#112)
+- reconcile CHANGELOG — 2026-W16 (#114)
+- upgrade caretaker to v0.5.2 (#115)
+- upgrade caretaker from v0.4.0 to v0.5.2 (#117)
+
+## [2026-W16] — 2026-04-17
+
 - docs: weekly reconciliation 2026-04-09 — client auth defaults, revoke example, benchmark CI (#60)
 - feat: add LLM-driven security scanning framework — kustomize K8s config variants (prod-hardened, dev-relaxed, misconfig), OAuth2 flow/timing/entropy/error-leakage scanners, CI validation workflow (#61)
 - fix: restore Semgrep code scanning workflow using modern `semgrep/semgrep` container with SARIF upload to GitHub code scanning (#62)
