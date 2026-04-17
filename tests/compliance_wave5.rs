@@ -685,7 +685,7 @@ fn make_jar_with_header_and_sig(header_json: &str, claims: Value, signature: &st
 /// would blindly base64-decode the payload without inspecting the header or
 /// signature — a signature-bypass primitive.
 #[actix_web::test]
-async fn wave2_c1_public_client_jar_rejects_nonenone_alg_header() {
+async fn wave2_c1_public_client_jar_rejects_non_none_alg_header() {
     let mut client = Client::new(
         "client_c1_pub".to_string(),
         "".to_string(),

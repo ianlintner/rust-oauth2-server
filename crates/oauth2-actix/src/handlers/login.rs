@@ -16,13 +16,16 @@ use oauth2_core::utils::redirect::is_safe_redirect;
 use oauth2_ports::DynStorage;
 use oauth2_ratelimit::RateLimiter;
 
-fn extract_client_ip(req: &HttpRequest) -> String {
-    // Trust X-Forwarded-For only when the server is behind a reverse proxy.
-    // Using it unconditionally would let attackers spoof their IP.
-    if let Some(forwarded) = req.headers().get("X-Forwarded-For") {
-        if let Ok(value) = forwarded.to_str() {
-            if let Some(first) = value.split(',').next() {
-                return first.trim().to_string();
+fn extract_client_ip(req: &HttpRequest, trust_proxy_headers: bool) -> String {
+    // Only trust proxy-provided client IP headers when explicitly configured.
+    // Otherwise, an attacker can spoof X-Forwarded-For and evade per-IP
+    // login rate limiting.
+    if trust_proxy_headers {
+        if let Some(forwarded) = req.headers().get("X-Forwarded-For") {
+            if let Ok(value) = forwarded.to_str() {
+                if let Some(first) = value.split(',').next() {
+                    return first.trim().to_string();
+                }
             }
         }
     }
@@ -34,9 +37,10 @@ fn extract_client_ip(req: &HttpRequest) -> String {
 /// Rate-limit login attempts (W2-H1).
 ///
 /// Keyed by IP and by username independently. Hitting either bucket rejects
-/// the attempt with a 429 + `error=too_many_attempts`. Defaults are tuned
-/// for credential-stuffing: 10 attempts per 15 minutes — the legitimate user
-/// never reaches this unless they've forgotten their password many times.
+/// the attempt with a redirect to `/auth/login?error=too_many_attempts`.
+/// Defaults are tuned for credential-stuffing: 10 attempts per 15 minutes —
+/// the legitimate user never reaches this unless they've forgotten their
+/// password many times.
 ///
 /// Uses an in-memory backend; acceptable for a single-node deployment but
 /// multi-node production should front this with a shared Redis limiter.
@@ -104,6 +108,9 @@ pub async fn login_page(query: web::Query<LoginQuery>) -> actix_web::Result<Http
         let message = match error.as_str() {
             "invalid_credentials" => "Invalid username or password. Please try again.",
             "login_required" => "Please log in to continue.",
+            "too_many_attempts" => {
+                "Too many login attempts. Please wait a few minutes and try again."
+            }
             _ => "An error occurred. Please try again.",
         };
         let error_html = format!(
@@ -137,12 +144,14 @@ pub async fn login_submit(
     form: web::Form<LoginForm>,
     storage: web::Data<DynStorage>,
     rate_limiter: Option<web::Data<LoginRateLimiter>>,
+    trust_proxy_headers: Option<web::Data<bool>>,
 ) -> actix_web::Result<HttpResponse> {
     // Rate-limit by IP and by username to block credential-stuffing.
     // Check on every attempt — not just failures — to prevent evasion via
     // unknown usernames (which return early but would skip token consumption).
     if let Some(limiter) = rate_limiter {
-        let ip = extract_client_ip(&req);
+        let trust_proxy = trust_proxy_headers.map(|d| **d).unwrap_or(false);
+        let ip = extract_client_ip(&req, trust_proxy);
         // Err(retry_after_secs): request blocked (or backend error mapped to 60s).
         // Ok(()): allowed — continue.
         if let Err(retry_after) = limiter.check(&ip, &form.username).await {
@@ -151,12 +160,10 @@ pub async fn login_submit(
                 retry_after_secs = retry_after,
                 "Login rate limit exceeded"
             );
-            return Ok(HttpResponse::TooManyRequests()
-                .insert_header(("Retry-After", retry_after.to_string()))
-                .json(serde_json::json!({
-                    "error": "too_many_requests",
-                    "retry_after": retry_after
-                })));
+            return Ok(HttpResponse::Found()
+                .append_header(("Location", "/auth/login?error=too_many_attempts"))
+                .append_header(("Retry-After", retry_after.to_string()))
+                .finish());
         }
     }
 

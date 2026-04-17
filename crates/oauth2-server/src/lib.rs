@@ -910,13 +910,13 @@ pub async fn run() -> std::io::Result<()> {
                         "Strict-Transport-Security",
                         "max-age=31536000; includeSubDomains",
                     ))
-                    // CSP: `script-src` intentionally does NOT include
-                    // 'unsafe-inline' — all scripts must be loaded from
-                    // 'self' or one of the whitelisted CDNs. `style-src`
-                    // retains 'unsafe-inline' for Tailwind utility classes
-                    // (well-known trade-off; XSS via CSS is low-impact
-                    // compared to scripts).
-                    .add(("Content-Security-Policy", "default-src 'self'; script-src 'self' https://cdn.tailwindcss.com https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'")),
+                    // CSP: existing templates still include inline
+                    // `<script>` blocks, so `script-src` must retain
+                    // 'unsafe-inline' until those scripts are moved to
+                    // external files or converted to nonce/hash-based CSP.
+                    // `style-src` also retains 'unsafe-inline' for
+                    // Tailwind utility classes.
+                    .add(("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'")),
             )
             .wrap(cors)
             .wrap(oauth2_observability::actix::MetricsMiddleware::new(
@@ -980,6 +980,9 @@ pub async fn run() -> std::io::Result<()> {
         app = app.app_data(web::Data::new(
             oauth2_actix::handlers::login::LoginRateLimiter::default(),
         ));
+
+        // Trust proxy headers flag — shared with rate limit middleware and login handler.
+        app = app.app_data(web::Data::new(server_config.trust_proxy_headers));
 
         // Shared, best-effort in-memory idempotency cache for event ingest.
         app = app.app_data(web::Data::new(ingest_idempotency.clone()));

@@ -83,7 +83,7 @@ data:
     -- Insert default data for LOCAL DEVELOPMENT AND TESTING ONLY.
     --
     -- SECURITY WARNING: Production deployments MUST skip this migration
-    -- (configure Flyway with `-target=V4` or `flyway.skipMigrations=V5`)
+    -- (configure Flyway with `-target=V4`)
     -- OR rotate the default client secret and disable/delete the seed
     -- user post-deploy.
     --
