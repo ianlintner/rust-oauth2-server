@@ -13,10 +13,6 @@ on:
     types: [opened, labeled]
   issue_comment:
     types: [created]
-  # Triggered when ANY workflow run completes — used by devops + self-heal agents
-  workflow_run:
-    workflows: ["CI"]
-    types: [completed]
   workflow_dispatch:
     inputs:
       mode:
@@ -24,35 +20,18 @@ on:
         required: false
         default: "full"
         type: choice
-        options:
-          [
-            full,
-            pr-only,
-            issue-only,
-            upgrade-only,
-            devops,
-            self-heal,
-            security,
-            deps,
-            docs,
-            stale,
-            escalation,
-            dry-run,
-          ]
+        options: [full, pr-only, issue-only, upgrade-only, dry-run]
 
-# Prevent duplicate runs for the same PR / branch.  Concurrent check_suite,
-# pull_request, and workflow_run events for the same head can fire within
-# seconds of each other; without this guard every run posts its own @copilot
-# comment.
+# Prevent concurrent caretaker runs so each run sees the up-to-date memory
+# store written by the previous run.
 concurrency:
-  group: caretaker-${{ github.event.pull_request.number || github.event.check_suite.head_branch || github.event.workflow_run.head_branch || github.ref }}
-  cancel-in-progress: true
+  group: caretaker
+  cancel-in-progress: false
 
 permissions:
   contents: write
   issues: write
   pull-requests: write
-  actions: read
 
 jobs:
   maintain:
@@ -80,7 +59,6 @@ jobs:
           pip install "caretaker @ git+https://github.com/ianlintner/caretaker.git@v${VERSION}"
 
       - name: Run
-        id: caretaker_run
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Fine-grained PAT for a real write-capable user or machine user.
@@ -89,32 +67,14 @@ jobs:
           COPILOT_PAT: ${{ secrets.COPILOT_PAT }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           CARETAKER_EVENT_PAYLOAD: ${{ toJSON(github.event) }}
-          CARETAKER_LOG_FILE: caretaker-run.log
-          CARETAKER_REPORT_FILE: caretaker-report.json
+          CARETAKER_RUN_MODE: ${{ github.event.inputs.mode || 'full' }}
+          CARETAKER_EVENT_TYPE: ${{ github.event_name }}
         run: |
           caretaker run \
             --config .github/maintainer/config.yml \
-            --mode "${{ github.event.inputs.mode || (github.event_name == 'workflow_run' && 'event') || 'full' }}" \
-            --event-type "${{ github.event_name }}" \
+            --mode "$CARETAKER_RUN_MODE" \
+            --event-type "$CARETAKER_EVENT_TYPE" \
             --event-payload "$CARETAKER_EVENT_PAYLOAD"
-
-      - name: Upload run log
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: caretaker-run-log-${{ github.run_id }}
-          path: caretaker-run.log
-          if-no-files-found: ignore
-          retention-days: 30
-
-      - name: Upload run report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: caretaker-run-report-${{ github.run_id }}
-          path: caretaker-report.json
-          if-no-files-found: ignore
-          retention-days: 30
 
       # Upload a JSON snapshot of the memory store so it can be downloaded for
       # auditing or used to manually restore a known-good state.
@@ -153,8 +113,6 @@ jobs:
           COPILOT_PAT: ${{ secrets.COPILOT_PAT }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           CARETAKER_FAILED_RUN_ID: ${{ github.run_id }}
-          CARETAKER_LOG_FILE: caretaker-self-heal.log
-          CARETAKER_REPORT_FILE: caretaker-self-heal-report.json
           CARETAKER_EVENT_PAYLOAD: >-
             {
               "workflow_run": {
@@ -170,21 +128,3 @@ jobs:
             --mode self-heal \
             --event-type workflow_run \
             --event-payload "$CARETAKER_EVENT_PAYLOAD"
-
-      - name: Upload self-heal log
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: caretaker-self-heal-log-${{ github.run_id }}
-          path: caretaker-self-heal.log
-          if-no-files-found: ignore
-          retention-days: 30
-
-      - name: Upload self-heal report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: caretaker-self-heal-report-${{ github.run_id }}
-          path: caretaker-self-heal-report.json
-          if-no-files-found: ignore
-          retention-days: 30
