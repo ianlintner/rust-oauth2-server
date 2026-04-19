@@ -15,7 +15,11 @@ const DEVICE_POLL_INTERVAL_SECONDS: i32 = 5;
 
 #[derive(Debug, Deserialize)]
 pub struct DeviceAuthorizationRequest {
-    pub client_id: String,
+    // RFC 8628 §3.1 allows the client to be identified via
+    // `client_secret_basic`, in which case `client_id` is NOT present in
+    // the form body. Keep it optional and resolve from the Authorization
+    // header when absent.
+    pub client_id: Option<String>,
     pub client_secret: Option<String>,
     pub scope: Option<String>,
 }
@@ -75,13 +79,19 @@ pub async fn device_authorization(
     let basic_client_id = basic.as_ref().map(|(id, _)| id.clone());
     let basic_client_secret = basic.as_ref().map(|(_, s)| s.clone());
 
-    if let Some(ref id) = basic_client_id {
-        if id != &form.client_id {
+    // Resolve client_id from the body, falling back to the Basic auth
+    // header when the body omits it (RFC 8628 §3.1 + RFC 6749 §2.3.1).
+    let client_id = match (form.client_id.as_ref(), basic_client_id.as_ref()) {
+        (Some(body_id), Some(basic_id)) if body_id != basic_id => {
             return Err(OAuth2Error::invalid_request(
                 "client_id mismatch between body and Basic auth",
             ));
         }
-    }
+        (Some(id), _) | (None, Some(id)) => id.clone(),
+        (None, None) => {
+            return Err(OAuth2Error::invalid_client("Missing client_id"));
+        }
+    };
 
     let client_secret = form
         .client_secret
@@ -91,7 +101,7 @@ pub async fn device_authorization(
 
     let client = client_actor
         .send(GetClient {
-            client_id: form.client_id.clone(),
+            client_id: client_id.clone(),
             span: tracing::Span::current(),
         })
         .await
@@ -117,7 +127,7 @@ pub async fn device_authorization(
     let device_auth = DeviceAuthorization::new(
         device_code.clone(),
         user_code.clone(),
-        form.client_id.clone(),
+        client_id.clone(),
         scope,
         DEVICE_EXPIRES_IN_SECONDS,
         DEVICE_POLL_INTERVAL_SECONDS,

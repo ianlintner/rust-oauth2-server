@@ -191,6 +191,25 @@ impl Claims {
         Ok(token_data.claims)
     }
 
+    /// Decode the payload of a JWT without verifying the signature.
+    ///
+    /// Intended for callers that have *already* authenticated the token via
+    /// another path (e.g. storage lookup by exact token value) and only need
+    /// to extract the embedded claims. This works regardless of whether the
+    /// token was signed with HS256 or RS256, since no verification key is
+    /// required.
+    ///
+    /// DO NOT use this to validate tokens from untrusted sources.
+    pub fn decode_unverified(token: &str) -> Option<Self> {
+        let parts: Vec<&str> = token.split('.').collect();
+        if parts.len() != 3 {
+            return None;
+        }
+        use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+        let payload_bytes = URL_SAFE_NO_PAD.decode(parts[1]).ok()?;
+        serde_json::from_slice::<Self>(&payload_bytes).ok()
+    }
+
     /// Encode claims using a SigningKey (supports HS256 and RS256 with kid).
     pub fn encode_with_key(&self, key: &SigningKey) -> Result<String, jsonwebtoken::errors::Error> {
         let mut header = match key.algorithm {
@@ -400,4 +419,63 @@ pub struct IntrospectionResponse {
     /// RFC 7662 §2.2: issuer of the token.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub iss: Option<String>,
+}
+
+#[cfg(test)]
+mod decode_unverified_tests {
+    use super::Claims;
+
+    #[test]
+    fn preserves_jti_from_hs256_jwt() {
+        let claims = Claims::new(
+            "alice".to_string(),
+            "client-a".to_string(),
+            "read".to_string(),
+            3600,
+            "https://issuer.test",
+        );
+        let expected_jti = claims.jti.clone();
+        let token = claims.encode("test-secret").unwrap();
+
+        let decoded = Claims::decode_unverified(&token).expect("decode_unverified");
+        assert_eq!(decoded.jti, expected_jti);
+        assert_eq!(decoded.sub, "alice");
+        assert_eq!(decoded.iss, "https://issuer.test");
+    }
+
+    #[test]
+    fn rejects_non_jwt_inputs() {
+        assert!(Claims::decode_unverified("not-a-jwt").is_none());
+        assert!(Claims::decode_unverified("").is_none());
+        assert!(Claims::decode_unverified("a.b").is_none());
+    }
+
+    #[test]
+    fn decodes_rs256_payload_without_public_key() {
+        // A minimal RS256-header JWT with a valid-looking payload and a
+        // junk signature. We should be able to extract the claims even
+        // though we don't have the public key.
+        use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+        let header = serde_json::json!({"alg":"RS256","typ":"at+JWT","kid":"k1"}).to_string();
+        let payload = serde_json::json!({
+            "sub":"bob",
+            "aud":"client-b",
+            "iss":"https://issuer.test",
+            "scope":"read",
+            "exp": 1_800_000_000i64,
+            "iat": 1_700_000_000i64,
+            "jti": "jti-fixed-abc",
+            "client_id": "client-b"
+        })
+        .to_string();
+        let fake = format!(
+            "{}.{}.{}",
+            URL_SAFE_NO_PAD.encode(header.as_bytes()),
+            URL_SAFE_NO_PAD.encode(payload.as_bytes()),
+            URL_SAFE_NO_PAD.encode(b"not-a-real-signature"),
+        );
+        let decoded = Claims::decode_unverified(&fake).expect("decode payload");
+        assert_eq!(decoded.jti, "jti-fixed-abc");
+        assert_eq!(decoded.iss, "https://issuer.test");
+    }
 }

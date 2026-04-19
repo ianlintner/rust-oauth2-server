@@ -192,8 +192,15 @@ pub async fn introspect(
                 }
             }
 
-            // Decode JWT to get claims
-            let claims = Claims::decode(&token.access_token, &jwt_secret).ok();
+            // Decode JWT claims to surface them in the introspection response.
+            // We must use the unverified decode path because production
+            // tokens may be signed with RS256 (see OidcConfig) while the
+            // server-side `jwt_secret` is only the HS256 fallback — signature
+            // verification would fail and we'd miss the real `jti`/`iss`/etc.
+            // The token was already authenticated via the preceding storage
+            // lookup, so skipping signature verification here is safe.
+            let claims = Claims::decode_unverified(&token.access_token)
+                .or_else(|| Claims::decode(&token.access_token, &jwt_secret).ok());
 
             let active = token.is_valid();
             let user_id = token.user_id.clone();
@@ -334,34 +341,34 @@ pub async fn revoke(
     .await?
     .expect("client auth is required for token revocation");
 
-    // Try access_token lookup first, then refresh_token.
-    let token = {
-        let by_access = token_actor
+    // RFC 7009 §4.1.2: if token_type_hint is unrecognized or the token isn't
+    // found under the hinted type, the server MUST extend its search across
+    // all supported token types. We ignore the hint for ordering (try access
+    // first, then refresh) because both lookups are cheap and correct.
+    let by_access = token_actor
+        .route(&form.token)
+        .send(LookupToken {
+            token: form.token.clone(),
+            span: tracing::Span::current(),
+        })
+        .await
+        .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))??;
+
+    let token = if by_access.is_some() {
+        by_access
+    } else {
+        token_actor
             .route(&form.token)
-            .send(LookupToken {
-                token: form.token.clone(),
+            .send(crate::actors::LookupRefreshToken {
+                refresh_token: form.token.clone(),
                 span: tracing::Span::current(),
             })
             .await
-            .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))??;
-
-        if by_access.is_some() {
-            by_access
-        } else {
-            // Refresh-token lookup
-            token_actor
-                .route(&form.token)
-                .send(crate::actors::LookupRefreshToken {
-                    refresh_token: form.token.clone(),
-                    span: tracing::Span::current(),
-                })
-                .await
-                .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))??
-        }
+            .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))??
     };
 
-    if let Some(token) = token {
-        if token.client_id == caller.client_id {
+    match token {
+        Some(token) if token.client_id == caller.client_id => {
             token_actor
                 .route(&form.token)
                 .send(RevokeToken {
@@ -370,12 +377,30 @@ pub async fn revoke(
                 })
                 .await
                 .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))??;
-        } else {
+        }
+        Some(token) => {
             tracing::warn!(
                 caller_client_id = %caller.client_id,
                 token_client_id = %token.client_id,
                 "Authenticated caller attempted to revoke a token owned by another client"
             );
+        }
+        None => {
+            // Token not found in storage. RFC 7009 §2.2 requires 200 OK
+            // regardless, but still forward to RevokeToken so that any
+            // stale entry in a local/distributed cache is evicted. The
+            // underlying db.revoke_token() is idempotent.
+            tracing::debug!(
+                token_type_hint = ?form.token_type_hint,
+                "Revocation request for token not found in storage; evicting caches"
+            );
+            let _ = token_actor
+                .route(&form.token)
+                .send(RevokeToken {
+                    token: form.token.clone(),
+                    span: tracing::Span::current(),
+                })
+                .await;
         }
     }
 

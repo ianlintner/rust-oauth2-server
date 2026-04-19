@@ -21,6 +21,66 @@ use utoipa_swagger_ui::SwaggerUi;
 /// The known-insecure default seed password shipped with the server.
 pub const INSECURE_DEFAULT_SEED_PASSWORD: &str = "changeme";
 
+/// Redact the `user:password@` userinfo from a database URL so it is safe
+/// to emit in logs. Leaves the scheme, host, port, path, and query intact.
+pub fn redact_db_url(url: &str) -> String {
+    let Some(scheme_end) = url.find("://") else {
+        return url.to_string();
+    };
+    let after_scheme = scheme_end + 3;
+    let rest = &url[after_scheme..];
+    let Some(at_pos) = rest.find('@') else {
+        return url.to_string();
+    };
+    // Only treat `@` as userinfo terminator if it precedes any path/query
+    // separator — otherwise it is a bare `@` inside the path/query.
+    let host_terminators = ['/', '?', '#'];
+    if rest[..at_pos].contains(host_terminators) {
+        return url.to_string();
+    }
+    format!("{}://***@{}", &url[..scheme_end], &rest[at_pos + 1..])
+}
+
+#[cfg(test)]
+mod redact_db_url_tests {
+    use super::redact_db_url;
+
+    #[test]
+    fn redacts_mongo_password() {
+        let got =
+            redact_db_url("mongodb://user:s3cret@host.example.com:10255/?ssl=true&appName=foo");
+        assert_eq!(
+            got,
+            "mongodb://***@host.example.com:10255/?ssl=true&appName=foo"
+        );
+    }
+
+    #[test]
+    fn redacts_postgres_password() {
+        assert_eq!(
+            redact_db_url("postgres://user:pw@db:5432/app"),
+            "postgres://***@db:5432/app"
+        );
+    }
+
+    #[test]
+    fn leaves_url_without_userinfo_unchanged() {
+        assert_eq!(
+            redact_db_url("sqlite:///tmp/test.db"),
+            "sqlite:///tmp/test.db"
+        );
+        assert_eq!(redact_db_url("sqlite::memory:"), "sqlite::memory:");
+    }
+
+    #[test]
+    fn does_not_treat_at_in_path_as_userinfo() {
+        assert_eq!(
+            redact_db_url("sqlite:///tmp/foo@bar.db"),
+            "sqlite:///tmp/foo@bar.db"
+        );
+    }
+}
+
 /// Rejects the well-known insecure default seed password unless
 /// `OAUTH2_ALLOW_INSECURE_DEFAULTS=1` is set in the environment.
 pub fn validate_seed_password_for_production(password: &str) -> Result<(), String> {
@@ -232,7 +292,7 @@ pub async fn run() -> std::io::Result<()> {
 
     // Initialize storage backend (SQLx by default, optional MongoDB)
     tracing::info!(
-        database_url = %config.database.url,
+        database_url = %redact_db_url(&config.database.url),
         max_connections = config.database.max_connections,
         min_connections = config.database.min_connections,
         acquire_timeout_secs = config.database.acquire_timeout_secs,

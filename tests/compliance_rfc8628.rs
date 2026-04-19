@@ -591,3 +591,46 @@ async fn rfc8628_s3_4_unknown_device_code_returns_error() {
         resp.status()
     );
 }
+
+/// RFC 8628 §3.1 + RFC 6749 §2.3.1: confidential clients may authenticate at
+/// `/device_authorization` using `client_secret_basic` — the handler must
+/// accept credentials from the `Authorization` header when the form body
+/// omits `client_id`/`client_secret`.
+#[actix_web::test]
+async fn rfc8628_s3_1_accepts_client_secret_basic() {
+    use base64::{engine::general_purpose::STANDARD, Engine};
+
+    let (token_actor, client_actor, auth_actor, storage, jwt_secret, metrics, oidc_config) =
+        setup_context(device_client()).await;
+    let app = device_app!(
+        token_actor,
+        client_actor,
+        auth_actor,
+        storage,
+        jwt_secret,
+        metrics,
+        oidc_config
+    );
+
+    let basic = STANDARD.encode("device_client:device_secret");
+    let resp = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri("/oauth/device_authorization")
+            .insert_header(("Authorization", format!("Basic {basic}")))
+            .set_form([("scope", "read")])
+            .to_request(),
+    )
+    .await;
+
+    assert_eq!(
+        resp.status(),
+        200,
+        "Basic-authenticated device auth must succeed without client_id in body"
+    );
+    let body: serde_json::Value = test::read_body_json(resp).await;
+    assert!(
+        body["device_code"].as_str().is_some_and(|s| !s.is_empty()),
+        "device_code must be present"
+    );
+}
