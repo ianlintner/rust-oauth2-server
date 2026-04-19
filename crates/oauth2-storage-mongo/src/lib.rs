@@ -411,7 +411,7 @@ impl Storage for MongoStorage {
             .try_collect()
             .await
             .map_err(Self::mongo_err_to_oauth)?;
-        clients.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        clients.sort_by_key(|c| std::cmp::Reverse(c.created_at));
         Ok(clients)
     }
 
@@ -426,7 +426,7 @@ impl Storage for MongoStorage {
             .try_collect()
             .await
             .map_err(Self::mongo_err_to_oauth)?;
-        users.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        users.sort_by_key(|u| std::cmp::Reverse(u.created_at));
         Ok(users)
     }
 
@@ -441,7 +441,7 @@ impl Storage for MongoStorage {
             .try_collect()
             .await
             .map_err(Self::mongo_err_to_oauth)?;
-        tokens.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        tokens.sort_by_key(|t| std::cmp::Reverse(t.created_at));
         // Match the SQLx 200-token cap
         tokens.truncate(200);
         Ok(tokens)
