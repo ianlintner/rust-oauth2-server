@@ -111,6 +111,33 @@ impl MongoStorage {
             .await
             .map_err(Self::mongo_err_to_oauth)?;
 
+        // created_at indexes — CosmosDB for MongoDB rejects sorts on un-indexed
+        // fields with BadValue (error code 2); all list_all_* queries sort by this.
+        self.clients
+            .create_index(
+                IndexModel::builder()
+                    .keys(doc! { "created_at": -1 })
+                    .build(),
+            )
+            .await
+            .map_err(Self::mongo_err_to_oauth)?;
+        self.users
+            .create_index(
+                IndexModel::builder()
+                    .keys(doc! { "created_at": -1 })
+                    .build(),
+            )
+            .await
+            .map_err(Self::mongo_err_to_oauth)?;
+        self.tokens
+            .create_index(
+                IndexModel::builder()
+                    .keys(doc! { "created_at": -1 })
+                    .build(),
+            )
+            .await
+            .map_err(Self::mongo_err_to_oauth)?;
+
         // authorization_codes.code unique
         self.authorization_codes
             .create_index(
