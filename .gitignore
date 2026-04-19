@@ -59,3 +59,4 @@ mcp-server/.env
 reports/
 __pycache__/
 *.db
+.prod.env
