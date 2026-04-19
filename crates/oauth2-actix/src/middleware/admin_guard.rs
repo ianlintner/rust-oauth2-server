@@ -1,18 +1,24 @@
 //! Middleware that restricts access to admin-level users.
 //!
-//! Checks the session for `role == "admin"` or matches the user's email
-//! against the `OAUTH2_ADMIN_EMAILS` environment variable. Unauthenticated
-//! requests redirect to `/auth/login`; authenticated but non-admin requests
-//! receive a 302 redirect to `OAUTH2_NON_ADMIN_REDIRECT` (defaults to
-//! `https://profile.cat-herding.net`).
+//! Accepts two auth mechanisms:
+//!
+//! 1. **Bearer token** — `Authorization: Bearer <token>` with `admin` scope.
+//!    Checked first; intended for machine-to-machine callers (e.g. MCP server).
+//! 2. **Session cookie** — `role == "admin"` in the session, or the user's
+//!    email matches `OAUTH2_ADMIN_EMAILS`. Intended for browser dashboard access.
+//!
+//! Unauthenticated requests redirect to `/auth/login`; authenticated but
+//! non-admin requests receive a 302 redirect to `OAUTH2_NON_ADMIN_REDIRECT`
+//! (defaults to `/profile`).
 
 use actix_session::SessionExt;
 use actix_web::{
     body::EitherBody,
     dev::{forward_ready, Service, ServiceRequest, ServiceResponse, Transform},
-    Error, HttpResponse,
+    web, Error, HttpResponse,
 };
 use futures::future::LocalBoxFuture;
+use oauth2_ports::DynStorage;
 use std::future::{ready, Ready};
 use std::rc::Rc;
 
@@ -70,21 +76,53 @@ where
         let svc = self.service.clone();
 
         Box::pin(async move {
+            // --- Bearer token check (machine-to-machine / MCP) ---
+            if let Some(auth_header) = req.headers().get("Authorization") {
+                if let Ok(auth_str) = auth_header.to_str() {
+                    if let Some(bearer) = auth_str.strip_prefix("Bearer ") {
+                        let bearer = bearer.to_string();
+                        if let Some(storage) = req.app_data::<web::Data<DynStorage>>() {
+                            match storage.get_token_by_access_token(&bearer).await {
+                                Ok(Some(token)) if token.is_valid() => {
+                                    let scopes: Vec<&str> =
+                                        token.scope.split_whitespace().collect();
+                                    if scopes.contains(&"admin") {
+                                        let res = svc.call(req).await?;
+                                        return Ok(res.map_into_left_body());
+                                    }
+                                    // Valid token but no admin scope
+                                    let response = HttpResponse::Forbidden()
+                                        .json(serde_json::json!({
+                                            "error": "insufficient_scope",
+                                            "error_description": "Token requires 'admin' scope"
+                                        }));
+                                    return Ok(req.into_response(response).map_into_right_body());
+                                }
+                                _ => {
+                                    let response = HttpResponse::Unauthorized()
+                                        .json(serde_json::json!({
+                                            "error": "invalid_token",
+                                            "error_description": "Bearer token is invalid or expired"
+                                        }));
+                                    return Ok(req.into_response(response).map_into_right_body());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // --- Session cookie check (browser dashboard) ---
             let session = req.get_session();
 
-            // Check if user is authenticated at all
             let user_id: Option<String> = session.get("user_id").unwrap_or(None);
             if user_id.is_none() {
-                // Not logged in — redirect to login
                 let response = HttpResponse::Found()
                     .append_header(("Location", "/auth/login?error=login_required"))
                     .finish();
                 return Ok(req.into_response(response).map_into_right_body());
             }
 
-            // Check admin privileges:
-            // 1. Session role == "admin"
-            // 2. Session email matches OAUTH2_ADMIN_EMAILS
             let role: String = session
                 .get("role")
                 .unwrap_or(None)
@@ -95,7 +133,6 @@ where
             let is_admin = role == "admin" || is_admin_email(&email);
 
             if !is_admin {
-                // Authenticated but not admin — redirect to profile site
                 let redirect_url = std::env::var("OAUTH2_NON_ADMIN_REDIRECT")
                     .unwrap_or_else(|_| "/profile".to_string());
                 tracing::warn!(
@@ -109,7 +146,6 @@ where
                 return Ok(req.into_response(response).map_into_right_body());
             }
 
-            // Admin access granted
             let res = svc.call(req).await?;
             Ok(res.map_into_left_body())
         })

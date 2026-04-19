@@ -20,10 +20,8 @@ dotenv.config();
 
 // Configuration
 const OAUTH2_BASE_URL = process.env.OAUTH2_BASE_URL || 'http://localhost:8080';
-// Optional: Default client credentials can be configured via environment variables
-// These are used as defaults but can be overridden per-request
-// const OAUTH2_CLIENT_ID = process.env.OAUTH2_CLIENT_ID;
-// const OAUTH2_CLIENT_SECRET = process.env.OAUTH2_CLIENT_SECRET;
+const OAUTH2_CLIENT_ID = process.env.OAUTH2_CLIENT_ID || '';
+const OAUTH2_CLIENT_SECRET = process.env.OAUTH2_CLIENT_SECRET || '';
 
 /**
  * OAuth2 API Client
@@ -40,13 +38,43 @@ class OAuth2Client {
   }
 
   /**
-   * Register a new OAuth2 client.
-   *
-   * Note: the target endpoint is admin-protected. This wrapper does not manage
-   * an admin browser session for you.
+   * Register a new OAuth2 client via RFC 7591 Dynamic Client Registration.
    */
   async registerClient(data) {
-    const response = await this.axios.post('/admin/clients/register', data);
+    const response = await this.axios.post('/connect/register', data);
+    return response.data;
+  }
+
+  /**
+   * List all registered clients (requires admin client credentials).
+   */
+  async listClients(clientId, clientSecret) {
+    const token = await this.getToken(clientId, clientSecret, 'admin');
+    const response = await this.axios.get('/admin/api/clients', {
+      headers: { Authorization: `Bearer ${token.access_token}` },
+    });
+    return response.data;
+  }
+
+  /**
+   * List all tokens (requires admin client credentials).
+   */
+  async listTokens(clientId, clientSecret) {
+    const token = await this.getToken(clientId, clientSecret, 'admin');
+    const response = await this.axios.get('/admin/api/tokens', {
+      headers: { Authorization: `Bearer ${token.access_token}` },
+    });
+    return response.data;
+  }
+
+  /**
+   * Delete a registered client (requires admin client credentials).
+   */
+  async deleteClient(clientId, clientSecret, targetClientId) {
+    const token = await this.getToken(clientId, clientSecret, 'admin');
+    const response = await this.axios.delete(`/admin/api/clients/${targetClientId}`, {
+      headers: { Authorization: `Bearer ${token.access_token}` },
+    });
     return response.data;
   }
 
@@ -361,6 +389,41 @@ class OAuth2MCPServer {
           },
         },
         {
+          name: 'list_clients',
+          description: 'List all registered OAuth2 clients (uses configured admin client credentials)',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              client_id: { type: 'string', description: 'Admin client ID (defaults to env OAUTH2_CLIENT_ID)' },
+              client_secret: { type: 'string', description: 'Admin client secret (defaults to env OAUTH2_CLIENT_SECRET)' },
+            },
+          },
+        },
+        {
+          name: 'list_tokens',
+          description: 'List recent tokens (uses configured admin client credentials)',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              client_id: { type: 'string', description: 'Admin client ID (defaults to env OAUTH2_CLIENT_ID)' },
+              client_secret: { type: 'string', description: 'Admin client secret (defaults to env OAUTH2_CLIENT_SECRET)' },
+            },
+          },
+        },
+        {
+          name: 'delete_client',
+          description: 'Delete a registered OAuth2 client by client_id (uses configured admin client credentials)',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              target_client_id: { type: 'string', description: 'The client_id of the client to delete' },
+              client_id: { type: 'string', description: 'Admin client ID (defaults to env OAUTH2_CLIENT_ID)' },
+              client_secret: { type: 'string', description: 'Admin client secret (defaults to env OAUTH2_CLIENT_SECRET)' },
+            },
+            required: ['target_client_id'],
+          },
+        },
+        {
           name: 'get_health',
           description: 'Check the health status of the OAuth2 server',
           inputSchema: {
@@ -505,6 +568,43 @@ class OAuth2MCPServer {
                     : 'Failed to revoke token',
                 },
               ],
+            };
+
+          case 'list_clients':
+            return {
+              content: [{
+                type: 'text',
+                text: JSON.stringify(
+                  await this.oauth2Client.listClients(
+                    args.client_id || OAUTH2_CLIENT_ID,
+                    args.client_secret || OAUTH2_CLIENT_SECRET
+                  ), null, 2),
+              }],
+            };
+
+          case 'list_tokens':
+            return {
+              content: [{
+                type: 'text',
+                text: JSON.stringify(
+                  await this.oauth2Client.listTokens(
+                    args.client_id || OAUTH2_CLIENT_ID,
+                    args.client_secret || OAUTH2_CLIENT_SECRET
+                  ), null, 2),
+              }],
+            };
+
+          case 'delete_client':
+            return {
+              content: [{
+                type: 'text',
+                text: JSON.stringify(
+                  await this.oauth2Client.deleteClient(
+                    args.client_id || OAUTH2_CLIENT_ID,
+                    args.client_secret || OAUTH2_CLIENT_SECRET,
+                    args.target_client_id
+                  ), null, 2),
+              }],
             };
 
           case 'get_health':
