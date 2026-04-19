@@ -91,8 +91,8 @@ where
                                         return Ok(res.map_into_left_body());
                                     }
                                     // Valid token but no admin scope
-                                    let response = HttpResponse::Forbidden()
-                                        .json(serde_json::json!({
+                                    let response =
+                                        HttpResponse::Forbidden().json(serde_json::json!({
                                             "error": "insufficient_scope",
                                             "error_description": "Token requires 'admin' scope"
                                         }));
