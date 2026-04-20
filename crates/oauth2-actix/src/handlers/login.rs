@@ -13,6 +13,7 @@ use argon2::{Argon2, PasswordHash, PasswordVerifier};
 use serde::Deserialize;
 
 use oauth2_core::utils::redirect::is_safe_redirect;
+use oauth2_observability::Metrics;
 use oauth2_ports::DynStorage;
 use oauth2_ratelimit::RateLimiter;
 
@@ -143,6 +144,7 @@ pub async fn login_submit(
     session: Session,
     form: web::Form<LoginForm>,
     storage: web::Data<DynStorage>,
+    metrics: web::Data<Metrics>,
     rate_limiter: Option<web::Data<LoginRateLimiter>>,
     trust_proxy_headers: Option<web::Data<bool>>,
 ) -> actix_web::Result<HttpResponse> {
@@ -186,12 +188,14 @@ pub async fn login_submit(
                 user_id = %u.id,
                 "Login attempt against disabled account"
             );
+            metrics.oauth_failed_authentications.inc();
             return Ok(HttpResponse::Found()
                 .append_header(("Location", "/auth/login?error=invalid_credentials"))
                 .finish());
         }
         None => {
             // Unknown username — return generic error to avoid user enumeration.
+            metrics.oauth_failed_authentications.inc();
             return Ok(HttpResponse::Found()
                 .append_header(("Location", "/auth/login?error=invalid_credentials"))
                 .finish());
@@ -206,6 +210,7 @@ pub async fn login_submit(
                 "Invalid password hash format for user {}: {e}",
                 user.username
             );
+            metrics.oauth_failed_authentications.inc();
             return Ok(HttpResponse::Found()
                 .append_header(("Location", "/auth/login?error=invalid_credentials"))
                 .finish());
@@ -216,6 +221,7 @@ pub async fn login_submit(
         .verify_password(form.password.as_bytes(), &parsed_hash)
         .is_err()
     {
+        metrics.oauth_failed_authentications.inc();
         return Ok(HttpResponse::Found()
             .append_header(("Location", "/auth/login?error=invalid_credentials"))
             .finish());

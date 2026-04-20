@@ -1830,7 +1830,7 @@ async fn introspect_requires_client_auth_by_default() {
         "test".to_string(),
     );
 
-    let (token_pool, client_actor, _auth_actor, jwt_secret, _metrics, _oidc_config) =
+    let (token_pool, client_actor, _auth_actor, jwt_secret, metrics, _oidc_config) =
         setup_context(client).await;
     let access_token = issue_access_token(&token_pool, "client_introspect", None, "read").await;
 
@@ -1839,6 +1839,7 @@ async fn introspect_requires_client_auth_by_default() {
             .app_data(web::Data::new(token_pool))
             .app_data(web::Data::new(client_actor))
             .app_data(web::Data::new(jwt_secret))
+            .app_data(web::Data::new(metrics))
             .app_data(web::Data::new(false))
             .service(web::scope("/oauth").route(
                 "/introspect",
@@ -1872,7 +1873,7 @@ async fn introspect_public_mode_can_be_enabled_explicitly() {
         "test".to_string(),
     );
 
-    let (token_pool, client_actor, _auth_actor, jwt_secret, _metrics, _oidc_config) =
+    let (token_pool, client_actor, _auth_actor, jwt_secret, metrics, _oidc_config) =
         setup_context(client).await;
     let access_token =
         issue_access_token(&token_pool, "client_public_introspect", None, "read").await;
@@ -1885,6 +1886,7 @@ async fn introspect_public_mode_can_be_enabled_explicitly() {
             .app_data(web::Data::new(token_pool))
             .app_data(web::Data::new(client_actor))
             .app_data(web::Data::new(jwt_secret))
+            .app_data(web::Data::new(metrics))
             .app_data(web::Data::new(false))
             .app_data(web::Data::new(config))
             .service(web::scope("/oauth").route(
@@ -1930,7 +1932,7 @@ async fn introspect_returns_inactive_for_other_clients_token() {
         "observer".to_string(),
     );
 
-    let (token_pool, client_actor, _auth_actor, jwt_secret, _metrics, _oidc_config) =
+    let (token_pool, client_actor, _auth_actor, jwt_secret, metrics, _oidc_config) =
         setup_context_with_clients(vec![owner, observer]).await;
     let access_token = issue_access_token(&token_pool, "client_owner", None, "read").await;
 
@@ -1939,6 +1941,7 @@ async fn introspect_returns_inactive_for_other_clients_token() {
             .app_data(web::Data::new(token_pool))
             .app_data(web::Data::new(client_actor))
             .app_data(web::Data::new(jwt_secret))
+            .app_data(web::Data::new(metrics))
             .app_data(web::Data::new(false))
             .service(web::scope("/oauth").route(
                 "/introspect",

@@ -1283,7 +1283,11 @@ pub async fn token(
         None
     };
 
-    match form.grant_type.as_str() {
+    // Clone metrics for the failure-inspection wrapper below. Each grant
+    // handler still owns its own `web::Data<Metrics>` for success paths
+    // (`oauth_token_issued_total.inc()`).
+    let metrics_for_failure = metrics.clone();
+    let result = match form.grant_type.as_str() {
         "authorization_code" => {
             handle_authorization_code_grant(
                 form,
@@ -1347,7 +1351,19 @@ pub async fn token(
             "Grant type '{}' not supported",
             form.grant_type
         ))),
+    };
+
+    // Count authentication-style failures (bad client secret, bad code, bad
+    // refresh token, PKCE mismatch, etc.). Skip shape-level errors like
+    // `invalid_request` / `unsupported_grant_type` — those are not auth
+    // failures and would drown out real signal on the dashboard.
+    if let Err(ref err) = result {
+        if matches!(err.error.as_str(), "invalid_client" | "invalid_grant") {
+            metrics_for_failure.oauth_failed_authentications.inc();
+        }
     }
+
+    result
 }
 
 async fn handle_device_code_grant(

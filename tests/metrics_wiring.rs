@@ -2,8 +2,11 @@
 //! - `MetricsMiddleware` emits the `status_class`-labelled request counter and
 //!   observes the request-duration histogram.
 //! - Admin handlers increment the counters they own (token revoke, authz code).
+//! - Login + token endpoints bump `oauth_failed_authentications` on every
+//!   real auth failure (bad password, unknown user, bad client_secret, bad
+//!   refresh_token).
 //!
-//! Admin dashboard charts depend on all of the above being populated.
+//! Admin dashboard charts depend on all of these being populated.
 
 use std::sync::Arc;
 
@@ -14,10 +17,15 @@ use tokio::sync::RwLock;
 
 use oauth2_actix::actors::TokenActorPool;
 use oauth2_actix::handlers::admin;
+use oauth2_actix::handlers::login::hash_password;
 use oauth2_actix::handlers::wellknown::OidcConfig;
 use oauth2_core::{Client, Token, User};
 use oauth2_observability::{actix::MetricsMiddleware, encode_prometheus_text, Metrics};
 use oauth2_ports::DynStorage;
+
+// ---------------------------------------------------------------------------
+// Shared fixtures / helpers
+// ---------------------------------------------------------------------------
 
 async fn setup_storage() -> DynStorage {
     // Unique file-backed SQLite per test. `sqlite::memory:` creates a fresh
@@ -53,6 +61,22 @@ fn parse_value(line: &str) -> f64 {
         .unwrap_or(0.0)
 }
 
+fn read_counter(body: &str, name: &str) -> u64 {
+    for line in body.lines() {
+        if line.starts_with('#') {
+            continue;
+        }
+        if let Some(rest) = line.strip_prefix(name) {
+            let rest = rest.trim_start();
+            if let Some(value) = rest.split_whitespace().next() {
+                let parsed: f64 = value.parse().unwrap_or(0.0);
+                return parsed as u64;
+            }
+        }
+    }
+    0
+}
+
 fn s256(verifier: &str) -> String {
     use base64::{engine::general_purpose, Engine as _};
     use sha2::{Digest, Sha256};
@@ -78,6 +102,10 @@ fn extract_session_cookie(
         .unwrap()
         .to_string()
 }
+
+// ---------------------------------------------------------------------------
+// HTTP middleware: status_class counter + duration histogram (PR #184)
+// ---------------------------------------------------------------------------
 
 #[actix_web::test]
 async fn metrics_middleware_emits_status_class_counter_and_duration_histogram() {
@@ -134,12 +162,15 @@ async fn metrics_middleware_emits_status_class_counter_and_duration_histogram() 
     );
 }
 
+// ---------------------------------------------------------------------------
+// Admin token revoke counter (PR #192)
+// ---------------------------------------------------------------------------
+
 #[actix_web::test]
 async fn admin_revoke_token_increments_prometheus_counter() {
     let storage = setup_storage().await;
     let metrics = Metrics::new().expect("metrics");
 
-    // Token FKs require an existing client + user row.
     let user = User::new(
         "metrics-user".to_string(),
         "$argon2id$unused".to_string(),
@@ -212,9 +243,10 @@ async fn admin_revoke_token_increments_prometheus_counter() {
     );
 }
 
-/// A successful authorization_code flow must increment
-/// `oauth2_server_oauth_authorization_codes_issued`. This metric backs the
-/// "Auth Codes" bar on the admin dashboard's Metrics page.
+// ---------------------------------------------------------------------------
+// Authorization code issued counter (PR #189)
+// ---------------------------------------------------------------------------
+
 #[actix_web::test]
 async fn authorize_increments_authorization_codes_issued_counter() {
     const ISSUER: &str = "https://auth.example.com";
@@ -296,7 +328,6 @@ async fn authorize_increments_authorization_codes_issued_counter() {
     )
     .await;
 
-    // Establish session so /oauth/authorize sees an authenticated user.
     let login_resp = test::call_service(
         &app,
         test::TestRequest::get().uri("/test/login").to_request(),
@@ -342,5 +373,260 @@ async fn authorize_increments_authorization_codes_issued_counter() {
     assert!(
         value >= 1.0,
         "expected oauth_authorization_codes_issued >= 1 after successful authorize, got {value}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Failed authentications counter (PR #191)
+// ---------------------------------------------------------------------------
+
+#[actix_web::test]
+async fn login_bad_password_increments_failed_authentications() {
+    let storage = setup_storage().await;
+
+    let mut user = User::new(
+        "alice".to_string(),
+        hash_password("correct-horse-battery-staple").expect("hash password"),
+        "alice@example.test".to_string(),
+    );
+    user.enabled = true;
+    storage.save_user(&user).await.expect("save user");
+
+    let metrics = Metrics::new().expect("metrics");
+
+    let app = test::init_service(
+        App::new()
+            .wrap(SessionMiddleware::new(
+                CookieSessionStore::default(),
+                Key::generate(),
+            ))
+            .app_data(web::Data::new(storage.clone()))
+            .app_data(web::Data::new(metrics.clone()))
+            .route(
+                "/auth/login",
+                web::post().to(oauth2_actix::handlers::login::login_submit),
+            )
+            .route(
+                "/metrics",
+                web::get().to(oauth2_actix::handlers::admin::system_metrics),
+            ),
+    )
+    .await;
+
+    let req = test::TestRequest::post()
+        .uri("/auth/login")
+        .set_form([("username", "alice"), ("password", "wrong")])
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 302);
+
+    let req = test::TestRequest::get().uri("/metrics").to_request();
+    let resp = test::call_service(&app, req).await;
+    assert!(resp.status().is_success());
+    let body = test::read_body(resp).await;
+    let text = std::str::from_utf8(&body).expect("utf-8 metrics body");
+    assert_eq!(
+        read_counter(text, "oauth2_server_oauth_failed_authentications"),
+        1,
+        "bad password should bump oauth_failed_authentications.\n--- metrics ---\n{text}"
+    );
+}
+
+#[actix_web::test]
+async fn login_unknown_user_increments_failed_authentications() {
+    let storage = setup_storage().await;
+    let metrics = Metrics::new().expect("metrics");
+
+    let app = test::init_service(
+        App::new()
+            .wrap(SessionMiddleware::new(
+                CookieSessionStore::default(),
+                Key::generate(),
+            ))
+            .app_data(web::Data::new(storage.clone()))
+            .app_data(web::Data::new(metrics.clone()))
+            .route(
+                "/auth/login",
+                web::post().to(oauth2_actix::handlers::login::login_submit),
+            )
+            .route(
+                "/metrics",
+                web::get().to(oauth2_actix::handlers::admin::system_metrics),
+            ),
+    )
+    .await;
+
+    let req = test::TestRequest::post()
+        .uri("/auth/login")
+        .set_form([("username", "nobody"), ("password", "whatever")])
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 302);
+
+    let req = test::TestRequest::get().uri("/metrics").to_request();
+    let resp = test::call_service(&app, req).await;
+    let body = test::read_body(resp).await;
+    let text = std::str::from_utf8(&body).expect("utf-8");
+    assert_eq!(
+        read_counter(text, "oauth2_server_oauth_failed_authentications"),
+        1
+    );
+}
+
+#[actix_web::test]
+async fn token_bad_client_secret_increments_failed_authentications() {
+    let storage = setup_storage().await;
+
+    let client = Client::new(
+        "client_metrics_wiring".to_string(),
+        "correct_secret".to_string(),
+        vec!["https://good.example/cb".to_string()],
+        vec!["refresh_token".to_string()],
+        "read".to_string(),
+        "metrics wiring test".to_string(),
+    );
+    storage.save_client(&client).await.expect("save client");
+
+    let jwt_secret = "test_jwt_secret".to_string();
+    let metrics = Metrics::new().expect("metrics");
+
+    let token_actor = oauth2_actix::actors::TokenActor::new(
+        storage.clone(),
+        jwt_secret.clone(),
+        "http://localhost".to_string(),
+    )
+    .start();
+    let token_pool = TokenActorPool::new(vec![token_actor]);
+    let client_actor = oauth2_actix::actors::ClientActor::new(storage.clone()).start();
+    let auth_actor = oauth2_actix::actors::AuthActor::new(storage.clone()).start();
+
+    let oidc_config = OidcConfig {
+        issuer: "http://localhost".to_string(),
+        jwt_secret: jwt_secret.clone(),
+        id_token_alg: "HS256".to_string(),
+        id_token_kid: None,
+        id_token_private_key_pem: None,
+    };
+
+    let app = test::init_service(
+        App::new()
+            .app_data(web::Data::new(storage.clone()))
+            .app_data(web::Data::new(token_pool))
+            .app_data(web::Data::new(client_actor))
+            .app_data(web::Data::new(auth_actor))
+            .app_data(web::Data::new(jwt_secret.clone()))
+            .app_data(web::Data::new(metrics.clone()))
+            .app_data(web::Data::new(oidc_config))
+            .app_data(web::Data::new(false))
+            .route(
+                "/oauth/token",
+                web::post().to(oauth2_actix::handlers::oauth::token),
+            )
+            .route(
+                "/metrics",
+                web::get().to(oauth2_actix::handlers::admin::system_metrics),
+            ),
+    )
+    .await;
+
+    let req = test::TestRequest::post()
+        .uri("/oauth/token")
+        .set_form([
+            ("grant_type", "refresh_token"),
+            ("client_id", "client_metrics_wiring"),
+            ("client_secret", "wrong_secret"),
+            ("refresh_token", "does-not-matter"),
+        ])
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), actix_web::http::StatusCode::UNAUTHORIZED);
+
+    let req = test::TestRequest::get().uri("/metrics").to_request();
+    let resp = test::call_service(&app, req).await;
+    let body = test::read_body(resp).await;
+    let text = std::str::from_utf8(&body).expect("utf-8");
+    assert_eq!(
+        read_counter(text, "oauth2_server_oauth_failed_authentications"),
+        1,
+        "bad client_secret should bump oauth_failed_authentications.\n--- metrics ---\n{text}"
+    );
+}
+
+#[actix_web::test]
+async fn token_bad_refresh_token_increments_failed_authentications() {
+    let storage = setup_storage().await;
+
+    let client = Client::new(
+        "client_metrics_grant".to_string(),
+        "correct_secret".to_string(),
+        vec!["https://good.example/cb".to_string()],
+        vec!["refresh_token".to_string()],
+        "read".to_string(),
+        "metrics grant test".to_string(),
+    );
+    storage.save_client(&client).await.expect("save client");
+
+    let jwt_secret = "test_jwt_secret".to_string();
+    let metrics = Metrics::new().expect("metrics");
+
+    let token_actor = oauth2_actix::actors::TokenActor::new(
+        storage.clone(),
+        jwt_secret.clone(),
+        "http://localhost".to_string(),
+    )
+    .start();
+    let token_pool = TokenActorPool::new(vec![token_actor]);
+    let client_actor = oauth2_actix::actors::ClientActor::new(storage.clone()).start();
+    let auth_actor = oauth2_actix::actors::AuthActor::new(storage.clone()).start();
+
+    let oidc_config = OidcConfig {
+        issuer: "http://localhost".to_string(),
+        jwt_secret: jwt_secret.clone(),
+        id_token_alg: "HS256".to_string(),
+        id_token_kid: None,
+        id_token_private_key_pem: None,
+    };
+
+    let app = test::init_service(
+        App::new()
+            .app_data(web::Data::new(storage.clone()))
+            .app_data(web::Data::new(token_pool))
+            .app_data(web::Data::new(client_actor))
+            .app_data(web::Data::new(auth_actor))
+            .app_data(web::Data::new(jwt_secret.clone()))
+            .app_data(web::Data::new(metrics.clone()))
+            .app_data(web::Data::new(oidc_config))
+            .app_data(web::Data::new(false))
+            .route(
+                "/oauth/token",
+                web::post().to(oauth2_actix::handlers::oauth::token),
+            )
+            .route(
+                "/metrics",
+                web::get().to(oauth2_actix::handlers::admin::system_metrics),
+            ),
+    )
+    .await;
+
+    let req = test::TestRequest::post()
+        .uri("/oauth/token")
+        .set_form([
+            ("grant_type", "refresh_token"),
+            ("client_id", "client_metrics_grant"),
+            ("client_secret", "correct_secret"),
+            ("refresh_token", "definitely-not-a-real-token"),
+        ])
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), actix_web::http::StatusCode::BAD_REQUEST);
+
+    let req = test::TestRequest::get().uri("/metrics").to_request();
+    let resp = test::call_service(&app, req).await;
+    let body = test::read_body(resp).await;
+    let text = std::str::from_utf8(&body).expect("utf-8");
+    assert_eq!(
+        read_counter(text, "oauth2_server_oauth_failed_authentications"),
+        1,
+        "bad refresh_token should bump oauth_failed_authentications.\n--- metrics ---\n{text}"
     );
 }

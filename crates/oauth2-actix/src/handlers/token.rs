@@ -126,6 +126,7 @@ pub async fn introspect(
     client_actor: web::Data<Addr<ClientActor>>,
     jwt_secret: web::Data<String>,
     stateless: web::Data<bool>,
+    metrics: web::Data<Metrics>,
     config: Option<web::Data<Config>>,
     oidc_config: Option<web::Data<OidcConfig>>,
 ) -> Result<HttpResponse, OAuth2Error> {
@@ -137,14 +138,23 @@ pub async fn introspect(
         .as_ref()
         .map(|cfg| cfg.jwt.public_introspection)
         .unwrap_or(false);
-    let caller = authenticate_client(
+    let caller = match authenticate_client(
         &req,
         form.client_id.as_deref(),
         form.client_secret.as_deref(),
         &client_actor,
         !public_introspection,
     )
-    .await?;
+    .await
+    {
+        Ok(c) => c,
+        Err(err) => {
+            if err.error == "invalid_client" {
+                metrics.oauth_failed_authentications.inc();
+            }
+            return Err(err);
+        }
+    };
 
     let token_prefix = form.token.chars().take(20).collect::<String>();
     tracing::info!(
@@ -333,15 +343,23 @@ pub async fn revoke(
     client_actor: web::Data<Addr<ClientActor>>,
     metrics: web::Data<Metrics>,
 ) -> Result<HttpResponse, OAuth2Error> {
-    let caller = authenticate_client(
+    let caller = match authenticate_client(
         &req,
         form.client_id.as_deref(),
         form.client_secret.as_deref(),
         &client_actor,
         true,
     )
-    .await?
-    .expect("client auth is required for token revocation");
+    .await
+    {
+        Ok(c) => c.expect("client auth is required for token revocation"),
+        Err(err) => {
+            if err.error == "invalid_client" {
+                metrics.oauth_failed_authentications.inc();
+            }
+            return Err(err);
+        }
+    };
 
     // RFC 7009 §4.1.2: if token_type_hint is unrecognized or the token isn't
     // found under the hinted type, the server MUST extend its search across
