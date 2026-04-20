@@ -293,10 +293,13 @@ pub async fn get_token(
 pub async fn admin_revoke_token(
     token_id: web::Path<String>,
     db: web::Data<DynStorage>,
+    metrics: web::Data<Metrics>,
 ) -> Result<HttpResponse> {
     db.revoke_token(&token_id)
         .await
         .map_err(actix_web::error::ErrorInternalServerError)?;
+
+    metrics.oauth_token_revoked_total.inc();
 
     Ok(HttpResponse::Ok().json(serde_json::json!({ "message": "Token revoked" })))
 }

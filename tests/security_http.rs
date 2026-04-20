@@ -1987,7 +1987,7 @@ async fn revoke_requires_authenticated_client_and_preserves_other_clients_tokens
         "observer".to_string(),
     );
 
-    let (token_pool, client_actor, _auth_actor, _jwt_secret, _metrics, _oidc_config) =
+    let (token_pool, client_actor, _auth_actor, _jwt_secret, metrics, _oidc_config) =
         setup_context_with_clients(vec![owner, observer]).await;
     let token_pool_for_assert = token_pool.clone();
     let access_token = issue_access_token(&token_pool, "client_revoke_owner", None, "read").await;
@@ -1996,6 +1996,7 @@ async fn revoke_requires_authenticated_client_and_preserves_other_clients_tokens
         App::new()
             .app_data(web::Data::new(token_pool))
             .app_data(web::Data::new(client_actor))
+            .app_data(web::Data::new(metrics))
             .service(web::scope("/oauth").route(
                 "/revoke",
                 web::post().to(oauth2_actix::handlers::token::revoke),

@@ -11,6 +11,7 @@ use crate::handlers::oauth::{client_secret_matches, parse_client_basic_auth};
 use crate::handlers::wellknown::OidcConfig;
 use oauth2_config::Config;
 use oauth2_core::{Claims, IntrospectionResponse, OAuth2Error};
+use oauth2_observability::Metrics;
 
 fn no_store_headers(mut response: HttpResponse) -> HttpResponse {
     response.headers_mut().insert(
@@ -330,6 +331,7 @@ pub async fn revoke(
     form: web::Form<RevokeRequest>,
     token_actor: web::Data<TokenActorPool>,
     client_actor: web::Data<Addr<ClientActor>>,
+    metrics: web::Data<Metrics>,
 ) -> Result<HttpResponse, OAuth2Error> {
     let caller = authenticate_client(
         &req,
@@ -377,6 +379,7 @@ pub async fn revoke(
                 })
                 .await
                 .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))??;
+            metrics.oauth_token_revoked_total.inc();
         }
         Some(token) => {
             tracing::warn!(
