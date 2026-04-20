@@ -123,7 +123,7 @@ jobs:
           echo "IMAGE_VERSION=${{ steps.ver.outputs.version }}" >> "$GITHUB_ENV"
 
       - name: Install cross (for arm64 builds)
-        uses: taiki-e/install-action@85b24a67ef0c632dfefad70b9d5ce8fddb040754 # v2
+        uses: taiki-e/install-action@055f5df8c3f65ea01cd41e9dc855becd88953486 # v2.75.18
         with:
           tool: cross
 
