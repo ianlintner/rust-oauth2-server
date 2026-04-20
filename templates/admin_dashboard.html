@@ -253,6 +253,18 @@
           <svg class="w-4 h-4 opacity-80" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
           Events
         </button>
+        <button @click="$store.router.navigate('denylist')" x-show="$store.caps.denylist"
+                :class="$store.router.page === 'denylist' ? 'nav-link-active' : ''"
+                class="nav-link">
+          <svg class="w-4 h-4 opacity-80" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
+          Denylist
+        </button>
+        <button @click="$store.router.navigate('audit')" x-show="$store.caps.audit_log"
+                :class="$store.router.page === 'audit' ? 'nav-link-active' : ''"
+                class="nav-link">
+          <svg class="w-4 h-4 opacity-80" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="12" y2="17"/></svg>
+          Audit Log
+        </button>
         <a href="/health" target="_blank" class="nav-link">
           <svg class="w-4 h-4 opacity-80" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
           Health
@@ -466,6 +478,7 @@
             <select x-model="limit" @change="setPageSize($event.target.value)" class="select text-sm py-1.5">
               <option>10</option><option selected>25</option><option>50</option><option>100</option>
             </select>
+            <button @click="openCreateModal()" class="btn btn-primary text-xs">+ New Client</button>
           </div>
           <!-- Table -->
           <div class="overflow-x-auto">
@@ -509,9 +522,18 @@
                     </td>
                     <td class="table-cell text-slate-500 max-w-xs truncate" x-text="item.scope"></td>
                     <td class="table-cell text-slate-500 whitespace-nowrap" x-text="relativeTime(item.created_at)"></td>
-                    <td class="table-cell">
-                      <button @click.stop="deleteClient(item, $event)"
-                              class="btn btn-danger text-xs py-1 px-2">Delete</button>
+                    <td class="table-cell whitespace-nowrap">
+                      <div class="flex gap-1 flex-wrap">
+                        <button @click.stop="toggleEnabled(item, $event)"
+                                class="btn btn-secondary text-xs py-1 px-2"
+                                x-text="item.enabled === false ? 'Enable' : 'Disable'"></button>
+                        <button @click.stop="rotateSecret(item, $event)" x-show="item.token_endpoint_auth_method !== 'none'"
+                                class="btn btn-secondary text-xs py-1 px-2">Rotate Secret</button>
+                        <button @click.stop="revokeAllTokens(item, $event)"
+                                class="btn btn-secondary text-xs py-1 px-2">Revoke Tokens</button>
+                        <button @click.stop="deleteClient(item, $event)"
+                                class="btn btn-danger text-xs py-1 px-2">Delete</button>
+                      </div>
                     </td>
                   </tr>
                 </template>
@@ -662,6 +684,7 @@
             <select x-model="limit" @change="setPageSize($event.target.value)" class="select text-sm py-1.5">
               <option>10</option><option selected>25</option><option>50</option><option>100</option>
             </select>
+            <button @click="openCreateModal()" class="btn btn-primary text-xs">+ New User</button>
           </div>
           <div class="overflow-x-auto">
             <table class="w-full text-sm">
@@ -672,11 +695,12 @@
                   <th class="table-header">Role</th>
                   <th class="table-header">Status</th>
                   <th class="table-header cursor-pointer" @click="sort('created_at')">Created <span class="text-xs opacity-60" x-text="sortIcon('created_at')"></span></th>
+                  <th class="table-header">Actions</th>
                 </tr>
               </thead>
               <tbody>
-                <template x-if="loading"><tr><td colspan="5" class="table-cell py-10 text-center"><div class="animate-spin inline-block w-5 h-5 border-2 border-primary-600 border-t-transparent rounded-full"></div></td></tr></template>
-                <template x-if="!loading && items.length === 0"><tr><td colspan="5" class="table-cell text-slate-400 py-10 text-center">No users found</td></tr></template>
+                <template x-if="loading"><tr><td colspan="6" class="table-cell py-10 text-center"><div class="animate-spin inline-block w-5 h-5 border-2 border-primary-600 border-t-transparent rounded-full"></div></td></tr></template>
+                <template x-if="!loading && items.length === 0"><tr><td colspan="6" class="table-cell text-slate-400 py-10 text-center">No users found</td></tr></template>
                 <template x-for="item in items" :key="item.id">
                   <tr class="table-row" @click="openDrawer(item)">
                     <td class="table-cell font-medium" x-text="item.username"></td>
@@ -684,6 +708,128 @@
                     <td class="table-cell"><span :class="item.role === 'admin' ? 'badge-blue' : 'badge-gray'" class="badge" x-text="item.role"></span></td>
                     <td class="table-cell"><span :class="item.enabled ? 'badge-green' : 'badge-red'" class="badge" x-text="item.enabled ? 'Enabled' : 'Disabled'"></span></td>
                     <td class="table-cell text-slate-500 whitespace-nowrap" x-text="relativeTime(item.created_at)"></td>
+                    <td class="table-cell whitespace-nowrap">
+                      <div class="flex gap-1 flex-wrap">
+                        <button @click.stop="toggleEnabled(item, $event)"
+                                class="btn btn-secondary text-xs py-1 px-2"
+                                x-text="item.enabled ? 'Disable' : 'Enable'"></button>
+                        <button @click.stop="toggleRole(item, $event)"
+                                class="btn btn-secondary text-xs py-1 px-2"
+                                x-text="item.role === 'admin' ? 'Make User' : 'Make Admin'"></button>
+                        <button @click.stop="openPasswordModal(item)"
+                                class="btn btn-secondary text-xs py-1 px-2">Reset Pw</button>
+                        <button @click.stop="deleteUser(item, $event)"
+                                class="btn btn-danger text-xs py-1 px-2">Delete</button>
+                      </div>
+                    </td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+          <div class="flex items-center justify-between px-4 py-3 border-t border-slate-200 dark:border-slate-700 text-sm text-slate-500">
+            <span x-text="total === 0 ? 'No results' : `${pageStart}–${pageEnd} of ${total}`"></span>
+            <div class="flex gap-2">
+              <button @click="prevPage()" :disabled="!hasPrev" class="btn btn-secondary disabled:opacity-40">← Prev</button>
+              <button @click="nextPage()" :disabled="!hasNext" class="btn btn-secondary disabled:opacity-40">Next →</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ══ Denylist ════════════════════════════════════════════════════ -->
+      <div x-show="$store.router.page === 'denylist'"
+           x-data="denylistPage()"
+           x-init="init()"
+           @navigate.away="destroy && destroy()">
+        <div class="card overflow-hidden">
+          <div class="flex flex-wrap items-center gap-3 px-4 py-3 border-b border-slate-200 dark:border-slate-700">
+            <h2 class="text-sm font-semibold text-slate-700 dark:text-slate-300 mr-auto">Denylist</h2>
+            <select x-model="limit" @change="setPageSize($event.target.value)" class="select text-sm py-1.5">
+              <option>10</option><option selected>25</option><option>50</option><option>100</option>
+            </select>
+            <button @click="openAddModal()" class="btn btn-primary text-xs">+ Add Entry</button>
+          </div>
+          <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+              <thead class="bg-slate-50 dark:bg-slate-900/50">
+                <tr>
+                  <th class="table-header">Kind</th>
+                  <th class="table-header">Value</th>
+                  <th class="table-header">Reason</th>
+                  <th class="table-header">By</th>
+                  <th class="table-header">Active</th>
+                  <th class="table-header cursor-pointer" @click="sort('created_at')">Created <span class="text-xs opacity-60" x-text="sortIcon('created_at')"></span></th>
+                  <th class="table-header">Expires</th>
+                  <th class="table-header">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                <template x-if="loading"><tr><td colspan="8" class="table-cell py-10 text-center"><div class="animate-spin inline-block w-5 h-5 border-2 border-primary-600 border-t-transparent rounded-full"></div></td></tr></template>
+                <template x-if="!loading && items.length === 0"><tr><td colspan="8" class="table-cell text-slate-400 py-10 text-center">No denylist entries</td></tr></template>
+                <template x-for="item in items" :key="item.id">
+                  <tr class="table-row">
+                    <td class="table-cell"><span class="badge badge-gray" x-text="item.kind"></span></td>
+                    <td class="table-cell font-mono text-xs break-all" x-text="item.value"></td>
+                    <td class="table-cell text-slate-500" x-text="item.reason || '—'"></td>
+                    <td class="table-cell text-slate-500" x-text="item.created_by || '—'"></td>
+                    <td class="table-cell"><span :class="item.active ? 'badge-red' : 'badge-gray'" class="badge" x-text="item.active ? 'active' : 'expired'"></span></td>
+                    <td class="table-cell text-slate-500 whitespace-nowrap" x-text="relativeTime(item.created_at)"></td>
+                    <td class="table-cell text-slate-500 whitespace-nowrap" x-text="item.expires_at ? relativeTime(item.expires_at) : '—'"></td>
+                    <td class="table-cell">
+                      <button @click.stop="remove(item, $event)" class="btn btn-danger text-xs py-1 px-2">Remove</button>
+                    </td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+          <div class="flex items-center justify-between px-4 py-3 border-t border-slate-200 dark:border-slate-700 text-sm text-slate-500">
+            <span x-text="total === 0 ? 'No results' : `${pageStart}–${pageEnd} of ${total}`"></span>
+            <div class="flex gap-2">
+              <button @click="prevPage()" :disabled="!hasPrev" class="btn btn-secondary disabled:opacity-40">← Prev</button>
+              <button @click="nextPage()" :disabled="!hasNext" class="btn btn-secondary disabled:opacity-40">Next →</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ══ Audit Log ═══════════════════════════════════════════════════ -->
+      <div x-show="$store.router.page === 'audit'"
+           x-data="auditPage()"
+           x-init="init()"
+           @navigate.away="destroy && destroy()">
+        <div class="card overflow-hidden">
+          <div class="flex flex-wrap items-center gap-3 px-4 py-3 border-b border-slate-200 dark:border-slate-700">
+            <h2 class="text-sm font-semibold text-slate-700 dark:text-slate-300 mr-auto">Audit Log</h2>
+            <select x-model="limit" @change="setPageSize($event.target.value)" class="select text-sm py-1.5">
+              <option>25</option><option selected>50</option><option>100</option><option>200</option>
+            </select>
+            <button @click="load()" class="btn btn-secondary text-xs">Refresh</button>
+          </div>
+          <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+              <thead class="bg-slate-50 dark:bg-slate-900/50">
+                <tr>
+                  <th class="table-header cursor-pointer" @click="sort('created_at')">When <span class="text-xs opacity-60" x-text="sortIcon('created_at')"></span></th>
+                  <th class="table-header">Actor</th>
+                  <th class="table-header">Action</th>
+                  <th class="table-header">Target</th>
+                  <th class="table-header">IP</th>
+                  <th class="table-header">Details</th>
+                </tr>
+              </thead>
+              <tbody>
+                <template x-if="loading"><tr><td colspan="6" class="table-cell py-10 text-center"><div class="animate-spin inline-block w-5 h-5 border-2 border-primary-600 border-t-transparent rounded-full"></div></td></tr></template>
+                <template x-if="!loading && items.length === 0"><tr><td colspan="6" class="table-cell text-slate-400 py-10 text-center">No audit events yet</td></tr></template>
+                <template x-for="item in items" :key="item.id">
+                  <tr class="table-row">
+                    <td class="table-cell whitespace-nowrap text-slate-500" x-text="relativeTime(item.created_at)"></td>
+                    <td class="table-cell text-slate-700 dark:text-slate-300" x-text="item.actor_email || item.actor_id || '—'"></td>
+                    <td class="table-cell"><span class="badge badge-blue font-mono" x-text="item.action"></span></td>
+                    <td class="table-cell text-slate-500"><span x-text="item.target_kind"></span><span x-show="item.target_id">: <code class="text-xs" x-text="item.target_id.slice(0,12)"></code></span></td>
+                    <td class="table-cell text-slate-500 font-mono text-xs" x-text="item.ip || '—'"></td>
+                    <td class="table-cell text-slate-500 text-xs max-w-md truncate" x-text="item.metadata || '—'"></td>
                   </tr>
                 </template>
               </tbody>
@@ -1018,6 +1164,169 @@
     <div class="flex justify-end gap-2">
       <button @click="$store.router.showRotateModal = false" class="btn btn-secondary">Cancel</button>
       <button @click="rotate()" :disabled="rotating" class="btn btn-primary" x-text="rotating ? 'Rotating…' : 'Rotate'"></button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ Create / Edit Client modal ════════════════════════════════════════ -->
+<div style="display:none"
+     x-data="clientFormModal()"
+     x-show="$store.modals.client.open"
+     @click.self="$store.modals.client.open = false"
+     @keydown.escape.window="$store.modals.client.open = false"
+     class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+  <div class="bg-white dark:bg-slate-800 rounded-xl shadow-xl w-full max-w-lg p-6 space-y-4">
+    <h3 class="font-semibold text-slate-800 dark:text-slate-200" x-text="$store.modals.client.mode === 'edit' ? 'Edit Client' : 'New Client'"></h3>
+    <div class="space-y-3 text-sm max-h-[60vh] overflow-y-auto">
+      <div>
+        <label class="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Name <span class="text-red-500">*</span></label>
+        <input type="text" x-model="form.name" class="input w-full" placeholder="Acme SSO">
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Client ID <span class="text-slate-400">(optional, auto-generated)</span></label>
+        <input type="text" x-model="form.client_id" class="input w-full" :disabled="$store.modals.client.mode === 'edit'" placeholder="leave blank to auto-generate">
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Auth Method</label>
+        <select x-model="form.token_endpoint_auth_method" class="select w-full">
+          <option value="client_secret_basic">client_secret_basic</option>
+          <option value="client_secret_post">client_secret_post</option>
+          <option value="client_secret_jwt">client_secret_jwt</option>
+          <option value="private_key_jwt">private_key_jwt</option>
+          <option value="none">none (public)</option>
+        </select>
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Redirect URIs (one per line)</label>
+        <textarea x-model="form.redirect_uris_text" rows="3" class="input w-full font-mono text-xs" placeholder="https://app.example.com/callback"></textarea>
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Grant Types (space-separated)</label>
+        <input type="text" x-model="form.grant_types_text" class="input w-full" placeholder="authorization_code refresh_token">
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Scope</label>
+        <input type="text" x-model="form.scope" class="input w-full" placeholder="openid profile email">
+      </div>
+      <div x-show="$store.modals.client.mode === 'edit'">
+        <label class="inline-flex items-center gap-2 text-xs text-slate-600 dark:text-slate-400">
+          <input type="checkbox" x-model="form.enabled"> Enabled
+        </label>
+      </div>
+      <p x-show="error" class="text-xs text-red-500" x-text="error"></p>
+      <div x-show="createdSecret" class="p-3 rounded bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-700 text-xs">
+        <p class="font-semibold text-amber-800 dark:text-amber-300 mb-1">Copy this secret now — it will not be shown again.</p>
+        <code class="block font-mono break-all text-amber-900 dark:text-amber-200" x-text="createdSecret"></code>
+      </div>
+    </div>
+    <div class="flex justify-end gap-2">
+      <button @click="$store.modals.client.open = false" class="btn btn-secondary" x-text="createdSecret ? 'Close' : 'Cancel'"></button>
+      <button x-show="!createdSecret" @click="submit()" :disabled="saving" class="btn btn-primary" x-text="saving ? 'Saving…' : 'Save'"></button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ Create / Edit User modal ════════════════════════════════════════ -->
+<div style="display:none"
+     x-data="userFormModal()"
+     x-show="$store.modals.user.open"
+     @click.self="$store.modals.user.open = false"
+     @keydown.escape.window="$store.modals.user.open = false"
+     class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+  <div class="bg-white dark:bg-slate-800 rounded-xl shadow-xl w-full max-w-md p-6 space-y-4">
+    <h3 class="font-semibold text-slate-800 dark:text-slate-200" x-text="$store.modals.user.mode === 'edit' ? 'Edit User' : 'New User'"></h3>
+    <div class="space-y-3 text-sm">
+      <div>
+        <label class="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Username <span class="text-red-500">*</span></label>
+        <input type="text" x-model="form.username" class="input w-full" :disabled="$store.modals.user.mode === 'edit'">
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Email <span class="text-red-500">*</span></label>
+        <input type="email" x-model="form.email" class="input w-full">
+      </div>
+      <div x-show="$store.modals.user.mode !== 'edit'">
+        <label class="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Password <span class="text-red-500">*</span></label>
+        <input type="password" x-model="form.password" class="input w-full" placeholder="min 8 characters">
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Role</label>
+        <select x-model="form.role" class="select w-full">
+          <option value="user">user</option>
+          <option value="admin">admin</option>
+        </select>
+      </div>
+      <div>
+        <label class="inline-flex items-center gap-2 text-xs text-slate-600 dark:text-slate-400">
+          <input type="checkbox" x-model="form.enabled"> Enabled
+        </label>
+      </div>
+      <p x-show="error" class="text-xs text-red-500" x-text="error"></p>
+    </div>
+    <div class="flex justify-end gap-2">
+      <button @click="$store.modals.user.open = false" class="btn btn-secondary">Cancel</button>
+      <button @click="submit()" :disabled="saving" class="btn btn-primary" x-text="saving ? 'Saving…' : 'Save'"></button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ Reset Password modal ══════════════════════════════════════════════ -->
+<div style="display:none"
+     x-data="passwordModal()"
+     x-show="$store.modals.password.open"
+     @click.self="$store.modals.password.open = false"
+     @keydown.escape.window="$store.modals.password.open = false"
+     class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+  <div class="bg-white dark:bg-slate-800 rounded-xl shadow-xl w-full max-w-sm p-6 space-y-4">
+    <h3 class="font-semibold text-slate-800 dark:text-slate-200">Reset Password</h3>
+    <p class="text-xs text-slate-500">Resetting password for <span class="font-mono" x-text="$store.modals.password.username"></span>. All active tokens will be revoked.</p>
+    <div class="space-y-3 text-sm">
+      <input type="password" x-model="password" class="input w-full" placeholder="New password (min 8 chars)">
+      <p x-show="error" class="text-xs text-red-500" x-text="error"></p>
+    </div>
+    <div class="flex justify-end gap-2">
+      <button @click="$store.modals.password.open = false" class="btn btn-secondary">Cancel</button>
+      <button @click="submit()" :disabled="saving" class="btn btn-danger" x-text="saving ? 'Resetting…' : 'Reset'"></button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ Add Denylist Entry modal ══════════════════════════════════════════ -->
+<div style="display:none"
+     x-data="denylistModal()"
+     x-show="$store.modals.denylist.open"
+     @click.self="$store.modals.denylist.open = false"
+     @keydown.escape.window="$store.modals.denylist.open = false"
+     class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+  <div class="bg-white dark:bg-slate-800 rounded-xl shadow-xl w-full max-w-md p-6 space-y-4">
+    <h3 class="font-semibold text-slate-800 dark:text-slate-200">Add Denylist Entry</h3>
+    <div class="space-y-3 text-sm">
+      <div>
+        <label class="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Kind</label>
+        <select x-model="form.kind" class="select w-full">
+          <option value="ip">IP address</option>
+          <option value="username">Username</option>
+          <option value="email">Email</option>
+          <option value="user_id">User ID</option>
+          <option value="client_id">Client ID</option>
+        </select>
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Value <span class="text-red-500">*</span></label>
+        <input type="text" x-model="form.value" class="input w-full">
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Reason</label>
+        <input type="text" x-model="form.reason" class="input w-full" placeholder="e.g. brute-force attempt">
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Expires at (optional ISO-8601)</label>
+        <input type="datetime-local" x-model="form.expires_at_local" class="input w-full">
+      </div>
+      <p x-show="error" class="text-xs text-red-500" x-text="error"></p>
+    </div>
+    <div class="flex justify-end gap-2">
+      <button @click="$store.modals.denylist.open = false" class="btn btn-secondary">Cancel</button>
+      <button @click="submit()" :disabled="saving" class="btn btn-primary" x-text="saving ? 'Adding…' : 'Add'"></button>
     </div>
   </div>
 </div>

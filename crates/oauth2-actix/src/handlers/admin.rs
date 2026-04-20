@@ -412,13 +412,23 @@ pub struct Capabilities {
     pub events: bool,
     pub device_flow: bool,
     pub key_rotation: bool,
+    pub user_crud: bool,
+    pub client_crud: bool,
+    pub denylist: bool,
+    pub audit_log: bool,
+    pub bulk_revoke: bool,
 }
 
 pub async fn capabilities() -> Result<HttpResponse> {
     Ok(HttpResponse::Ok().json(Capabilities {
-        events: true, // events handler is always compiled in
+        events: true,
         device_flow: true,
         key_rotation: true,
+        user_crud: true,
+        client_crud: true,
+        denylist: true,
+        audit_log: true,
+        bulk_revoke: true,
     }))
 }
 

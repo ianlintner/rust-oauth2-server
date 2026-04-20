@@ -1,5 +1,7 @@
+pub mod audit;
 pub mod authorization;
 pub mod client;
+pub mod denylist;
 pub mod device;
 pub mod error;
 pub mod key_set;
@@ -8,8 +10,10 @@ pub mod scope;
 pub mod token;
 pub mod user;
 
+pub use audit::*;
 pub use authorization::*;
 pub use client::*;
+pub use denylist::*;
 pub use device::*;
 pub use error::*;
 pub use pagination::*;

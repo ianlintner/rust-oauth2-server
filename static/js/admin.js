@@ -4,15 +4,17 @@
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const PAGE_ROUTES = {
-  '':         'dashboard',
-  'dashboard':'dashboard',
-  'clients':  'clients',
-  'tokens':   'tokens',
-  'users':    'users',
-  'device':   'device',
-  'keys':     'keys',
-  'metrics':  'metrics',
-  'events':   'events',
+  '':          'dashboard',
+  'dashboard': 'dashboard',
+  'clients':   'clients',
+  'tokens':    'tokens',
+  'users':     'users',
+  'device':    'device',
+  'keys':      'keys',
+  'metrics':   'metrics',
+  'events':    'events',
+  'denylist':  'denylist',
+  'audit':     'audit',
 };
 
 // ─── Utility helpers ──────────────────────────────────────────────────────────
@@ -285,12 +287,26 @@ document.addEventListener('alpine:init', () => {
     events: true,
     device_flow: true,
     key_rotation: true,
+    user_crud: true,
+    client_crud: true,
+    denylist: true,
+    audit_log: true,
+    bulk_revoke: true,
     async init() {
       try {
         const res = await fetch('/admin/api/capabilities');
         if (res.ok) Object.assign(this, await res.json());
       } catch (_) {}
     },
+  });
+
+  // Modal coordination store — each page opens a specific modal by
+  // flipping `$store.modals.<name>.open = true` with seed context.
+  Alpine.store('modals', {
+    client: { open: false, mode: 'create', initial: null, onDone: null },
+    user:   { open: false, mode: 'create', initial: null, onDone: null },
+    password: { open: false, userId: '', username: '' },
+    denylist: { open: false, onDone: null },
   });
 });
 
@@ -537,6 +553,56 @@ function clientsPage() {
       if (res.ok) this.load();
       else alert('Failed to delete client');
     },
+
+    async toggleEnabled(item, event) {
+      event.stopPropagation();
+      const enabled = !(item.enabled !== false);
+      const res = await fetch(`/admin/api/clients/${item.id}/enabled`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled }),
+      });
+      if (res.ok) this.load();
+      else alert('Failed to update client');
+    },
+
+    async rotateSecret(item, event) {
+      event.stopPropagation();
+      if (!confirm(`Rotate secret for "${item.name}"? Existing integrations will break until updated.`)) return;
+      const res = await fetch(`/admin/api/clients/${item.id}/regenerate-secret`, { method: 'POST' });
+      if (res.ok) {
+        const data = await res.json();
+        prompt('New client secret (copy now — will not be shown again):', data.client_secret || '');
+        this.load();
+      } else {
+        alert('Failed to rotate secret');
+      }
+    },
+
+    async revokeAllTokens(item, event) {
+      event.stopPropagation();
+      if (!confirm(`Revoke ALL active tokens for client "${item.name}"?`)) return;
+      const res = await fetch('/admin/api/tokens/revoke-by-client', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ client_id: item.client_id }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        alert(`Revoked ${data.revoked || 0} tokens`);
+      } else {
+        alert('Failed to revoke tokens');
+      }
+    },
+
+    openCreateModal() {
+      Alpine.store('modals').client = {
+        open: true,
+        mode: 'create',
+        initial: null,
+        onDone: () => this.load(),
+      };
+    },
   };
 }
 
@@ -567,6 +633,55 @@ function tokensPage() {
 function usersPage() {
   return {
     ...makeGrid('/admin/api/users', 'created_at', 'desc'),
+
+    openCreateModal() {
+      Alpine.store('modals').user = {
+        open: true,
+        mode: 'create',
+        initial: null,
+        onDone: () => this.load(),
+      };
+    },
+
+    async toggleEnabled(item, event) {
+      event.stopPropagation();
+      const res = await fetch(`/admin/api/users/${item.id}/enabled`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: !item.enabled }),
+      });
+      if (res.ok) this.load();
+      else alert('Failed to update user');
+    },
+
+    async toggleRole(item, event) {
+      event.stopPropagation();
+      const nextRole = item.role === 'admin' ? 'user' : 'admin';
+      if (!confirm(`Change ${item.username}'s role to "${nextRole}"?`)) return;
+      const res = await fetch(`/admin/api/users/${item.id}/role`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role: nextRole }),
+      });
+      if (res.ok) this.load();
+      else alert('Failed to update role');
+    },
+
+    openPasswordModal(item) {
+      Alpine.store('modals').password = {
+        open: true,
+        userId: item.id,
+        username: item.username,
+      };
+    },
+
+    async deleteUser(item, event) {
+      event.stopPropagation();
+      if (!confirm(`Delete user "${item.username}"? All their tokens will be revoked. This cannot be undone.`)) return;
+      const res = await fetch(`/admin/api/users/${item.id}`, { method: 'DELETE' });
+      if (res.ok) this.load();
+      else alert('Failed to delete user');
+    },
   };
 }
 
@@ -803,6 +918,337 @@ function eventsPage() {
         const res = await fetch('/events/health');
         if (res.ok) this.pluginHealth = await res.json();
       } catch (_) {}
+    },
+  };
+}
+
+// ─── Page: Denylist ──────────────────────────────────────────────────────────
+
+function denylistPage() {
+  return {
+    ...makeGrid('/admin/api/denylist', 'created_at', 'desc'),
+
+    openAddModal() {
+      Alpine.store('modals').denylist = {
+        open: true,
+        onDone: () => this.load(),
+      };
+    },
+
+    async remove(item, event) {
+      event.stopPropagation();
+      if (!confirm(`Remove denylist entry for ${item.kind}=${item.value}?`)) return;
+      const res = await fetch(`/admin/api/denylist/${item.id}`, { method: 'DELETE' });
+      if (res.ok) this.load();
+      else alert('Failed to remove denylist entry');
+    },
+  };
+}
+
+// ─── Page: Audit Log ─────────────────────────────────────────────────────────
+
+function auditPage() {
+  return {
+    ...makeGrid('/admin/api/audit', 'created_at', 'desc'),
+  };
+}
+
+// ─── Modal: Create/Edit Client ───────────────────────────────────────────────
+
+function clientFormModal() {
+  return {
+    saving: false,
+    error: null,
+    createdSecret: null,
+    form: {
+      name: '',
+      client_id: '',
+      token_endpoint_auth_method: 'client_secret_basic',
+      redirect_uris_text: '',
+      grant_types_text: 'authorization_code refresh_token',
+      scope: 'openid profile email',
+      enabled: true,
+    },
+
+    init() {
+      this.$watch('$store.modals.client.open', (open) => {
+        if (open) this._reset();
+      });
+    },
+
+    _reset() {
+      const init = Alpine.store('modals').client.initial;
+      this.saving = false;
+      this.error = null;
+      this.createdSecret = null;
+      if (init) {
+        this.form = {
+          name: init.name || '',
+          client_id: init.client_id || '',
+          token_endpoint_auth_method: init.token_endpoint_auth_method || 'client_secret_basic',
+          redirect_uris_text: Array.isArray(init.redirect_uris) ? init.redirect_uris.join('\n') : (init.redirect_uris || ''),
+          grant_types_text: Array.isArray(init.grant_types) ? init.grant_types.join(' ') : (init.grant_types || ''),
+          scope: init.scope || '',
+          enabled: init.enabled !== false,
+        };
+      } else {
+        this.form = {
+          name: '',
+          client_id: '',
+          token_endpoint_auth_method: 'client_secret_basic',
+          redirect_uris_text: '',
+          grant_types_text: 'authorization_code refresh_token',
+          scope: 'openid profile email',
+          enabled: true,
+        };
+      }
+    },
+
+    async submit() {
+      this.saving = true;
+      this.error = null;
+      const redirect_uris = this.form.redirect_uris_text
+        .split(/\n|,/)
+        .map(s => s.trim())
+        .filter(Boolean);
+      const grant_types = this.form.grant_types_text
+        .split(/\s+|,/)
+        .map(s => s.trim())
+        .filter(Boolean);
+      const body = {
+        name: this.form.name,
+        redirect_uris,
+        grant_types,
+        scope: this.form.scope,
+        token_endpoint_auth_method: this.form.token_endpoint_auth_method,
+        enabled: this.form.enabled,
+      };
+      const mode = Alpine.store('modals').client.mode;
+      let res;
+      if (mode === 'edit') {
+        const id = Alpine.store('modals').client.initial.id;
+        res = await fetch(`/admin/api/clients/${id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+      } else {
+        if (this.form.client_id) body.client_id = this.form.client_id;
+        res = await fetch('/admin/api/clients', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+      }
+      this.saving = false;
+      if (!res.ok) {
+        try {
+          const err = await res.json();
+          this.error = err.error_description || err.error || `HTTP ${res.status}`;
+        } catch (_) {
+          this.error = `HTTP ${res.status}`;
+        }
+        return;
+      }
+      const data = await res.json().catch(() => ({}));
+      const onDone = Alpine.store('modals').client.onDone;
+      if (onDone) onDone();
+      if (data.client_secret) {
+        this.createdSecret = data.client_secret;
+      } else {
+        Alpine.store('modals').client.open = false;
+      }
+    },
+  };
+}
+
+// ─── Modal: Create/Edit User ─────────────────────────────────────────────────
+
+function userFormModal() {
+  return {
+    saving: false,
+    error: null,
+    form: {
+      username: '',
+      email: '',
+      password: '',
+      role: 'user',
+      enabled: true,
+    },
+
+    init() {
+      this.$watch('$store.modals.user.open', (open) => {
+        if (open) this._reset();
+      });
+    },
+
+    _reset() {
+      const init = Alpine.store('modals').user.initial;
+      this.saving = false;
+      this.error = null;
+      if (init) {
+        this.form = {
+          username: init.username || '',
+          email: init.email || '',
+          password: '',
+          role: init.role || 'user',
+          enabled: init.enabled !== false,
+        };
+      } else {
+        this.form = {
+          username: '',
+          email: '',
+          password: '',
+          role: 'user',
+          enabled: true,
+        };
+      }
+    },
+
+    async submit() {
+      this.saving = true;
+      this.error = null;
+      const mode = Alpine.store('modals').user.mode;
+      let res;
+      if (mode === 'edit') {
+        const id = Alpine.store('modals').user.initial.id;
+        res = await fetch(`/admin/api/users/${id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: this.form.email,
+            role: this.form.role,
+            enabled: this.form.enabled,
+          }),
+        });
+      } else {
+        res = await fetch('/admin/api/users', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            username: this.form.username,
+            email: this.form.email,
+            password: this.form.password,
+            role: this.form.role,
+            enabled: this.form.enabled,
+          }),
+        });
+      }
+      this.saving = false;
+      if (!res.ok) {
+        try {
+          const err = await res.json();
+          this.error = err.error_description || err.error || `HTTP ${res.status}`;
+        } catch (_) {
+          this.error = `HTTP ${res.status}`;
+        }
+        return;
+      }
+      const onDone = Alpine.store('modals').user.onDone;
+      if (onDone) onDone();
+      Alpine.store('modals').user.open = false;
+    },
+  };
+}
+
+// ─── Modal: Reset Password ───────────────────────────────────────────────────
+
+function passwordModal() {
+  return {
+    password: '',
+    saving: false,
+    error: null,
+    init() {
+      this.$watch('$store.modals.password.open', (open) => {
+        if (open) {
+          this.password = '';
+          this.error = null;
+          this.saving = false;
+        }
+      });
+    },
+    async submit() {
+      if (this.password.length < 8) {
+        this.error = 'Password must be at least 8 characters';
+        return;
+      }
+      this.saving = true;
+      const userId = Alpine.store('modals').password.userId;
+      const res = await fetch(`/admin/api/users/${userId}/password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: this.password }),
+      });
+      this.saving = false;
+      if (!res.ok) {
+        try {
+          const err = await res.json();
+          this.error = err.error_description || err.error || `HTTP ${res.status}`;
+        } catch (_) {
+          this.error = `HTTP ${res.status}`;
+        }
+        return;
+      }
+      Alpine.store('modals').password.open = false;
+    },
+  };
+}
+
+// ─── Modal: Add Denylist Entry ───────────────────────────────────────────────
+
+function denylistModal() {
+  return {
+    saving: false,
+    error: null,
+    form: {
+      kind: 'ip',
+      value: '',
+      reason: '',
+      expires_at_local: '',
+    },
+    init() {
+      this.$watch('$store.modals.denylist.open', (open) => {
+        if (open) {
+          this.form = { kind: 'ip', value: '', reason: '', expires_at_local: '' };
+          this.saving = false;
+          this.error = null;
+        }
+      });
+    },
+    async submit() {
+      if (!this.form.value.trim()) {
+        this.error = 'value is required';
+        return;
+      }
+      this.saving = true;
+      const body = {
+        kind: this.form.kind,
+        value: this.form.value.trim(),
+        reason: this.form.reason,
+      };
+      if (this.form.expires_at_local) {
+        try {
+          body.expires_at = new Date(this.form.expires_at_local).toISOString();
+        } catch (_) {}
+      }
+      const res = await fetch('/admin/api/denylist', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      this.saving = false;
+      if (!res.ok) {
+        try {
+          const err = await res.json();
+          this.error = err.error_description || err.error || `HTTP ${res.status}`;
+        } catch (_) {
+          this.error = `HTTP ${res.status}`;
+        }
+        return;
+      }
+      const onDone = Alpine.store('modals').denylist.onDone;
+      if (onDone) onDone();
+      Alpine.store('modals').denylist.open = false;
     },
   };
 }

@@ -599,6 +599,119 @@ impl Storage for MongoStorage {
             .map(|_| ())
             .map_err(Self::mongo_err_to_oauth)
     }
+
+    // --- Admin: user management ---
+
+    async fn update_user(&self, user: &User) -> Result<(), OAuth2Error> {
+        let updated_at = mongodb::bson::DateTime::from_millis(user.updated_at.timestamp_millis());
+        self.users
+            .update_one(
+                doc! { "id": &user.id },
+                doc! {
+                    "$set": {
+                        "username": &user.username,
+                        "email": &user.email,
+                        "enabled": user.enabled,
+                        "role": &user.role,
+                        "password_hash": &user.password_hash,
+                        "updated_at": updated_at,
+                    }
+                },
+            )
+            .await
+            .map(|_| ())
+            .map_err(Self::mongo_err_to_oauth)
+    }
+
+    async fn delete_user(&self, user_id: &str) -> Result<(), OAuth2Error> {
+        self.users
+            .delete_one(doc! { "id": user_id })
+            .await
+            .map(|_| ())
+            .map_err(Self::mongo_err_to_oauth)
+    }
+
+    async fn set_user_enabled(&self, user_id: &str, enabled: bool) -> Result<(), OAuth2Error> {
+        let now = mongodb::bson::DateTime::now();
+        self.users
+            .update_one(
+                doc! { "id": user_id },
+                doc! { "$set": { "enabled": enabled, "updated_at": now } },
+            )
+            .await
+            .map(|_| ())
+            .map_err(Self::mongo_err_to_oauth)
+    }
+
+    async fn set_user_role(&self, user_id: &str, role: &str) -> Result<(), OAuth2Error> {
+        let now = mongodb::bson::DateTime::now();
+        self.users
+            .update_one(
+                doc! { "id": user_id },
+                doc! { "$set": { "role": role, "updated_at": now } },
+            )
+            .await
+            .map(|_| ())
+            .map_err(Self::mongo_err_to_oauth)
+    }
+
+    async fn set_user_password_hash(
+        &self,
+        user_id: &str,
+        password_hash: &str,
+    ) -> Result<(), OAuth2Error> {
+        let now = mongodb::bson::DateTime::now();
+        self.users
+            .update_one(
+                doc! { "id": user_id },
+                doc! { "$set": { "password_hash": password_hash, "updated_at": now } },
+            )
+            .await
+            .map(|_| ())
+            .map_err(Self::mongo_err_to_oauth)
+    }
+
+    // --- Admin: client management extensions ---
+
+    async fn set_client_enabled(&self, client_id: &str, enabled: bool) -> Result<(), OAuth2Error> {
+        let now = mongodb::bson::DateTime::now();
+        self.clients
+            .update_one(
+                doc! { "client_id": client_id },
+                doc! { "$set": { "enabled": enabled, "updated_at": now } },
+            )
+            .await
+            .map(|_| ())
+            .map_err(Self::mongo_err_to_oauth)
+    }
+
+    async fn set_client_secret(
+        &self,
+        client_id: &str,
+        client_secret: &str,
+    ) -> Result<(), OAuth2Error> {
+        let now = mongodb::bson::DateTime::now();
+        self.clients
+            .update_one(
+                doc! { "client_id": client_id },
+                doc! { "$set": { "client_secret": client_secret, "updated_at": now } },
+            )
+            .await
+            .map(|_| ())
+            .map_err(Self::mongo_err_to_oauth)
+    }
+
+    async fn revoke_tokens_by_client_id(&self, client_id: &str) -> Result<u64, OAuth2Error> {
+        let result = self
+            .tokens
+            .update_many(
+                doc! { "client_id": client_id, "revoked": false },
+                doc! { "$set": { "revoked": true } },
+            )
+            .await
+            .map_err(Self::mongo_err_to_oauth)?;
+        Ok(result.modified_count)
+    }
 }
 
 #[cfg(test)]

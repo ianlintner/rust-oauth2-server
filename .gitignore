@@ -63,3 +63,7 @@ reports/
 __pycache__/
 *.db
 .prod.env
+
+# Local screenshots + playwright traces (not committed)
+.playwright-mcp/
+admin-*.png

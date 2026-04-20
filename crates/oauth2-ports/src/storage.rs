@@ -2,7 +2,8 @@ use async_trait::async_trait;
 use std::sync::Arc;
 
 use oauth2_core::{
-    AuthorizationCode, Client, DeviceAuthorization, ListQuery, OAuth2Error, Page, Token, User,
+    AuditLogEntry, AuthorizationCode, Client, DenylistEntry, DeviceAuthorization, ListQuery,
+    OAuth2Error, Page, Token, User,
 };
 
 /// Trait implemented by all persistence backends.
@@ -194,6 +195,110 @@ pub trait Storage: Send + Sync {
     /// Implementations may override to do something cheaper than `init()`.
     async fn healthcheck(&self) -> Result<(), OAuth2Error> {
         self.init().await
+    }
+
+    // --- Admin: user management ---
+
+    /// Update an existing user's mutable fields (email, role, enabled,
+    /// password_hash). Default no-op.
+    async fn update_user(&self, user: &User) -> Result<(), OAuth2Error> {
+        let _ = user;
+        Ok(())
+    }
+
+    /// Delete a user by id. Default no-op.
+    async fn delete_user(&self, user_id: &str) -> Result<(), OAuth2Error> {
+        let _ = user_id;
+        Ok(())
+    }
+
+    /// Soft-enable or disable a user. Default no-op.
+    async fn set_user_enabled(&self, user_id: &str, enabled: bool) -> Result<(), OAuth2Error> {
+        let (_, _) = (user_id, enabled);
+        Ok(())
+    }
+
+    /// Change a user's role (e.g. "admin" / "user"). Default no-op.
+    async fn set_user_role(&self, user_id: &str, role: &str) -> Result<(), OAuth2Error> {
+        let (_, _) = (user_id, role);
+        Ok(())
+    }
+
+    /// Replace a user's password hash. Default no-op.
+    async fn set_user_password_hash(
+        &self,
+        user_id: &str,
+        password_hash: &str,
+    ) -> Result<(), OAuth2Error> {
+        let (_, _) = (user_id, password_hash);
+        Ok(())
+    }
+
+    // --- Admin: client management extensions ---
+
+    /// Soft-enable or disable a client. Default no-op.
+    async fn set_client_enabled(&self, client_id: &str, enabled: bool) -> Result<(), OAuth2Error> {
+        let (_, _) = (client_id, enabled);
+        Ok(())
+    }
+
+    /// Replace a client's secret (hashed or plaintext per impl convention).
+    /// Default no-op.
+    async fn set_client_secret(
+        &self,
+        client_id: &str,
+        client_secret: &str,
+    ) -> Result<(), OAuth2Error> {
+        let (_, _) = (client_id, client_secret);
+        Ok(())
+    }
+
+    // --- Admin: denylist ---
+
+    async fn add_denylist_entry(&self, entry: &DenylistEntry) -> Result<(), OAuth2Error> {
+        let _ = entry;
+        Ok(())
+    }
+
+    async fn remove_denylist_entry(&self, id: &str) -> Result<(), OAuth2Error> {
+        let _ = id;
+        Ok(())
+    }
+
+    async fn list_denylist(&self, q: &ListQuery) -> Result<Page<DenylistEntry>, OAuth2Error> {
+        let _ = q;
+        Ok(Page::from_vec(vec![], q))
+    }
+
+    /// Returns the matching active denylist entry (not expired) if any.
+    async fn find_denylist_entry(
+        &self,
+        kind: &str,
+        value: &str,
+    ) -> Result<Option<DenylistEntry>, OAuth2Error> {
+        let (_, _) = (kind, value);
+        Ok(None)
+    }
+
+    // --- Admin: audit log ---
+
+    async fn write_audit_log(&self, entry: &AuditLogEntry) -> Result<(), OAuth2Error> {
+        let _ = entry;
+        Ok(())
+    }
+
+    async fn list_audit_log(&self, q: &ListQuery) -> Result<Page<AuditLogEntry>, OAuth2Error> {
+        let _ = q;
+        Ok(Page::from_vec(vec![], q))
+    }
+
+    // --- Admin: bulk token revocation ---
+
+    /// Revoke every non-expired token issued to a given client.
+    /// Returns number of rows affected. Default no-op.
+    async fn revoke_tokens_by_client_id(&self, client_id: &str) -> Result<u64, OAuth2Error> {
+        let _ = client_id;
+        Ok(0)
     }
 }
 

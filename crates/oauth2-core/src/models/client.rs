@@ -78,6 +78,15 @@ pub struct Client {
     /// OIDC RP-Initiated Logout §2: registered post-logout redirect URIs (JSON array).
     #[serde(default = "default_empty_string")]
     pub post_logout_redirect_uris: String,
+    /// Admin soft-disable flag. Disabled clients are rejected at authorization
+    /// and token endpoints. Defaults to `true` so existing code paths remain
+    /// unaffected.
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 impl Client {
@@ -116,6 +125,7 @@ impl Client {
             frontchannel_logout_uri: String::new(),
             frontchannel_logout_session_required: false,
             post_logout_redirect_uris: String::new(),
+            enabled: true,
         }
     }
 

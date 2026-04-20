@@ -1015,6 +1015,9 @@ pub async fn run() -> std::io::Result<()> {
                 .build(),
             )
             .wrap(rl_middleware)
+            // IP denylist check runs before rate limiting so that
+            // denylisted IPs don't consume rate-limit quota.
+            .wrap(oauth2_actix::middleware::denylist::DenylistGuard)
             // Resilience is the outermost layer (last .wrap() call).
             // Tripped circuit / full concurrency pool → 503 on the cheapest
             // path, before rate-limiting, session, or logging run.
@@ -1245,6 +1248,8 @@ pub async fn run() -> std::io::Result<()> {
                     .route("/keys", web::get().to(admin_dashboard))
                     .route("/metrics", web::get().to(admin_dashboard))
                     .route("/events", web::get().to(admin_dashboard))
+                    .route("/denylist", web::get().to(admin_dashboard))
+                    .route("/audit", web::get().to(admin_dashboard))
                     .route(
                         "/clients/register",
                         web::post().to(oauth2_actix::handlers::client::register_client),
@@ -1265,12 +1270,30 @@ pub async fn run() -> std::io::Result<()> {
                                 web::get().to(oauth2_actix::handlers::admin::list_clients),
                             )
                             .route(
+                                "/clients",
+                                web::post().to(oauth2_actix::handlers::admin_extra::create_client),
+                            )
+                            .route(
                                 "/clients/{id}",
                                 web::get().to(oauth2_actix::handlers::admin::get_client),
                             )
                             .route(
                                 "/clients/{id}",
+                                web::put().to(oauth2_actix::handlers::admin_extra::update_client),
+                            )
+                            .route(
+                                "/clients/{id}",
                                 web::delete().to(oauth2_actix::handlers::admin::delete_client),
+                            )
+                            .route(
+                                "/clients/{id}/enabled",
+                                web::post()
+                                    .to(oauth2_actix::handlers::admin_extra::set_client_enabled),
+                            )
+                            .route(
+                                "/clients/{id}/regenerate-secret",
+                                web::post()
+                                    .to(oauth2_actix::handlers::admin_extra::regenerate_client_secret),
                             )
                             // Tokens
                             .route(
@@ -1285,14 +1308,70 @@ pub async fn run() -> std::io::Result<()> {
                                 "/tokens/{id}/revoke",
                                 web::post().to(oauth2_actix::handlers::admin::admin_revoke_token),
                             )
+                            .route(
+                                "/tokens/revoke-by-user",
+                                web::post()
+                                    .to(oauth2_actix::handlers::admin_extra::bulk_revoke_by_user),
+                            )
+                            .route(
+                                "/tokens/revoke-by-client",
+                                web::post()
+                                    .to(oauth2_actix::handlers::admin_extra::bulk_revoke_by_client),
+                            )
                             // Users
                             .route(
                                 "/users",
                                 web::get().to(oauth2_actix::handlers::admin::list_users),
                             )
                             .route(
+                                "/users",
+                                web::post().to(oauth2_actix::handlers::admin_extra::create_user),
+                            )
+                            .route(
                                 "/users/{id}",
                                 web::get().to(oauth2_actix::handlers::admin::get_user),
+                            )
+                            .route(
+                                "/users/{id}",
+                                web::put().to(oauth2_actix::handlers::admin_extra::update_user),
+                            )
+                            .route(
+                                "/users/{id}",
+                                web::delete().to(oauth2_actix::handlers::admin_extra::delete_user),
+                            )
+                            .route(
+                                "/users/{id}/enabled",
+                                web::post()
+                                    .to(oauth2_actix::handlers::admin_extra::set_user_enabled),
+                            )
+                            .route(
+                                "/users/{id}/role",
+                                web::post()
+                                    .to(oauth2_actix::handlers::admin_extra::set_user_role),
+                            )
+                            .route(
+                                "/users/{id}/password",
+                                web::post()
+                                    .to(oauth2_actix::handlers::admin_extra::reset_user_password),
+                            )
+                            // Denylist
+                            .route(
+                                "/denylist",
+                                web::get().to(oauth2_actix::handlers::admin_extra::list_denylist),
+                            )
+                            .route(
+                                "/denylist",
+                                web::post().to(oauth2_actix::handlers::admin_extra::add_denylist),
+                            )
+                            .route(
+                                "/denylist/{id}",
+                                web::delete()
+                                    .to(oauth2_actix::handlers::admin_extra::remove_denylist),
+                            )
+                            // Audit log
+                            .route(
+                                "/audit",
+                                web::get().to(oauth2_actix::handlers::admin_extra::list_audit_log),
                             )
                             // Device authorizations
                             .route(

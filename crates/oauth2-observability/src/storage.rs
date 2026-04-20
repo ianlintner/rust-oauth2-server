@@ -2,7 +2,8 @@ use async_trait::async_trait;
 use tracing::{field, Instrument};
 
 use oauth2_core::{
-    AuthorizationCode, Client, DeviceAuthorization, ListQuery, OAuth2Error, Page, Token, User,
+    AuditLogEntry, AuthorizationCode, Client, DenylistEntry, DeviceAuthorization, ListQuery,
+    OAuth2Error, Page, Token, User,
 };
 use oauth2_ports::{DynStorage, Storage};
 
@@ -531,6 +532,139 @@ impl Storage for ObservedStorage {
         let span = self.span("expire_device_authorization");
         let dc = device_code.to_string();
         async move { self.inner.expire_device_authorization(&dc).await }
+            .instrument(span)
+            .await
+    }
+
+    // --- Admin: user management ---
+
+    async fn update_user(&self, user: &User) -> Result<(), OAuth2Error> {
+        let span = self.span("update_user");
+        async move { self.inner.update_user(user).await }
+            .instrument(span)
+            .await
+    }
+
+    async fn delete_user(&self, user_id: &str) -> Result<(), OAuth2Error> {
+        let span = self.span("delete_user");
+        let id = user_id.to_string();
+        async move { self.inner.delete_user(&id).await }
+            .instrument(span)
+            .await
+    }
+
+    async fn set_user_enabled(&self, user_id: &str, enabled: bool) -> Result<(), OAuth2Error> {
+        let span = self.span("set_user_enabled");
+        let id = user_id.to_string();
+        async move { self.inner.set_user_enabled(&id, enabled).await }
+            .instrument(span)
+            .await
+    }
+
+    async fn set_user_role(&self, user_id: &str, role: &str) -> Result<(), OAuth2Error> {
+        let span = self.span("set_user_role");
+        let id = user_id.to_string();
+        let role = role.to_string();
+        async move { self.inner.set_user_role(&id, &role).await }
+            .instrument(span)
+            .await
+    }
+
+    async fn set_user_password_hash(
+        &self,
+        user_id: &str,
+        password_hash: &str,
+    ) -> Result<(), OAuth2Error> {
+        let span = self.span("set_user_password_hash");
+        let id = user_id.to_string();
+        let hash = password_hash.to_string();
+        async move { self.inner.set_user_password_hash(&id, &hash).await }
+            .instrument(span)
+            .await
+    }
+
+    // --- Admin: client management extensions ---
+
+    async fn set_client_enabled(&self, client_id: &str, enabled: bool) -> Result<(), OAuth2Error> {
+        let span = self.span("set_client_enabled");
+        let id = client_id.to_string();
+        async move { self.inner.set_client_enabled(&id, enabled).await }
+            .instrument(span)
+            .await
+    }
+
+    async fn set_client_secret(
+        &self,
+        client_id: &str,
+        client_secret: &str,
+    ) -> Result<(), OAuth2Error> {
+        let span = self.span("set_client_secret");
+        let id = client_id.to_string();
+        let secret = client_secret.to_string();
+        async move { self.inner.set_client_secret(&id, &secret).await }
+            .instrument(span)
+            .await
+    }
+
+    // --- Admin: denylist ---
+
+    async fn add_denylist_entry(&self, entry: &DenylistEntry) -> Result<(), OAuth2Error> {
+        let span = self.span("add_denylist_entry");
+        async move { self.inner.add_denylist_entry(entry).await }
+            .instrument(span)
+            .await
+    }
+
+    async fn remove_denylist_entry(&self, id: &str) -> Result<(), OAuth2Error> {
+        let span = self.span("remove_denylist_entry");
+        let id = id.to_string();
+        async move { self.inner.remove_denylist_entry(&id).await }
+            .instrument(span)
+            .await
+    }
+
+    async fn list_denylist(&self, q: &ListQuery) -> Result<Page<DenylistEntry>, OAuth2Error> {
+        let span = self.span("list_denylist");
+        async move { self.inner.list_denylist(q).await }
+            .instrument(span)
+            .await
+    }
+
+    async fn find_denylist_entry(
+        &self,
+        kind: &str,
+        value: &str,
+    ) -> Result<Option<DenylistEntry>, OAuth2Error> {
+        let span = self.span("find_denylist_entry");
+        let kind = kind.to_string();
+        let value = value.to_string();
+        async move { self.inner.find_denylist_entry(&kind, &value).await }
+            .instrument(span)
+            .await
+    }
+
+    // --- Admin: audit log ---
+
+    async fn write_audit_log(&self, entry: &AuditLogEntry) -> Result<(), OAuth2Error> {
+        let span = self.span("write_audit_log");
+        async move { self.inner.write_audit_log(entry).await }
+            .instrument(span)
+            .await
+    }
+
+    async fn list_audit_log(&self, q: &ListQuery) -> Result<Page<AuditLogEntry>, OAuth2Error> {
+        let span = self.span("list_audit_log");
+        async move { self.inner.list_audit_log(q).await }
+            .instrument(span)
+            .await
+    }
+
+    // --- Admin: bulk token revocation ---
+
+    async fn revoke_tokens_by_client_id(&self, client_id: &str) -> Result<u64, OAuth2Error> {
+        let span = self.span("revoke_tokens_by_client_id");
+        let id = client_id.to_string();
+        async move { self.inner.revoke_tokens_by_client_id(&id).await }
             .instrument(span)
             .await
     }
