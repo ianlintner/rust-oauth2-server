@@ -668,4 +668,14 @@ impl Storage for ObservedStorage {
             .instrument(span)
             .await
     }
+
+    // --- Backend capability flags ---
+
+    async fn supports_denylist(&self) -> bool {
+        self.inner.supports_denylist().await
+    }
+
+    async fn supports_audit_log(&self) -> bool {
+        self.inner.supports_audit_log().await
+    }
 }

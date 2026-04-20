@@ -419,15 +419,15 @@ pub struct Capabilities {
     pub bulk_revoke: bool,
 }
 
-pub async fn capabilities() -> Result<HttpResponse> {
+pub async fn capabilities(db: web::Data<DynStorage>) -> Result<HttpResponse> {
     Ok(HttpResponse::Ok().json(Capabilities {
         events: true,
         device_flow: true,
         key_rotation: true,
         user_crud: true,
         client_crud: true,
-        denylist: true,
-        audit_log: true,
+        denylist: db.supports_denylist().await,
+        audit_log: db.supports_audit_log().await,
         bulk_revoke: true,
     }))
 }

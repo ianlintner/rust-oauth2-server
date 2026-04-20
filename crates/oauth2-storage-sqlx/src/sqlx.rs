@@ -1986,6 +1986,14 @@ impl Storage for SqlxStorage {
         };
         Ok(rows)
     }
+
+    async fn supports_denylist(&self) -> bool {
+        true
+    }
+
+    async fn supports_audit_log(&self) -> bool {
+        true
+    }
 }
 
 fn sqlite_db_path(database_url: &str) -> Option<PathBuf> {

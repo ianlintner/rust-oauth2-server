@@ -300,6 +300,22 @@ pub trait Storage: Send + Sync {
         let _ = client_id;
         Ok(0)
     }
+
+    // --- Backend capability flags ---
+    //
+    // These let the admin UI hide sections that would silently no-op on the
+    // current backend (e.g. Mongo, which has not yet implemented denylist
+    // / audit log). Default `false` so backends opt in explicitly.
+
+    /// Whether this backend persists denylist entries.
+    async fn supports_denylist(&self) -> bool {
+        false
+    }
+
+    /// Whether this backend persists audit-log entries.
+    async fn supports_audit_log(&self) -> bool {
+        false
+    }
 }
 
 pub type DynStorage = Arc<dyn Storage>;

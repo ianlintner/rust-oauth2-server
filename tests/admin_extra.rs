@@ -1190,7 +1190,8 @@ async fn bulk_revoke_by_client_revokes_only_that_client() {
 
 #[actix_web::test]
 async fn capabilities_exposes_new_feature_flags() {
-    let app = test::init_service(App::new().route(
+    let storage = setup_storage().await;
+    let app = test::init_service(App::new().app_data(web::Data::new(storage.clone())).route(
         "/admin/api/capabilities",
         web::get().to(admin::capabilities),
     ))
@@ -1216,3 +1217,10 @@ async fn capabilities_exposes_new_feature_flags() {
         assert_eq!(body[flag], true, "cap flag {flag} should be true");
     }
 }
+
+// NOTE: No Mongo-backed capabilities test is included here.
+// `MongoStorage::new()` opens a real client and requires a running Mongo
+// server, which is out of scope for unit tests. Mongo inherits the
+// trait defaults (`false` for both `supports_denylist` /
+// `supports_audit_log` on `oauth2_ports::Storage`) until real impls ship
+// in v0.7.0.
