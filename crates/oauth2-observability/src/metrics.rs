@@ -12,6 +12,13 @@ pub struct Metrics {
     pub http_requests_total: Counter,
     pub http_request_duration_seconds: Histogram,
 
+    /// HTTP request counter bucketed by response status class.
+    ///
+    /// Label `status_class` values: `2xx`, `3xx`, `4xx`, `5xx`, `other`.
+    /// Kept separate from `http_requests_total_by_route` so existing
+    /// time-series (without a `status_class` label) are not broken.
+    pub http_requests_by_class_total: CounterVec,
+
     /// Labeled HTTP request counter.
     ///
     /// Labels:
@@ -86,9 +93,22 @@ impl Metrics {
                 "http_request_duration_seconds",
                 "HTTP request duration in seconds",
             )
-            .namespace("oauth2_server"),
+            .namespace("oauth2_server")
+            .buckets(vec![
+                0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0,
+            ]),
         )?;
         registry.register(Box::new(http_request_duration_seconds.clone()))?;
+
+        let http_requests_by_class_total = CounterVec::new(
+            Opts::new(
+                "http_requests_by_class_total",
+                "Total number of HTTP requests bucketed by response status class (2xx/3xx/4xx/5xx/other)",
+            )
+            .namespace("oauth2_server"),
+            &["status_class"],
+        )?;
+        registry.register(Box::new(http_requests_by_class_total.clone()))?;
 
         let http_requests_total_by_route = CounterVec::new(
             Opts::new(
@@ -261,6 +281,7 @@ impl Metrics {
             registry: Arc::new(registry),
             http_requests_total,
             http_request_duration_seconds,
+            http_requests_by_class_total,
             http_requests_total_by_route,
             http_request_duration_seconds_by_route,
             oauth_token_issued_total,

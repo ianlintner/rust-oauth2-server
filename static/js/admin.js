@@ -358,10 +358,10 @@ function dashboardPage() {
       });
 
       // HTTP status distribution
-      const s2xx = prometheusLabeled(m, 'oauth2_server_http_requests_total', 'status_class', '2xx')
+      const s2xx = prometheusLabeled(m, 'oauth2_server_http_requests_by_class_total', 'status_class', '2xx')
         || prometheusScalar(m, 'oauth2_server_http_requests_total');
-      const s4xx = prometheusLabeled(m, 'oauth2_server_http_requests_total', 'status_class', '4xx');
-      const s5xx = prometheusLabeled(m, 'oauth2_server_http_requests_total', 'status_class', '5xx');
+      const s4xx = prometheusLabeled(m, 'oauth2_server_http_requests_by_class_total', 'status_class', '4xx');
+      const s5xx = prometheusLabeled(m, 'oauth2_server_http_requests_by_class_total', 'status_class', '5xx');
       createOrUpdateChart('requestChart', {
         type: 'doughnut',
         data: {

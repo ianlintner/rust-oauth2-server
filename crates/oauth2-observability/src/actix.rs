@@ -67,7 +67,15 @@ where
 
             let res = svc.call(req).await?;
 
-            let status = res.status().as_u16().to_string();
+            let status_code = res.status().as_u16();
+            let status = status_code.to_string();
+            let status_class = match status_code {
+                200..=299 => "2xx",
+                300..=399 => "3xx",
+                400..=499 => "4xx",
+                500..=599 => "5xx",
+                _ => "other",
+            };
             let route = res
                 .request()
                 .match_pattern()
@@ -77,6 +85,11 @@ where
             metrics
                 .http_request_duration_seconds
                 .observe(duration.as_secs_f64());
+
+            metrics
+                .http_requests_by_class_total
+                .with_label_values(&[status_class])
+                .inc();
 
             metrics
                 .http_requests_total_by_route
