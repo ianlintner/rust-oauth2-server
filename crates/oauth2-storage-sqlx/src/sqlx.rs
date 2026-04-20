@@ -1,11 +1,20 @@
 use async_trait::async_trait;
-use oauth2_core::{AuthorizationCode, Client, DeviceAuthorization, OAuth2Error, Token, User};
+use oauth2_core::{
+    AuthorizationCode, Client, DeviceAuthorization, ListQuery, OAuth2Error, Page, Token, User,
+};
 use oauth2_ports::Storage;
 use sqlx::pool::PoolOptions;
 use sqlx::{Pool, Postgres, Sqlite};
 use std::borrow::Cow;
 use std::path::PathBuf;
 use std::time::Duration;
+
+/// Return a whitelisted column name for use in ORDER BY clauses.
+fn whitelist_col(col: Option<&str>, allowed: &[&'static str]) -> &'static str {
+    let default = allowed.last().copied().unwrap_or("id");
+    col.and_then(|c| allowed.iter().copied().find(|&a| a == c))
+        .unwrap_or(default)
+}
 
 /// Database connection pool configuration.
 #[derive(Debug, Clone)]
@@ -1178,6 +1187,260 @@ impl Storage for SqlxStorage {
             }
         };
         Ok(tokens)
+    }
+
+    async fn list_clients_page(&self, q: &ListQuery) -> Result<Page<Client>, OAuth2Error> {
+        let limit = q.effective_limit() as i64;
+        let offset = q.effective_offset() as i64;
+        let sort_col = whitelist_col(q.sort_by.as_deref(), &["name", "client_id", "created_at"]);
+        let sort_dir = q.sort_dir_sql();
+        let pat = q.search_pattern();
+
+        let (total, items) = match self.read_pool() {
+            DatabasePool::Sqlite(pool) => {
+                let total: i64 = sqlx::query_scalar(
+                    "SELECT COUNT(*) FROM clients WHERE LOWER(name) LIKE ? OR LOWER(client_id) LIKE ?",
+                )
+                .bind(&pat)
+                .bind(&pat)
+                .fetch_one(pool)
+                .await?;
+
+                let sql = format!(
+                    "SELECT * FROM clients WHERE LOWER(name) LIKE ? OR LOWER(client_id) LIKE ? ORDER BY {} {} LIMIT ? OFFSET ?",
+                    sort_col, sort_dir
+                );
+                let items = sqlx::query_as::<_, Client>(&sql)
+                    .bind(&pat)
+                    .bind(&pat)
+                    .bind(limit)
+                    .bind(offset)
+                    .fetch_all(pool)
+                    .await?;
+                (total, items)
+            }
+            DatabasePool::Postgres(pool) => {
+                let total: i64 = sqlx::query_scalar(
+                    "SELECT COUNT(*) FROM clients WHERE LOWER(name) LIKE $1 OR LOWER(client_id) LIKE $1",
+                )
+                .bind(&pat)
+                .fetch_one(pool)
+                .await?;
+
+                let sql = format!(
+                    "SELECT * FROM clients WHERE LOWER(name) LIKE $1 OR LOWER(client_id) LIKE $1 ORDER BY {} {} LIMIT $2 OFFSET $3",
+                    sort_col, sort_dir
+                );
+                let items = sqlx::query_as::<_, Client>(&sql)
+                    .bind(&pat)
+                    .bind(limit)
+                    .bind(offset)
+                    .fetch_all(pool)
+                    .await?;
+                (total, items)
+            }
+        };
+
+        Ok(Page::new(
+            items,
+            total as u64,
+            q.effective_limit(),
+            q.effective_offset(),
+        ))
+    }
+
+    async fn list_users_page(&self, q: &ListQuery) -> Result<Page<User>, OAuth2Error> {
+        let limit = q.effective_limit() as i64;
+        let offset = q.effective_offset() as i64;
+        let sort_col = whitelist_col(
+            q.sort_by.as_deref(),
+            &["username", "email", "role", "created_at"],
+        );
+        let sort_dir = q.sort_dir_sql();
+        let pat = q.search_pattern();
+
+        let (total, items) = match self.read_pool() {
+            DatabasePool::Sqlite(pool) => {
+                let total: i64 = sqlx::query_scalar(
+                    "SELECT COUNT(*) FROM users WHERE LOWER(username) LIKE ? OR LOWER(email) LIKE ?",
+                )
+                .bind(&pat)
+                .bind(&pat)
+                .fetch_one(pool)
+                .await?;
+
+                let sql = format!(
+                    "SELECT * FROM users WHERE LOWER(username) LIKE ? OR LOWER(email) LIKE ? ORDER BY {} {} LIMIT ? OFFSET ?",
+                    sort_col, sort_dir
+                );
+                let items = sqlx::query_as::<_, User>(&sql)
+                    .bind(&pat)
+                    .bind(&pat)
+                    .bind(limit)
+                    .bind(offset)
+                    .fetch_all(pool)
+                    .await?;
+                (total, items)
+            }
+            DatabasePool::Postgres(pool) => {
+                let total: i64 = sqlx::query_scalar(
+                    "SELECT COUNT(*) FROM users WHERE LOWER(username) LIKE $1 OR LOWER(email) LIKE $1",
+                )
+                .bind(&pat)
+                .fetch_one(pool)
+                .await?;
+
+                let sql = format!(
+                    "SELECT * FROM users WHERE LOWER(username) LIKE $1 OR LOWER(email) LIKE $1 ORDER BY {} {} LIMIT $2 OFFSET $3",
+                    sort_col, sort_dir
+                );
+                let items = sqlx::query_as::<_, User>(&sql)
+                    .bind(&pat)
+                    .bind(limit)
+                    .bind(offset)
+                    .fetch_all(pool)
+                    .await?;
+                (total, items)
+            }
+        };
+
+        Ok(Page::new(
+            items,
+            total as u64,
+            q.effective_limit(),
+            q.effective_offset(),
+        ))
+    }
+
+    async fn list_tokens_page(&self, q: &ListQuery) -> Result<Page<Token>, OAuth2Error> {
+        let limit = q.effective_limit() as i64;
+        let offset = q.effective_offset() as i64;
+        let sort_col = whitelist_col(
+            q.sort_by.as_deref(),
+            &["client_id", "user_id", "scope", "expires_at", "created_at"],
+        );
+        let sort_dir = q.sort_dir_sql();
+        let pat = q.search_pattern();
+
+        // Status filter: active / revoked / expired
+        let status = q.status.as_deref().unwrap_or("all");
+
+        let (total, items) = match self.read_pool() {
+            DatabasePool::Sqlite(pool) => {
+                let status_clause = match status {
+                    "active" => " AND revoked = 0 AND expires_at > datetime('now')",
+                    "revoked" => " AND revoked = 1",
+                    "expired" => " AND revoked = 0 AND expires_at <= datetime('now')",
+                    _ => "",
+                };
+                let where_sql = format!(
+                    "WHERE (LOWER(client_id) LIKE ? OR LOWER(COALESCE(user_id,'')) LIKE ?){}",
+                    status_clause
+                );
+                let total: i64 =
+                    sqlx::query_scalar(&format!("SELECT COUNT(*) FROM tokens {}", where_sql))
+                        .bind(&pat)
+                        .bind(&pat)
+                        .fetch_one(pool)
+                        .await?;
+
+                let sql = format!(
+                    "SELECT * FROM tokens {} ORDER BY {} {} LIMIT ? OFFSET ?",
+                    where_sql, sort_col, sort_dir
+                );
+                let items = sqlx::query_as::<_, Token>(&sql)
+                    .bind(&pat)
+                    .bind(&pat)
+                    .bind(limit)
+                    .bind(offset)
+                    .fetch_all(pool)
+                    .await?;
+                (total, items)
+            }
+            DatabasePool::Postgres(pool) => {
+                let status_clause = match status {
+                    "active" => " AND revoked = false AND expires_at > NOW()",
+                    "revoked" => " AND revoked = true",
+                    "expired" => " AND revoked = false AND expires_at <= NOW()",
+                    _ => "",
+                };
+                let where_sql = format!(
+                    "WHERE (LOWER(client_id) LIKE $1 OR LOWER(COALESCE(user_id,'')) LIKE $1){}",
+                    status_clause
+                );
+                let total: i64 =
+                    sqlx::query_scalar(&format!("SELECT COUNT(*) FROM tokens {}", where_sql))
+                        .bind(&pat)
+                        .fetch_one(pool)
+                        .await?;
+
+                let sql = format!(
+                    "SELECT * FROM tokens {} ORDER BY {} {} LIMIT $2 OFFSET $3",
+                    where_sql, sort_col, sort_dir
+                );
+                let items = sqlx::query_as::<_, Token>(&sql)
+                    .bind(&pat)
+                    .bind(limit)
+                    .bind(offset)
+                    .fetch_all(pool)
+                    .await?;
+                (total, items)
+            }
+        };
+
+        Ok(Page::new(
+            items,
+            total as u64,
+            q.effective_limit(),
+            q.effective_offset(),
+        ))
+    }
+
+    async fn list_all_device_authorizations(
+        &self,
+    ) -> Result<Vec<DeviceAuthorization>, OAuth2Error> {
+        let items = match self.read_pool() {
+            DatabasePool::Sqlite(pool) => {
+                sqlx::query_as::<_, DeviceAuthorization>(
+                    "SELECT * FROM device_authorizations ORDER BY created_at DESC LIMIT 500",
+                )
+                .fetch_all(pool)
+                .await?
+            }
+            DatabasePool::Postgres(pool) => {
+                sqlx::query_as::<_, DeviceAuthorization>(
+                    "SELECT * FROM device_authorizations ORDER BY created_at DESC LIMIT 500",
+                )
+                .fetch_all(pool)
+                .await?
+            }
+        };
+        Ok(items)
+    }
+
+    async fn expire_device_authorization(&self, device_code: &str) -> Result<(), OAuth2Error> {
+        let past = chrono::Utc::now() - chrono::Duration::seconds(1);
+        match &self.pool {
+            DatabasePool::Sqlite(pool) => {
+                sqlx::query(
+                    "UPDATE device_authorizations SET expires_at = ? WHERE device_code = ?",
+                )
+                .bind(past)
+                .bind(device_code)
+                .execute(pool)
+                .await?;
+            }
+            DatabasePool::Postgres(pool) => {
+                sqlx::query(
+                    "UPDATE device_authorizations SET expires_at = $1 WHERE device_code = $2",
+                )
+                .bind(past)
+                .bind(device_code)
+                .execute(pool)
+                .await?;
+            }
+        }
+        Ok(())
     }
 }
 

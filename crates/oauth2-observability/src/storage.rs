@@ -1,7 +1,9 @@
 use async_trait::async_trait;
 use tracing::{field, Instrument};
 
-use oauth2_core::{AuthorizationCode, Client, DeviceAuthorization, OAuth2Error, Token, User};
+use oauth2_core::{
+    AuthorizationCode, Client, DeviceAuthorization, ListQuery, OAuth2Error, Page, Token, User,
+};
 use oauth2_ports::{DynStorage, Storage};
 
 use crate::telemetry::annotate_span_with_trace_ids;
@@ -477,6 +479,58 @@ impl Storage for ObservedStorage {
     async fn list_all_tokens(&self) -> Result<Vec<Token>, OAuth2Error> {
         let span = self.span("list_all_tokens");
         async move { self.inner.list_all_tokens().await }
+            .instrument(span)
+            .await
+    }
+
+    async fn list_clients_page(&self, q: &ListQuery) -> Result<Page<Client>, OAuth2Error> {
+        let span = self.span("list_clients_page");
+        let q = q.clone();
+        async move { self.inner.list_clients_page(&q).await }
+            .instrument(span)
+            .await
+    }
+
+    async fn list_users_page(&self, q: &ListQuery) -> Result<Page<User>, OAuth2Error> {
+        let span = self.span("list_users_page");
+        let q = q.clone();
+        async move { self.inner.list_users_page(&q).await }
+            .instrument(span)
+            .await
+    }
+
+    async fn list_tokens_page(&self, q: &ListQuery) -> Result<Page<Token>, OAuth2Error> {
+        let span = self.span("list_tokens_page");
+        let q = q.clone();
+        async move { self.inner.list_tokens_page(&q).await }
+            .instrument(span)
+            .await
+    }
+
+    async fn list_device_authorizations_page(
+        &self,
+        q: &ListQuery,
+    ) -> Result<Page<DeviceAuthorization>, OAuth2Error> {
+        let span = self.span("list_device_authorizations_page");
+        let q = q.clone();
+        async move { self.inner.list_device_authorizations_page(&q).await }
+            .instrument(span)
+            .await
+    }
+
+    async fn list_all_device_authorizations(
+        &self,
+    ) -> Result<Vec<DeviceAuthorization>, OAuth2Error> {
+        let span = self.span("list_all_device_authorizations");
+        async move { self.inner.list_all_device_authorizations().await }
+            .instrument(span)
+            .await
+    }
+
+    async fn expire_device_authorization(&self, device_code: &str) -> Result<(), OAuth2Error> {
+        let span = self.span("expire_device_authorization");
+        let dc = device_code.to_string();
+        async move { self.inner.expire_device_authorization(&dc).await }
             .instrument(span)
             .await
     }

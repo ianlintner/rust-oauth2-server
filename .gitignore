@@ -55,6 +55,9 @@ mcp-server/.env
 .venv.worktrees
 .venv
 
+# Tailwind standalone CLI binary (downloaded, not committed)
+tailwindcss
+
 # Security scan reports (generated, not committed)
 reports/
 __pycache__/

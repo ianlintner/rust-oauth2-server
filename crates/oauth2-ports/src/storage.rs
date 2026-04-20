@@ -1,7 +1,9 @@
 use async_trait::async_trait;
 use std::sync::Arc;
 
-use oauth2_core::{AuthorizationCode, Client, DeviceAuthorization, OAuth2Error, Token, User};
+use oauth2_core::{
+    AuthorizationCode, Client, DeviceAuthorization, ListQuery, OAuth2Error, Page, Token, User,
+};
 
 /// Trait implemented by all persistence backends.
 ///
@@ -146,6 +148,45 @@ pub trait Storage: Send + Sync {
     /// List all tokens (active and revoked).
     async fn list_all_tokens(&self) -> Result<Vec<Token>, OAuth2Error> {
         Ok(vec![])
+    }
+
+    // --- Paginated listing methods (for admin API) ---
+    // Default impls fall back to list_all_* + in-memory paging so backends can
+    // opt in to native paging incrementally.
+
+    async fn list_clients_page(&self, q: &ListQuery) -> Result<Page<Client>, OAuth2Error> {
+        let all = self.list_all_clients().await?;
+        Ok(Page::from_vec(all, q))
+    }
+
+    async fn list_users_page(&self, q: &ListQuery) -> Result<Page<User>, OAuth2Error> {
+        let all = self.list_all_users().await?;
+        Ok(Page::from_vec(all, q))
+    }
+
+    async fn list_tokens_page(&self, q: &ListQuery) -> Result<Page<Token>, OAuth2Error> {
+        let all = self.list_all_tokens().await?;
+        Ok(Page::from_vec(all, q))
+    }
+
+    async fn list_device_authorizations_page(
+        &self,
+        q: &ListQuery,
+    ) -> Result<Page<DeviceAuthorization>, OAuth2Error> {
+        let all = self.list_all_device_authorizations().await?;
+        Ok(Page::from_vec(all, q))
+    }
+
+    /// List all device authorizations. Default returns empty vec; backends override.
+    async fn list_all_device_authorizations(
+        &self,
+    ) -> Result<Vec<DeviceAuthorization>, OAuth2Error> {
+        Ok(vec![])
+    }
+
+    /// Force-expire a pending device code (admin action).
+    async fn expire_device_authorization(&self, _device_code: &str) -> Result<(), OAuth2Error> {
+        Ok(())
     }
 
     /// Lightweight liveness/readiness check.

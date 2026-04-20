@@ -5,7 +5,9 @@ use mongodb::{
     Client as MongoClient, Collection, Database, IndexModel,
 };
 
-use oauth2_core::{AuthorizationCode, Client, DeviceAuthorization, OAuth2Error, Token, User};
+use oauth2_core::{
+    AuthorizationCode, Client, DeviceAuthorization, ListQuery, OAuth2Error, Page, Token, User,
+};
 use oauth2_ports::Storage;
 
 /// MongoDB-backed storage implementation.
@@ -445,6 +447,149 @@ impl Storage for MongoStorage {
         // Match the SQLx 200-token cap
         tokens.truncate(200);
         Ok(tokens)
+    }
+
+    async fn list_clients_page(&self, q: &ListQuery) -> Result<Page<Client>, OAuth2Error> {
+        use futures::TryStreamExt;
+        let cursor = self
+            .clients
+            .find(doc! {})
+            .await
+            .map_err(Self::mongo_err_to_oauth)?;
+        let mut all: Vec<Client> = cursor
+            .try_collect()
+            .await
+            .map_err(Self::mongo_err_to_oauth)?;
+        // App-side sort for CosmosDB compatibility.
+        if q.sort_by.as_deref() == Some("name") {
+            if q.sort_dir_sql() == "ASC" {
+                all.sort_by(|a, b| a.name.cmp(&b.name));
+            } else {
+                all.sort_by(|a, b| b.name.cmp(&a.name));
+            }
+        } else if q.sort_dir_sql() == "ASC" {
+            all.sort_by_key(|c| c.created_at);
+        } else {
+            all.sort_by_key(|c| std::cmp::Reverse(c.created_at));
+        }
+        // Search filter app-side.
+        let pat = q.search_pattern();
+        let all: Vec<Client> = if pat != "%" {
+            let p = pat.trim_matches('%').to_lowercase();
+            all.into_iter()
+                .filter(|c| {
+                    c.name.to_lowercase().contains(&p) || c.client_id.to_lowercase().contains(&p)
+                })
+                .collect()
+        } else {
+            all
+        };
+        Ok(Page::from_vec(all, q))
+    }
+
+    async fn list_users_page(&self, q: &ListQuery) -> Result<Page<User>, OAuth2Error> {
+        use futures::TryStreamExt;
+        let cursor = self
+            .users
+            .find(doc! {})
+            .await
+            .map_err(Self::mongo_err_to_oauth)?;
+        let mut all: Vec<User> = cursor
+            .try_collect()
+            .await
+            .map_err(Self::mongo_err_to_oauth)?;
+        if q.sort_dir_sql() == "ASC" {
+            all.sort_by_key(|u| u.created_at);
+        } else {
+            all.sort_by_key(|u| std::cmp::Reverse(u.created_at));
+        }
+        let pat = q.search_pattern();
+        let all: Vec<User> = if pat != "%" {
+            let p = pat.trim_matches('%').to_lowercase();
+            all.into_iter()
+                .filter(|u| {
+                    u.username.to_lowercase().contains(&p) || u.email.to_lowercase().contains(&p)
+                })
+                .collect()
+        } else {
+            all
+        };
+        Ok(Page::from_vec(all, q))
+    }
+
+    async fn list_tokens_page(&self, q: &ListQuery) -> Result<Page<Token>, OAuth2Error> {
+        use futures::TryStreamExt;
+        let cursor = self
+            .tokens
+            .find(doc! {})
+            .await
+            .map_err(Self::mongo_err_to_oauth)?;
+        let mut all: Vec<Token> = cursor
+            .try_collect()
+            .await
+            .map_err(Self::mongo_err_to_oauth)?;
+        if q.sort_dir_sql() == "ASC" {
+            all.sort_by_key(|t| t.created_at);
+        } else {
+            all.sort_by_key(|t| std::cmp::Reverse(t.created_at));
+        }
+        // Status filter.
+        let all: Vec<Token> = match q.status.as_deref() {
+            Some("active") => all.into_iter().filter(|t| t.is_valid()).collect(),
+            Some("revoked") => all.into_iter().filter(|t| t.revoked).collect(),
+            Some("expired") => all
+                .into_iter()
+                .filter(|t| t.is_expired() && !t.revoked)
+                .collect(),
+            _ => all,
+        };
+        let pat = q.search_pattern();
+        let all: Vec<Token> = if pat != "%" {
+            let p = pat.trim_matches('%').to_lowercase();
+            all.into_iter()
+                .filter(|t| {
+                    t.client_id.to_lowercase().contains(&p)
+                        || t.user_id
+                            .as_deref()
+                            .unwrap_or("")
+                            .to_lowercase()
+                            .contains(&p)
+                })
+                .collect()
+        } else {
+            all
+        };
+        Ok(Page::from_vec(all, q))
+    }
+
+    async fn list_all_device_authorizations(
+        &self,
+    ) -> Result<Vec<DeviceAuthorization>, OAuth2Error> {
+        use futures::TryStreamExt;
+        let cursor = self
+            .device_authorizations
+            .find(doc! {})
+            .await
+            .map_err(Self::mongo_err_to_oauth)?;
+        let mut all: Vec<DeviceAuthorization> = cursor
+            .try_collect()
+            .await
+            .map_err(Self::mongo_err_to_oauth)?;
+        all.sort_by_key(|d| std::cmp::Reverse(d.created_at));
+        Ok(all)
+    }
+
+    async fn expire_device_authorization(&self, device_code: &str) -> Result<(), OAuth2Error> {
+        let past = chrono::Utc::now() - chrono::Duration::seconds(1);
+        let past_bson = mongodb::bson::DateTime::from_millis(past.timestamp_millis());
+        self.device_authorizations
+            .update_one(
+                doc! { "device_code": device_code },
+                doc! { "$set": { "expires_at": past_bson } },
+            )
+            .await
+            .map(|_| ())
+            .map_err(Self::mongo_err_to_oauth)
     }
 
     async fn healthcheck(&self) -> Result<(), OAuth2Error> {

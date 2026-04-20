@@ -47,24 +47,29 @@ class OAuth2Client {
 
   /**
    * List all registered clients (requires admin client credentials).
+   * Returns the items array from the paged envelope.
    */
   async listClients(clientId, clientSecret) {
     const token = await this.getToken(clientId, clientSecret, 'admin');
-    const response = await this.axios.get('/admin/api/clients', {
+    const response = await this.axios.get('/admin/api/clients?limit=200', {
       headers: { Authorization: `Bearer ${token.access_token}` },
     });
-    return response.data;
+    // Unwrap paged envelope: { items, total, limit, offset }
+    const data = response.data;
+    return Array.isArray(data) ? data : (data.items || []);
   }
 
   /**
    * List all tokens (requires admin client credentials).
+   * Returns the items array from the paged envelope.
    */
   async listTokens(clientId, clientSecret) {
     const token = await this.getToken(clientId, clientSecret, 'admin');
-    const response = await this.axios.get('/admin/api/tokens', {
+    const response = await this.axios.get('/admin/api/tokens?limit=200', {
       headers: { Authorization: `Bearer ${token.access_token}` },
     });
-    return response.data;
+    const data = response.data;
+    return Array.isArray(data) ? data : (data.items || []);
   }
 
   /**

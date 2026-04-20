@@ -1,12 +1,13 @@
 use actix::Addr;
 use actix_web::{web, HttpRequest, HttpResponse, Result};
 use serde::Serialize;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use subtle::ConstantTimeEq;
 use tokio::sync::Mutex;
 
+use oauth2_core::{ListQuery, Page};
 use oauth2_events::{event_actor::GetPluginHealth, EventBusHandle, EventEnvelope};
 
 fn extract_bearer_token(req: &HttpRequest) -> Option<String> {
@@ -76,6 +77,34 @@ impl IdempotencyStore {
     }
 }
 
+/// In-memory ring-buffer of recently ingested events (admin visibility, best-effort).
+#[derive(Clone)]
+pub struct RecentEventsStore {
+    capacity: usize,
+    inner: Arc<Mutex<VecDeque<serde_json::Value>>>,
+}
+
+impl RecentEventsStore {
+    pub fn new(capacity: usize) -> Self {
+        Self {
+            capacity,
+            inner: Arc::new(Mutex::new(VecDeque::with_capacity(capacity))),
+        }
+    }
+
+    pub async fn push(&self, value: serde_json::Value) {
+        let mut guard = self.inner.lock().await;
+        if guard.len() >= self.capacity {
+            guard.pop_front();
+        }
+        guard.push_back(value);
+    }
+
+    pub async fn snapshot(&self) -> Vec<serde_json::Value> {
+        self.inner.lock().await.iter().rev().cloned().collect()
+    }
+}
+
 #[derive(Serialize)]
 struct IngestResponse {
     status: &'static str,
@@ -90,6 +119,7 @@ pub async fn ingest(
     req: HttpRequest,
     envelope: web::Json<EventEnvelope>,
     idempotency: web::Data<IdempotencyStore>,
+    recent_store: Option<web::Data<RecentEventsStore>>,
     event_bus: Option<web::Data<EventBusHandle>>,
     config: Option<web::Data<oauth2_config::Config>>,
 ) -> Result<HttpResponse> {
@@ -154,6 +184,12 @@ pub async fn ingest(
         }));
     }
 
+    if let Some(store) = &recent_store {
+        if let Ok(value) = serde_json::to_value(&envelope) {
+            store.push(value).await;
+        }
+    }
+
     event_bus.publish_best_effort(envelope);
 
     Ok(HttpResponse::Accepted().json(IngestResponse {
@@ -194,4 +230,14 @@ pub async fn health(
         "enabled": true,
         "plugins": plugins
     })))
+}
+
+/// Admin: paginated list of recently ingested events (newest first, in-memory, best-effort).
+pub async fn recent_events(
+    store: web::Data<RecentEventsStore>,
+    query: web::Query<ListQuery>,
+) -> Result<HttpResponse> {
+    let all = store.snapshot().await;
+    let page: Page<serde_json::Value> = Page::from_vec(all, &query);
+    Ok(HttpResponse::Ok().json(page))
 }

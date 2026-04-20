@@ -16,6 +16,7 @@ async-trait = "0.1"
 oauth2-core = { path = "../oauth2-core", version = "0.1.0", features = ["sqlx"] }
 oauth2-ports = { path = "../oauth2-ports", version = "0.1.0" }
 
+chrono = { version = "0.4", features = ["serde"] }
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio-rustls", "any", "chrono", "uuid", "macros", "migrate"] }
 
 tokio = { version = "1.35", features = ["full"] }

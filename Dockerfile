@@ -3,6 +3,38 @@
 ### This layout maximizes Docker layer cache reuse:
 ### - dependencies are compiled in an early cached layer
 ### - application code changes only rebuild the final binary
+###
+### Admin CSS is compiled by the Tailwind standalone CLI (no Node/npm required).
+### The CSS is pre-built in a dedicated stage and copied into the final image.
+
+# ── Stage 0: Tailwind CSS build ─────────────────────────────────────────────
+FROM debian:trixie-slim AS tailwind-build
+
+ARG TAILWIND_VERSION=v3.4.17
+ARG TARGETARCH=amd64
+
+WORKDIR /tw
+
+RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
+
+# Download the Tailwind standalone binary (no Node.js needed)
+RUN set -eux; \
+    ARCH="$(dpkg --print-architecture)"; \
+    case "$ARCH" in \
+        amd64) TWARCH="linux-x64" ;; \
+        arm64) TWARCH="linux-arm64" ;; \
+        *) TWARCH="linux-x64" ;; \
+    esac; \
+    curl -fsSL -o tailwindcss \
+        "https://github.com/tailwindlabs/tailwindcss/releases/download/${TAILWIND_VERSION}/tailwindcss-${TWARCH}"; \
+    chmod +x tailwindcss
+
+COPY tailwind.config.js ./
+COPY static/css/admin.src.css ./
+COPY templates/ ./templates/
+COPY static/js/ ./static/js/
+
+RUN ./tailwindcss -c tailwind.config.js -i admin.src.css -o admin.min.css --minify
 
 FROM rust:slim AS chef
 
@@ -101,6 +133,9 @@ RUN ln -sf /app/rust_oauth2_server /app/oauth2_server
 # Copy templates and static files
 COPY templates ./templates
 COPY static ./static
+
+# Replace the dev-placeholder admin.css with the compiled Tailwind output
+COPY --from=tailwind-build /tw/admin.min.css /app/static/css/admin.css
 
 # Create directory for database
 RUN mkdir -p /app/data

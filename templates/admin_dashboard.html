@@ -1,133 +1,759 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="h-full">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>OAuth2 Server - Admin Dashboard</title>
-    <link rel="stylesheet" href="/static/css/admin.css">
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"
-            integrity="sha384-e6nUZLBkQ86NJ6TVVKAeSaK8jWa3NhkYWZFomE39AvDbQWeie9PlQqM3pmYW5d1g"
-            crossorigin="anonymous"></script>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OAuth2 Admin</title>
+
+  <!-- Tailwind CSS (Play CDN with custom theme for local dev; replace with compiled output in prod) -->
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            primary: {
+              50:'#eff6ff',100:'#dbeafe',200:'#bfdbfe',300:'#93c5fd',
+              400:'#60a5fa',500:'#3b82f6',600:'#2563eb',700:'#1d4ed8',
+              800:'#1e40af',900:'#1e3a8a',
+            },
+          },
+        },
+      },
+    };
+  </script>
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- Alpine.js -->
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.1/dist/cdn.min.js"
+          integrity="sha384-cB9+QFLiTBz60SBBiWiDxAGmgI3yVMlRr7cFoWcqOa0C0oepv7r5TZkYMqnYeRe"
+          crossorigin="anonymous"></script>
+
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"
+          integrity="sha384-e6nUZLBkQ86NJ6TVVKAeSaK8jWa3NhkYWZFomE39AvDbQWeie9PlQqM3pmYW5d1g"
+          crossorigin="anonymous"></script>
+
+  <!-- Admin JS (defines Alpine stores + page functions) -->
+  <script src="/static/js/admin.js"></script>
+
+  <style>
+    /* Sidebar scrollbar */
+    #sidebar::-webkit-scrollbar { width: 4px; }
+    #sidebar::-webkit-scrollbar-thumb { background: rgba(148,163,184,.3); border-radius:2px; }
+    /* Drawer transition */
+    .drawer-enter { transform: translateX(100%); }
+    .drawer-open  { transform: translateX(0); transition: transform .25s ease; }
+  </style>
 </head>
-<body>
-    <div class="container">
-        <header>
-            <h1>OAuth2 Server Admin Dashboard</h1>
-            <nav>
-                <a href="/admin" data-page="dashboard" class="nav-link">Dashboard</a>
-                <a href="/admin/clients" data-page="clients" class="nav-link">Clients</a>
-                <a href="/admin/tokens" data-page="tokens" class="nav-link">Tokens</a>
-                <a href="/admin/users" data-page="users" class="nav-link">Users</a>
-                <a href="/metrics">Metrics</a>
-                <a href="/swagger-ui">API Docs</a>
-                <a href="/profile">My Profile</a>
-            </nav>
-        </header>
 
-        <!-- Dashboard Page -->
-        <main id="page-dashboard" class="page-section">
-            <section class="stats-grid">
-                <div class="stat-card">
-                    <h3>Total Clients</h3>
-                    <p class="stat-value" id="total-clients">-</p>
-                </div>
-                <div class="stat-card">
-                    <h3>Total Users</h3>
-                    <p class="stat-value" id="total-users">-</p>
-                </div>
-                <div class="stat-card">
-                    <h3>Active Tokens</h3>
-                    <p class="stat-value" id="active-tokens">-</p>
-                </div>
-                <div class="stat-card">
-                    <h3>Total Tokens</h3>
-                    <p class="stat-value" id="total-tokens">-</p>
-                </div>
-            </section>
+<body class="h-full bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-100 font-sans"
+      x-data
+      x-init="$store.theme.init(); $store.router.init(); $store.caps.init()">
 
-            <section class="charts">
-                <div class="chart-container">
-                    <h3>Token Issuance Rate</h3>
-                    <canvas id="tokenChart"></canvas>
-                </div>
-                <div class="chart-container">
-                    <h3>Request Rate</h3>
-                    <canvas id="requestChart"></canvas>
-                </div>
-            </section>
-        </main>
+<!-- ── Layout shell ─────────────────────────────────────────────────────── -->
+<div class="flex h-full">
 
-        <!-- Clients Page -->
-        <main id="page-clients" class="page-section" style="display:none;">
-            <section class="recent-activity">
-                <h3>Registered Clients</h3>
-                <table id="clients-table">
-                    <thead>
-                        <tr>
-                            <th>Client ID</th>
-                            <th>Name</th>
-                            <th>Scope</th>
-                            <th>Grant Types</th>
-                            <th>Created</th>
-                            <th>Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr><td colspan="6">Loading...</td></tr>
-                    </tbody>
-                </table>
-            </section>
-        </main>
+  <!-- Sidebar backdrop (mobile) -->
+  <div class="fixed inset-0 z-20 bg-black/50 lg:hidden"
+       x-show="$store.router.sidebarOpen"
+       x-transition:enter="transition duration-200"
+       x-transition:enter-start="opacity-0"
+       x-transition:enter-end="opacity-100"
+       x-transition:leave="transition duration-150"
+       x-transition:leave-start="opacity-100"
+       x-transition:leave-end="opacity-0"
+       @click="$store.router.sidebarOpen = false"></div>
 
-        <!-- Tokens Page -->
-        <main id="page-tokens" class="page-section" style="display:none;">
-            <section class="recent-activity">
-                <h3>Tokens</h3>
-                <table id="tokens-table">
-                    <thead>
-                        <tr>
-                            <th>ID</th>
-                            <th>Client</th>
-                            <th>User</th>
-                            <th>Scope</th>
-                            <th>Expires</th>
-                            <th>Status</th>
-                            <th>Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr><td colspan="7">Loading...</td></tr>
-                    </tbody>
-                </table>
-            </section>
-        </main>
+  <!-- Sidebar -->
+  <aside id="sidebar"
+         class="fixed inset-y-0 left-0 z-30 w-60 overflow-y-auto bg-white dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700 flex flex-col
+                -translate-x-full lg:translate-x-0 transition-transform duration-300"
+         :class="$store.router.sidebarOpen ? 'translate-x-0' : ''">
 
-        <!-- Users Page -->
-        <main id="page-users" class="page-section" style="display:none;">
-            <section class="recent-activity">
-                <h3>Users</h3>
-                <table id="users-table">
-                    <thead>
-                        <tr>
-                            <th>Username</th>
-                            <th>Email</th>
-                            <th>Role</th>
-                            <th>Enabled</th>
-                            <th>Created</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr><td colspan="5">Loading...</td></tr>
-                    </tbody>
-                </table>
-            </section>
-        </main>
-
-        <footer>
-            <p>OAuth2 Server v0.1.0 | <a href="/health">Health</a> | <a href="/ready">Readiness</a></p>
-        </footer>
+    <!-- Logo -->
+    <div class="flex items-center gap-2 px-5 py-4 border-b border-slate-200 dark:border-slate-700">
+      <svg class="w-7 h-7 text-primary-600" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
+      </svg>
+      <span class="font-semibold text-slate-900 dark:text-white text-sm tracking-tight">OAuth2 Admin</span>
     </div>
 
-    <script src="/static/js/admin.js"></script>
+    <!-- Nav -->
+    <nav class="flex-1 px-3 py-4 space-y-6">
+
+      <div>
+        <p class="px-2 mb-1 text-xs font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Overview</p>
+        <button @click="$store.router.navigate('dashboard')"
+                :class="$store.router.page === 'dashboard' ? 'bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'"
+                class="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+          Dashboard
+        </button>
+        <button @click="$store.router.navigate('metrics')"
+                :class="$store.router.page === 'metrics' ? 'bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'"
+                class="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+          Metrics
+        </button>
+      </div>
+
+      <div>
+        <p class="px-2 mb-1 text-xs font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Identity</p>
+        <button @click="$store.router.navigate('clients')"
+                :class="$store.router.page === 'clients' ? 'bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'"
+                class="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v2"/></svg>
+          Clients
+        </button>
+        <button @click="$store.router.navigate('users')"
+                :class="$store.router.page === 'users' ? 'bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'"
+                class="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
+          Users
+        </button>
+      </div>
+
+      <div>
+        <p class="px-2 mb-1 text-xs font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Tokens &amp; Sessions</p>
+        <button @click="$store.router.navigate('tokens')"
+                :class="$store.router.page === 'tokens' ? 'bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'"
+                class="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 11-7.778 7.778 5.5 5.5 0 017.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
+          Tokens
+        </button>
+        <button @click="$store.router.navigate('device')" x-show="$store.caps.device_flow"
+                :class="$store.router.page === 'device' ? 'bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'"
+                class="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="5" y="2" width="14" height="20" rx="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>
+          Device Codes
+        </button>
+        <button @click="$store.router.navigate('keys')" x-show="$store.caps.key_rotation"
+                :class="$store.router.page === 'keys' ? 'bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'"
+                class="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
+          JWT Keys
+        </button>
+      </div>
+
+      <div>
+        <p class="px-2 mb-1 text-xs font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider">System</p>
+        <button @click="$store.router.navigate('events')" x-show="$store.caps.events"
+                :class="$store.router.page === 'events' ? 'bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'"
+                class="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+          Events
+        </button>
+        <a href="/health" target="_blank"
+           class="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+          Health
+        </a>
+        <a href="/swagger-ui" target="_blank"
+           class="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          API Docs
+        </a>
+      </div>
+    </nav>
+
+    <!-- Bottom: Profile -->
+    <div class="px-3 py-3 border-t border-slate-200 dark:border-slate-700">
+      <a href="/profile" class="flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+        My Profile
+      </a>
+    </div>
+  </aside>
+
+  <!-- Main column -->
+  <div class="flex-1 flex flex-col min-w-0 lg:pl-60">
+
+    <!-- Top bar -->
+    <header class="sticky top-0 z-10 flex items-center gap-3 px-4 py-3 bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 shadow-sm">
+      <!-- Mobile hamburger -->
+      <button @click="$store.router.sidebarOpen = !$store.router.sidebarOpen"
+              class="lg:hidden p-1.5 rounded-md text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+      </button>
+
+      <h1 class="text-base font-semibold text-slate-800 dark:text-slate-200 capitalize"
+          x-text="$store.router.page === 'dashboard' ? 'Dashboard' : $store.router.page.replace(/-/g,' ')"></h1>
+
+      <div class="flex-1"></div>
+
+      <!-- Dark mode toggle -->
+      <button @click="$store.theme.toggle()"
+              class="p-2 rounded-full text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+              :title="$store.theme.isDark ? 'Switch to light mode' : 'Switch to dark mode'">
+        <svg x-show="!$store.theme.isDark" class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>
+        <svg x-show="$store.theme.isDark" class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+      </button>
+    </header>
+
+    <!-- Page content -->
+    <main class="flex-1 overflow-auto p-5 space-y-5">
+
+      <!-- ══ Dashboard ══════════════════════════════════════════════════ -->
+      <div x-show="$store.router.page === 'dashboard'"
+           x-data="dashboardPage()"
+           x-init="init()"
+           @navigate.away="destroy()">
+
+        <!-- Stat cards -->
+        <div class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4 mb-5">
+          <template x-if="loading">
+            <template x-for="i in 8" :key="i">
+              <div class="card p-5 animate-pulse h-28 bg-slate-200 dark:bg-slate-700 rounded-xl"></div>
+            </template>
+          </template>
+          <template x-if="!loading && stats">
+            <div class="contents">
+              <div class="stat-card border-primary-600">
+                <p class="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">Total Clients</p>
+                <p class="text-3xl font-bold text-primary-600 dark:text-primary-400" x-text="stats.total_clients"></p>
+                <p class="text-xs text-slate-400 mt-1" x-text="`${stats.public_clients} public · ${stats.confidential_clients} confidential`"></p>
+              </div>
+              <div class="stat-card border-emerald-500">
+                <p class="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">Users</p>
+                <p class="text-3xl font-bold text-emerald-600 dark:text-emerald-400" x-text="stats.total_users"></p>
+                <p class="text-xs text-slate-400 mt-1" x-text="`${stats.enabled_users} enabled`"></p>
+              </div>
+              <div class="stat-card border-blue-500">
+                <p class="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">Active Tokens</p>
+                <p class="text-3xl font-bold text-blue-600 dark:text-blue-400" x-text="stats.active_tokens"></p>
+                <p class="text-xs text-slate-400 mt-1" x-text="`${stats.total_tokens} total · ${stats.revoked_tokens} revoked`"></p>
+              </div>
+              <div class="stat-card" :class="stats.pending_device_codes > 0 ? 'border-amber-500' : 'border-slate-300 dark:border-slate-600'">
+                <p class="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">Pending Devices</p>
+                <p class="text-3xl font-bold" :class="stats.pending_device_codes > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-slate-600 dark:text-slate-300'" x-text="stats.pending_device_codes"></p>
+                <p class="text-xs text-slate-400 mt-1">awaiting user verification</p>
+              </div>
+            </div>
+          </template>
+        </div>
+
+        <!-- Charts grid -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+          <div class="card p-5">
+            <h3 class="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-3">Token Activity</h3>
+            <canvas id="tokenChart" class="max-h-48"></canvas>
+          </div>
+          <div class="card p-5">
+            <h3 class="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-3">HTTP Status Distribution</h3>
+            <canvas id="requestChart" class="max-h-48"></canvas>
+          </div>
+          <div class="card p-5">
+            <h3 class="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-3">Response Latency</h3>
+            <canvas id="latencyChart" class="max-h-48"></canvas>
+          </div>
+          <div class="card p-5">
+            <h3 class="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-3">Resilience Events</h3>
+            <canvas id="resilienceChart" class="max-h-48"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <!-- ══ Clients ═════════════════════════════════════════════════════ -->
+      <div x-show="$store.router.page === 'clients'"
+           x-data="clientsPage()"
+           x-init="init()"
+           @navigate.away="destroy()">
+        <div class="card overflow-hidden">
+          <!-- Toolbar -->
+          <div class="flex flex-wrap items-center gap-3 px-4 py-3 border-b border-slate-200 dark:border-slate-700">
+            <h2 class="text-sm font-semibold text-slate-700 dark:text-slate-300 mr-auto">Registered Clients</h2>
+            <input type="search" x-model="search" @input="onSearch()" placeholder="Search clients…"
+                   class="input w-52 text-sm py-1.5">
+            <select x-model="limit" @change="setPageSize($event.target.value)" class="select text-sm py-1.5">
+              <option>10</option><option selected>25</option><option>50</option><option>100</option>
+            </select>
+          </div>
+          <!-- Table -->
+          <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+              <thead class="bg-slate-50 dark:bg-slate-900/50">
+                <tr>
+                  <th class="table-header cursor-pointer hover:text-slate-800 dark:hover:text-slate-100" @click="sort('name')">
+                    Name <span class="text-xs opacity-60" x-text="sortIcon('name')"></span>
+                  </th>
+                  <th class="table-header cursor-pointer hover:text-slate-800 dark:hover:text-slate-100" @click="sort('client_id')">
+                    Client ID <span class="text-xs opacity-60" x-text="sortIcon('client_id')"></span>
+                  </th>
+                  <th class="table-header">Auth Method</th>
+                  <th class="table-header">Scope</th>
+                  <th class="table-header cursor-pointer hover:text-slate-800 dark:hover:text-slate-100" @click="sort('created_at')">
+                    Created <span class="text-xs opacity-60" x-text="sortIcon('created_at')"></span>
+                  </th>
+                  <th class="table-header">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                <template x-if="loading">
+                  <tr x-for="i in 5" :key="i">
+                    <td colspan="6" class="table-cell">
+                      <div class="h-4 bg-slate-200 dark:bg-slate-700 rounded animate-pulse"></div>
+                    </td>
+                  </tr>
+                </template>
+                <template x-if="!loading && error">
+                  <tr><td colspan="6" class="table-cell text-red-500 py-8 text-center" x-text="error"></td></tr>
+                </template>
+                <template x-if="!loading && !error && items.length === 0">
+                  <tr><td colspan="6" class="table-cell text-slate-400 py-10 text-center">No clients found</td></tr>
+                </template>
+                <template x-for="item in items" :key="item.id">
+                  <tr class="table-row" @click="openDrawer(item)">
+                    <td class="table-cell font-medium" x-text="item.name"></td>
+                    <td class="table-cell"><code class="text-xs bg-slate-100 dark:bg-slate-700 px-1.5 py-0.5 rounded" x-text="item.client_id"></code></td>
+                    <td class="table-cell">
+                      <span :class="item.token_endpoint_auth_method === 'none' ? 'badge-blue' : 'badge-gray'" class="badge" x-text="item.token_endpoint_auth_method === 'none' ? 'public' : 'confidential'"></span>
+                    </td>
+                    <td class="table-cell text-slate-500 max-w-xs truncate" x-text="item.scope"></td>
+                    <td class="table-cell text-slate-500 whitespace-nowrap" x-text="relativeTime(item.created_at)"></td>
+                    <td class="table-cell">
+                      <button @click.stop="deleteClient(item, $event)"
+                              class="btn btn-danger text-xs py-1 px-2">Delete</button>
+                    </td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+          <!-- Pagination -->
+          <div class="flex items-center justify-between px-4 py-3 border-t border-slate-200 dark:border-slate-700 text-sm text-slate-500 dark:text-slate-400">
+            <span x-text="total === 0 ? 'No results' : `${pageStart}–${pageEnd} of ${total}`"></span>
+            <div class="flex gap-2">
+              <button @click="prevPage()" :disabled="!hasPrev"
+                      class="btn btn-secondary disabled:opacity-40" :class="hasPrev ? '' : 'cursor-not-allowed'">← Prev</button>
+              <button @click="nextPage()" :disabled="!hasNext"
+                      class="btn btn-secondary disabled:opacity-40" :class="hasNext ? '' : 'cursor-not-allowed'">Next →</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Client detail drawer -->
+        <div x-show="drawer" class="fixed inset-0 z-40 flex justify-end" @keydown.escape.window="closeDrawer()">
+          <div class="absolute inset-0 bg-black/40" @click="closeDrawer()"></div>
+          <div class="relative w-full max-w-md bg-white dark:bg-slate-800 shadow-xl flex flex-col h-full"
+               x-transition:enter="transition duration-250"
+               x-transition:enter-start="translate-x-full"
+               x-transition:enter-end="translate-x-0"
+               x-transition:leave="transition duration-200"
+               x-transition:leave-start="translate-x-0"
+               x-transition:leave-end="translate-x-full">
+            <div class="flex items-center justify-between px-5 py-4 border-b border-slate-200 dark:border-slate-700">
+              <h3 class="font-semibold text-slate-800 dark:text-slate-200" x-text="drawer?.name"></h3>
+              <button @click="closeDrawer()" class="btn btn-ghost p-1.5 rounded-full">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              </button>
+            </div>
+            <div class="flex-1 overflow-y-auto px-5 py-4 space-y-4 text-sm">
+              <template x-if="drawer">
+                <dl class="space-y-3">
+                  <div><dt class="text-xs font-semibold text-slate-500 uppercase tracking-wider">Client ID</dt>
+                    <dd class="mt-0.5 font-mono text-xs bg-slate-100 dark:bg-slate-700 px-2 py-1 rounded break-all" x-text="drawer.client_id"></dd></div>
+                  <div><dt class="text-xs font-semibold text-slate-500 uppercase tracking-wider">Scope</dt>
+                    <dd class="mt-0.5 text-slate-700 dark:text-slate-300 break-all" x-text="drawer.scope"></dd></div>
+                  <div><dt class="text-xs font-semibold text-slate-500 uppercase tracking-wider">Grant Types</dt>
+                    <dd class="mt-0.5 text-slate-700 dark:text-slate-300" x-text="drawer.grant_types"></dd></div>
+                  <div><dt class="text-xs font-semibold text-slate-500 uppercase tracking-wider">Redirect URIs</dt>
+                    <dd class="mt-0.5 text-slate-700 dark:text-slate-300 break-all" x-text="drawer.redirect_uris"></dd></div>
+                  <div><dt class="text-xs font-semibold text-slate-500 uppercase tracking-wider">Auth Method</dt>
+                    <dd class="mt-0.5"><span :class="drawer.token_endpoint_auth_method === 'none' ? 'badge-blue' : 'badge-gray'" class="badge" x-text="drawer.token_endpoint_auth_method"></span></dd></div>
+                  <div><dt class="text-xs font-semibold text-slate-500 uppercase tracking-wider">Created</dt>
+                    <dd class="mt-0.5 text-slate-700 dark:text-slate-300" x-text="formatDate(drawer.created_at)"></dd></div>
+                </dl>
+              </template>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ══ Tokens ══════════════════════════════════════════════════════ -->
+      <div x-show="$store.router.page === 'tokens'"
+           x-data="tokensPage()"
+           x-init="init()"
+           @navigate.away="destroy()">
+        <div class="card overflow-hidden">
+          <div class="flex flex-wrap items-center gap-3 px-4 py-3 border-b border-slate-200 dark:border-slate-700">
+            <h2 class="text-sm font-semibold text-slate-700 dark:text-slate-300 mr-auto">Tokens</h2>
+            <input type="search" x-model="search" @input="onSearch()" placeholder="Search…" class="input w-44 text-sm py-1.5">
+            <select x-model="status" @change="offset=0;load()" class="select text-sm py-1.5">
+              <option value="active">Active</option>
+              <option value="revoked">Revoked</option>
+              <option value="expired">Expired</option>
+              <option value="">All</option>
+            </select>
+            <select x-model="limit" @change="setPageSize($event.target.value)" class="select text-sm py-1.5">
+              <option>10</option><option selected>25</option><option>50</option><option>100</option>
+            </select>
+          </div>
+          <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+              <thead class="bg-slate-50 dark:bg-slate-900/50">
+                <tr>
+                  <th class="table-header">ID</th>
+                  <th class="table-header cursor-pointer" @click="sort('client_id')">Client <span class="text-xs opacity-60" x-text="sortIcon('client_id')"></span></th>
+                  <th class="table-header">User</th>
+                  <th class="table-header">Scope</th>
+                  <th class="table-header cursor-pointer" @click="sort('expires_at')">Expires <span class="text-xs opacity-60" x-text="sortIcon('expires_at')"></span></th>
+                  <th class="table-header">Status</th>
+                  <th class="table-header">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                <template x-if="loading">
+                  <tr><td colspan="7" class="table-cell py-10 text-center"><div class="animate-spin inline-block w-5 h-5 border-2 border-primary-600 border-t-transparent rounded-full"></div></td></tr>
+                </template>
+                <template x-if="!loading && items.length === 0">
+                  <tr><td colspan="7" class="table-cell text-slate-400 py-10 text-center">No tokens found</td></tr>
+                </template>
+                <template x-for="item in items" :key="item.id">
+                  <tr class="table-row" @click="openDrawer(item)">
+                    <td class="table-cell"><code class="text-xs font-mono" x-text="item.id.slice(0,8)+'…'"></code></td>
+                    <td class="table-cell" x-text="item.client_id"></td>
+                    <td class="table-cell text-slate-500" x-text="item.user_id || '—'"></td>
+                    <td class="table-cell text-slate-500 max-w-xs truncate" x-text="item.scope"></td>
+                    <td class="table-cell whitespace-nowrap text-slate-500" x-text="relativeTime(item.expires_at)"></td>
+                    <td class="table-cell"><span :class="tokenStatus(item).cls" class="badge" x-text="tokenStatus(item).label"></span></td>
+                    <td class="table-cell">
+                      <button x-show="!item.revoked" @click.stop="revokeToken(item, $event)" class="btn btn-danger text-xs py-1 px-2">Revoke</button>
+                    </td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+          <div class="flex items-center justify-between px-4 py-3 border-t border-slate-200 dark:border-slate-700 text-sm text-slate-500 dark:text-slate-400">
+            <span x-text="total === 0 ? 'No results' : `${pageStart}–${pageEnd} of ${total}`"></span>
+            <div class="flex gap-2">
+              <button @click="prevPage()" :disabled="!hasPrev" class="btn btn-secondary disabled:opacity-40">← Prev</button>
+              <button @click="nextPage()" :disabled="!hasNext" class="btn btn-secondary disabled:opacity-40">Next →</button>
+            </div>
+          </div>
+        </div>
+        <!-- Token drawer -->
+        <div x-show="drawer" class="fixed inset-0 z-40 flex justify-end" @keydown.escape.window="closeDrawer()">
+          <div class="absolute inset-0 bg-black/40" @click="closeDrawer()"></div>
+          <div class="relative w-full max-w-md bg-white dark:bg-slate-800 shadow-xl flex flex-col h-full"
+               x-transition:enter="transition duration-250" x-transition:enter-start="translate-x-full" x-transition:enter-end="translate-x-0">
+            <div class="flex items-center justify-between px-5 py-4 border-b border-slate-200 dark:border-slate-700">
+              <h3 class="font-semibold text-slate-800 dark:text-slate-200">Token Detail</h3>
+              <button @click="closeDrawer()" class="btn btn-ghost p-1.5"><svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+            </div>
+            <div class="flex-1 overflow-y-auto px-5 py-4 space-y-3 text-sm" x-show="drawer">
+              <dl class="space-y-3">
+                <div><dt class="text-xs font-semibold text-slate-500 uppercase">Token ID</dt><dd class="mt-0.5 font-mono text-xs bg-slate-100 dark:bg-slate-700 px-2 py-1 rounded break-all" x-text="drawer?.id"></dd></div>
+                <div><dt class="text-xs font-semibold text-slate-500 uppercase">Client</dt><dd class="mt-0.5 text-slate-700 dark:text-slate-300" x-text="drawer?.client_id"></dd></div>
+                <div><dt class="text-xs font-semibold text-slate-500 uppercase">User</dt><dd class="mt-0.5 text-slate-700 dark:text-slate-300" x-text="drawer?.user_id || '—'"></dd></div>
+                <div><dt class="text-xs font-semibold text-slate-500 uppercase">Scope</dt><dd class="mt-0.5 text-slate-700 dark:text-slate-300 break-all" x-text="drawer?.scope"></dd></div>
+                <div><dt class="text-xs font-semibold text-slate-500 uppercase">Status</dt><dd class="mt-0.5" x-show="drawer"><span :class="drawer ? tokenStatus(drawer).cls : ''" class="badge" x-text="drawer ? tokenStatus(drawer).label : ''"></span></dd></div>
+                <div><dt class="text-xs font-semibold text-slate-500 uppercase">Created</dt><dd class="mt-0.5 text-slate-700 dark:text-slate-300" x-text="formatDate(drawer?.created_at)"></dd></div>
+                <div><dt class="text-xs font-semibold text-slate-500 uppercase">Expires</dt><dd class="mt-0.5 text-slate-700 dark:text-slate-300" x-text="formatDate(drawer?.expires_at)"></dd></div>
+              </dl>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ══ Users ═══════════════════════════════════════════════════════ -->
+      <div x-show="$store.router.page === 'users'"
+           x-data="usersPage()"
+           x-init="init()"
+           @navigate.away="destroy()">
+        <div class="card overflow-hidden">
+          <div class="flex flex-wrap items-center gap-3 px-4 py-3 border-b border-slate-200 dark:border-slate-700">
+            <h2 class="text-sm font-semibold text-slate-700 dark:text-slate-300 mr-auto">Users</h2>
+            <input type="search" x-model="search" @input="onSearch()" placeholder="Search users…" class="input w-52 text-sm py-1.5">
+            <select x-model="limit" @change="setPageSize($event.target.value)" class="select text-sm py-1.5">
+              <option>10</option><option selected>25</option><option>50</option><option>100</option>
+            </select>
+          </div>
+          <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+              <thead class="bg-slate-50 dark:bg-slate-900/50">
+                <tr>
+                  <th class="table-header cursor-pointer" @click="sort('username')">Username <span class="text-xs opacity-60" x-text="sortIcon('username')"></span></th>
+                  <th class="table-header cursor-pointer" @click="sort('email')">Email <span class="text-xs opacity-60" x-text="sortIcon('email')"></span></th>
+                  <th class="table-header">Role</th>
+                  <th class="table-header">Status</th>
+                  <th class="table-header cursor-pointer" @click="sort('created_at')">Created <span class="text-xs opacity-60" x-text="sortIcon('created_at')"></span></th>
+                </tr>
+              </thead>
+              <tbody>
+                <template x-if="loading"><tr><td colspan="5" class="table-cell py-10 text-center"><div class="animate-spin inline-block w-5 h-5 border-2 border-primary-600 border-t-transparent rounded-full"></div></td></tr></template>
+                <template x-if="!loading && items.length === 0"><tr><td colspan="5" class="table-cell text-slate-400 py-10 text-center">No users found</td></tr></template>
+                <template x-for="item in items" :key="item.id">
+                  <tr class="table-row" @click="openDrawer(item)">
+                    <td class="table-cell font-medium" x-text="item.username"></td>
+                    <td class="table-cell text-slate-500" x-text="item.email"></td>
+                    <td class="table-cell"><span :class="item.role === 'admin' ? 'badge-blue' : 'badge-gray'" class="badge" x-text="item.role"></span></td>
+                    <td class="table-cell"><span :class="item.enabled ? 'badge-green' : 'badge-red'" class="badge" x-text="item.enabled ? 'Enabled' : 'Disabled'"></span></td>
+                    <td class="table-cell text-slate-500 whitespace-nowrap" x-text="relativeTime(item.created_at)"></td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+          <div class="flex items-center justify-between px-4 py-3 border-t border-slate-200 dark:border-slate-700 text-sm text-slate-500">
+            <span x-text="total === 0 ? 'No results' : `${pageStart}–${pageEnd} of ${total}`"></span>
+            <div class="flex gap-2">
+              <button @click="prevPage()" :disabled="!hasPrev" class="btn btn-secondary disabled:opacity-40">← Prev</button>
+              <button @click="nextPage()" :disabled="!hasNext" class="btn btn-secondary disabled:opacity-40">Next →</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ══ Device Codes ════════════════════════════════════════════════ -->
+      <div x-show="$store.router.page === 'device'"
+           x-data="devicePage()"
+           x-init="init()"
+           @navigate.away="destroy()">
+        <div class="card overflow-hidden">
+          <div class="flex flex-wrap items-center gap-3 px-4 py-3 border-b border-slate-200 dark:border-slate-700">
+            <h2 class="text-sm font-semibold text-slate-700 dark:text-slate-300 mr-auto">Device Authorization Codes</h2>
+            <select x-model="status" @change="offset=0;load()" class="select text-sm py-1.5">
+              <option value="pending">Pending</option>
+              <option value="approved">Approved</option>
+              <option value="denied">Denied</option>
+              <option value="">All</option>
+            </select>
+            <select x-model="limit" @change="setPageSize($event.target.value)" class="select text-sm py-1.5">
+              <option>10</option><option selected>25</option><option>50</option>
+            </select>
+          </div>
+          <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+              <thead class="bg-slate-50 dark:bg-slate-900/50">
+                <tr>
+                  <th class="table-header">User Code</th>
+                  <th class="table-header">Client</th>
+                  <th class="table-header">Scope</th>
+                  <th class="table-header">Status</th>
+                  <th class="table-header cursor-pointer" @click="sort('expires_at')">Expires <span class="text-xs opacity-60" x-text="sortIcon('expires_at')"></span></th>
+                  <th class="table-header">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                <template x-if="loading"><tr><td colspan="6" class="table-cell py-10 text-center"><div class="animate-spin inline-block w-5 h-5 border-2 border-primary-600 border-t-transparent rounded-full"></div></td></tr></template>
+                <template x-if="!loading && items.length === 0"><tr><td colspan="6" class="table-cell text-slate-400 py-10 text-center">No device codes found</td></tr></template>
+                <template x-for="item in items" :key="item.id">
+                  <tr class="table-row">
+                    <td class="table-cell"><code class="font-mono text-sm font-bold tracking-widest" x-text="item.user_code"></code></td>
+                    <td class="table-cell" x-text="item.client_id"></td>
+                    <td class="table-cell text-slate-500" x-text="item.scope"></td>
+                    <td class="table-cell"><span :class="deviceStatus(item).cls" class="badge" x-text="deviceStatus(item).label"></span></td>
+                    <td class="table-cell text-slate-500 whitespace-nowrap" x-text="relativeTime(item.expires_at)"></td>
+                    <td class="table-cell">
+                      <button x-show="!item.expired && !item.approved && !item.denied"
+                              @click.stop="expireCode(item, $event)" class="btn btn-danger text-xs py-1 px-2">Expire</button>
+                    </td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+          <div class="flex items-center justify-between px-4 py-3 border-t border-slate-200 dark:border-slate-700 text-sm text-slate-500">
+            <span x-text="total === 0 ? 'No results' : `${pageStart}–${pageEnd} of ${total}`"></span>
+            <div class="flex gap-2">
+              <button @click="prevPage()" :disabled="!hasPrev" class="btn btn-secondary disabled:opacity-40">← Prev</button>
+              <button @click="nextPage()" :disabled="!hasNext" class="btn btn-secondary disabled:opacity-40">Next →</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ══ JWT Keys ════════════════════════════════════════════════════ -->
+      <div x-show="$store.router.page === 'keys'"
+           x-data="keysPage()"
+           x-init="init()">
+        <!-- Warning banner if any key is old -->
+        <template x-if="keys.some(k => k.is_current && keyAge(k.created_at) > 30)">
+          <div class="mb-4 flex items-center gap-3 px-4 py-3 rounded-lg bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-700 text-amber-800 dark:text-amber-300 text-sm">
+            <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+            <span>Active signing key is over 30 days old. Consider rotating it.</span>
+          </div>
+        </template>
+
+        <div class="card overflow-hidden">
+          <div class="flex items-center gap-3 px-4 py-3 border-b border-slate-200 dark:border-slate-700">
+            <h2 class="text-sm font-semibold text-slate-700 dark:text-slate-300 mr-auto">JWT Signing Keys</h2>
+            <a href="/.well-known/jwks.json" target="_blank" class="btn btn-secondary text-xs">JWKS →</a>
+            <button @click="showRotateModal = true" class="btn btn-primary text-xs">Rotate Key</button>
+          </div>
+          <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+              <thead class="bg-slate-50 dark:bg-slate-900/50">
+                <tr>
+                  <th class="table-header">Key ID (kid)</th>
+                  <th class="table-header">Algorithm</th>
+                  <th class="table-header">Status</th>
+                  <th class="table-header">Created</th>
+                  <th class="table-header">Expires</th>
+                </tr>
+              </thead>
+              <tbody>
+                <template x-if="loading"><tr><td colspan="5" class="table-cell py-10 text-center text-slate-400">Loading…</td></tr></template>
+                <template x-if="!loading && keys.length === 0"><tr><td colspan="5" class="table-cell py-10 text-center text-slate-400">No keys found</td></tr></template>
+                <template x-for="key in keys" :key="key.kid">
+                  <tr class="border-b border-slate-100 dark:border-slate-700">
+                    <td class="table-cell"><code class="text-xs font-mono bg-slate-100 dark:bg-slate-700 px-1.5 py-0.5 rounded" x-text="key.kid"></code></td>
+                    <td class="table-cell"><span class="badge badge-blue" x-text="key.algorithm"></span></td>
+                    <td class="table-cell">
+                      <span :class="key.is_current ? 'badge-green' : 'badge-gray'" class="badge" x-text="key.is_current ? 'Current' : 'Grace'"></span>
+                      <span x-show="keyAge(key.created_at) > 30" class="ml-1 badge badge-yellow" title="Over 30 days old">Old</span>
+                    </td>
+                    <td class="table-cell text-slate-500 whitespace-nowrap" x-text="formatDate(key.created_at)"></td>
+                    <td class="table-cell text-slate-500 whitespace-nowrap" x-text="key.expires_at ? formatDate(key.expires_at) : '—'"></td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Rotate modal -->
+        <div x-show="showRotateModal" class="fixed inset-0 z-40 flex items-center justify-center p-4 bg-black/50">
+          <div class="bg-white dark:bg-slate-800 rounded-xl shadow-xl w-full max-w-sm p-6 space-y-4">
+            <h3 class="font-semibold text-slate-800 dark:text-slate-200">Rotate Signing Key</h3>
+            <div class="space-y-3 text-sm">
+              <div>
+                <label class="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Algorithm</label>
+                <select x-model="rotateAlgorithm" class="select w-full"><option>RS256</option><option>HS256</option></select>
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Grace period (hours)</label>
+                <input type="number" x-model="rotateGrace" min="1" max="720" class="input w-full">
+              </div>
+              <p class="text-xs text-slate-400">Old keys remain valid during the grace period so existing tokens can still be verified.</p>
+            </div>
+            <div class="flex justify-end gap-2">
+              <button @click="showRotateModal = false" class="btn btn-secondary">Cancel</button>
+              <button @click="rotate()" :disabled="rotating" class="btn btn-primary" x-text="rotating ? 'Rotating…' : 'Rotate'"></button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ══ Metrics ═════════════════════════════════════════════════════ -->
+      <div x-show="$store.router.page === 'metrics'"
+           x-data="metricsPage()"
+           x-init="init()"
+           @navigate.away="destroy()">
+
+        <!-- Gauge cards -->
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-5">
+          <div class="stat-card border-primary-600">
+            <p class="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Active Tokens</p>
+            <p class="text-2xl font-bold text-primary-600 dark:text-primary-400" x-text="scalar('oauth2_server_oauth_active_tokens')"></p>
+          </div>
+          <div class="stat-card border-emerald-500">
+            <p class="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Tokens Issued</p>
+            <p class="text-2xl font-bold text-emerald-600 dark:text-emerald-400" x-text="scalar('oauth2_server_oauth_token_issued_total')"></p>
+          </div>
+          <div class="stat-card border-red-500">
+            <p class="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Failed Auths</p>
+            <p class="text-2xl font-bold text-red-600 dark:text-red-400" x-text="scalar('oauth2_server_oauth_failed_authentications')"></p>
+          </div>
+          <div class="stat-card border-violet-500">
+            <p class="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">In-flight Requests</p>
+            <p class="text-2xl font-bold text-violet-600 dark:text-violet-400" x-text="scalar('oauth2_server_concurrent_requests_in_flight')"></p>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+          <div class="card p-5">
+            <h3 class="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-3">Auth Activity</h3>
+            <canvas id="m-tokens" class="max-h-52"></canvas>
+          </div>
+          <div class="card p-5">
+            <h3 class="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-3">HTTP Latency</h3>
+            <canvas id="m-latency" class="max-h-52"></canvas>
+          </div>
+          <div class="card p-5">
+            <h3 class="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-3">DB Query Latency</h3>
+            <canvas id="m-db" class="max-h-52"></canvas>
+          </div>
+          <div class="card p-5">
+            <h3 class="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-3">Resilience Events</h3>
+            <canvas id="m-resilience" class="max-h-52"></canvas>
+          </div>
+        </div>
+
+        <p class="text-xs text-slate-400 mt-3 text-right">Live from <code>/metrics</code> · auto-refreshes every 15s</p>
+      </div>
+
+      <!-- ══ Events ══════════════════════════════════════════════════════ -->
+      <div x-show="$store.router.page === 'events'"
+           x-data="eventsPage()"
+           x-init="init()"
+           @navigate.away="destroy()">
+
+        <!-- Plugin health -->
+        <div x-show="pluginHealth" class="card p-4 mb-5">
+          <h3 class="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-3">Event Bus Health</h3>
+          <pre class="text-xs text-slate-500 dark:text-slate-400 whitespace-pre-wrap" x-text="JSON.stringify(pluginHealth, null, 2)"></pre>
+        </div>
+
+        <div class="card overflow-hidden">
+          <div class="flex flex-wrap items-center gap-3 px-4 py-3 border-b border-slate-200 dark:border-slate-700">
+            <h2 class="text-sm font-semibold text-slate-700 dark:text-slate-300 mr-auto">Recent Events</h2>
+            <input type="search" x-model="search" @input="onSearch()" placeholder="Search events…" class="input w-52 text-sm py-1.5">
+            <select x-model="limit" @change="setPageSize($event.target.value)" class="select text-sm py-1.5">
+              <option>10</option><option selected>25</option><option>50</option>
+            </select>
+          </div>
+          <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+              <thead class="bg-slate-50 dark:bg-slate-900/50">
+                <tr>
+                  <th class="table-header">Event Type</th>
+                  <th class="table-header">Source</th>
+                  <th class="table-header">Idempotency Key</th>
+                  <th class="table-header">Received</th>
+                </tr>
+              </thead>
+              <tbody>
+                <template x-if="loading"><tr><td colspan="4" class="table-cell py-10 text-center text-slate-400">Loading…</td></tr></template>
+                <template x-if="!loading && (error || items.length === 0)">
+                  <tr><td colspan="4" class="table-cell py-10 text-center text-slate-400" x-text="error || 'No events recorded yet'"></td></tr>
+                </template>
+                <template x-for="item in items" :key="item.id || item.idempotency_key">
+                  <tr class="table-row">
+                    <td class="table-cell"><span class="badge badge-blue" x-text="item.event_type || item.type || '—'"></span></td>
+                    <td class="table-cell text-slate-500" x-text="item.source || '—'"></td>
+                    <td class="table-cell"><code class="text-xs" x-text="(item.idempotency_key || '—').slice(0, 16) + '…'"></code></td>
+                    <td class="table-cell text-slate-500 whitespace-nowrap" x-text="relativeTime(item.received_at || item.created_at)"></td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+          <div class="flex items-center justify-between px-4 py-3 border-t border-slate-200 dark:border-slate-700 text-sm text-slate-500">
+            <span x-text="total === 0 ? 'No results' : `${pageStart}–${pageEnd} of ${total}`"></span>
+            <div class="flex gap-2">
+              <button @click="prevPage()" :disabled="!hasPrev" class="btn btn-secondary disabled:opacity-40">← Prev</button>
+              <button @click="nextPage()" :disabled="!hasNext" class="btn btn-secondary disabled:opacity-40">Next →</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </main><!-- /main -->
+
+    <!-- Footer -->
+    <footer class="px-5 py-3 text-xs text-slate-400 border-t border-slate-200 dark:border-slate-700 flex items-center justify-between">
+      <span>OAuth2 Server</span>
+      <span class="flex gap-4">
+        <a href="/health" target="_blank" class="hover:text-primary-600">Health</a>
+        <a href="/ready" target="_blank" class="hover:text-primary-600">Ready</a>
+        <a href="/metrics" target="_blank" class="hover:text-primary-600">Metrics</a>
+      </span>
+    </footer>
+  </div><!-- /main column -->
+</div><!-- /layout -->
+
 </body>
 </html>

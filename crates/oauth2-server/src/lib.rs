@@ -564,6 +564,9 @@ pub async fn run() -> std::io::Result<()> {
             // Explicitly set to default to make it configurable without changing call sites.
             .with_max_entries(100_000);
 
+    // Ring-buffer of recent events for the admin dashboard events page.
+    let recent_events_store = oauth2_actix::handlers::events::RecentEventsStore::new(500);
+
     // Optional Redis L2 cache shared across all replicas.
     let cache_redis_manager = build_cache_redis_manager(&config).await;
 
@@ -1047,6 +1050,9 @@ pub async fn run() -> std::io::Result<()> {
         // Shared, best-effort in-memory idempotency cache for event ingest.
         app = app.app_data(web::Data::new(ingest_idempotency.clone()));
 
+        // Recent events ring-buffer for admin dashboard.
+        app = app.app_data(web::Data::new(recent_events_store.clone()));
+
         // Add event actor if enabled
         if let Some(ref event_actor) = event_actor {
             app = app.app_data(web::Data::new(event_actor.clone()));
@@ -1230,10 +1236,15 @@ pub async fn run() -> std::io::Result<()> {
             .service(
                 web::scope("/admin")
                     .wrap(oauth2_actix::middleware::admin_guard::AdminGuard)
+                    // SPA page routes — all return the same dashboard HTML
                     .route("", web::get().to(admin_dashboard))
                     .route("/clients", web::get().to(admin_dashboard))
                     .route("/tokens", web::get().to(admin_dashboard))
                     .route("/users", web::get().to(admin_dashboard))
+                    .route("/device", web::get().to(admin_dashboard))
+                    .route("/keys", web::get().to(admin_dashboard))
+                    .route("/metrics", web::get().to(admin_dashboard))
+                    .route("/events", web::get().to(admin_dashboard))
                     .route(
                         "/clients/register",
                         web::post().to(oauth2_actix::handlers::client::register_client),
@@ -1245,29 +1256,63 @@ pub async fn run() -> std::io::Result<()> {
                                 web::get().to(oauth2_actix::handlers::admin::dashboard),
                             )
                             .route(
+                                "/capabilities",
+                                web::get().to(oauth2_actix::handlers::admin::capabilities),
+                            )
+                            // Clients
+                            .route(
                                 "/clients",
                                 web::get().to(oauth2_actix::handlers::admin::list_clients),
                             )
                             .route(
-                                "/tokens",
-                                web::get().to(oauth2_actix::handlers::admin::list_tokens),
-                            )
-                            .route(
-                                "/users",
-                                web::get().to(oauth2_actix::handlers::admin::list_users),
-                            )
-                            .route(
-                                "/tokens/{id}/revoke",
-                                web::post().to(oauth2_actix::handlers::admin::admin_revoke_token),
+                                "/clients/{id}",
+                                web::get().to(oauth2_actix::handlers::admin::get_client),
                             )
                             .route(
                                 "/clients/{id}",
                                 web::delete().to(oauth2_actix::handlers::admin::delete_client),
                             )
+                            // Tokens
+                            .route(
+                                "/tokens",
+                                web::get().to(oauth2_actix::handlers::admin::list_tokens),
+                            )
+                            .route(
+                                "/tokens/{id}",
+                                web::get().to(oauth2_actix::handlers::admin::get_token),
+                            )
+                            .route(
+                                "/tokens/{id}/revoke",
+                                web::post().to(oauth2_actix::handlers::admin::admin_revoke_token),
+                            )
+                            // Users
+                            .route(
+                                "/users",
+                                web::get().to(oauth2_actix::handlers::admin::list_users),
+                            )
+                            .route(
+                                "/users/{id}",
+                                web::get().to(oauth2_actix::handlers::admin::get_user),
+                            )
+                            // Device authorizations
+                            .route(
+                                "/device",
+                                web::get().to(oauth2_actix::handlers::admin::list_device_authorizations),
+                            )
+                            .route(
+                                "/device/{code}/expire",
+                                web::post().to(oauth2_actix::handlers::admin::expire_device_code),
+                            )
+                            // JWT keys
                             .service(
                                 web::scope("/keys")
                                     .route("/rotate", web::post().to(oauth2_actix::handlers::admin_keys::rotate_key))
                                     .route("", web::get().to(oauth2_actix::handlers::admin_keys::list_keys))
+                            )
+                            // Recent events (admin)
+                            .route(
+                                "/events/recent",
+                                web::get().to(oauth2_actix::handlers::events::recent_events),
                             ),
                     ),
             )
