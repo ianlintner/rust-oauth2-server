@@ -11,6 +11,7 @@ use actix_web::{cookie::Key, test, web, App, HttpResponse};
 use serde_json::json;
 
 use oauth2_actix::handlers::admin_extra;
+use oauth2_actix::handlers::events::RecentEventsStore;
 use oauth2_actix::middleware::admin_guard::AdminGuard;
 use oauth2_core::{Client, Token};
 use oauth2_ports::DynStorage;
@@ -71,6 +72,7 @@ async fn admin_api_without_session_returns_redirect_for_html_paths() {
                 session_key(),
             ))
             .app_data(web::Data::new(storage))
+            .app_data(web::Data::new(RecentEventsStore::new(16)))
             .service(
                 web::scope("/admin")
                     .wrap(AdminGuard)
@@ -109,6 +111,7 @@ async fn admin_api_without_session_returns_302_on_api_paths() {
                 session_key(),
             ))
             .app_data(web::Data::new(storage))
+            .app_data(web::Data::new(RecentEventsStore::new(16)))
             .service(web::scope("/admin").wrap(AdminGuard).service(
                 web::scope("/api").route("/users", web::post().to(admin_extra::create_user)),
             )),
@@ -141,6 +144,7 @@ async fn plain_user_session_gets_403_on_admin_api() {
                 session_key(),
             ))
             .app_data(web::Data::new(storage))
+            .app_data(web::Data::new(RecentEventsStore::new(16)))
             .route("/test/user-login", web::get().to(as_plain_user))
             .service(
                 web::scope("/admin").wrap(AdminGuard).service(
@@ -189,6 +193,7 @@ async fn admin_session_can_invoke_admin_api() {
                 session_key(),
             ))
             .app_data(web::Data::new(storage.clone()))
+            .app_data(web::Data::new(RecentEventsStore::new(16)))
             .route("/test/admin-login", web::get().to(as_admin))
             .service(web::scope("/admin").wrap(AdminGuard).service(
                 web::scope("/api").route("/users", web::post().to(admin_extra::create_user)),
@@ -245,6 +250,7 @@ async fn bearer_token_without_admin_scope_is_403() {
                 session_key(),
             ))
             .app_data(web::Data::new(storage))
+            .app_data(web::Data::new(RecentEventsStore::new(16)))
             .service(web::scope("/admin").wrap(AdminGuard).service(
                 web::scope("/api").route("/users", web::post().to(admin_extra::create_user)),
             )),
@@ -297,6 +303,7 @@ async fn bearer_token_with_admin_scope_passes() {
                 session_key(),
             ))
             .app_data(web::Data::new(storage))
+            .app_data(web::Data::new(RecentEventsStore::new(16)))
             .service(web::scope("/admin").wrap(AdminGuard).service(
                 web::scope("/api").route("/denylist", web::post().to(admin_extra::add_denylist)),
             )),
@@ -326,6 +333,7 @@ async fn invalid_bearer_token_is_401() {
                 session_key(),
             ))
             .app_data(web::Data::new(storage))
+            .app_data(web::Data::new(RecentEventsStore::new(16)))
             .service(web::scope("/admin").wrap(AdminGuard).service(
                 web::scope("/api").route("/users", web::post().to(admin_extra::create_user)),
             )),

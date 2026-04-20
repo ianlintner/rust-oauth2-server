@@ -12,6 +12,7 @@ use oauth2_core::{
 };
 use oauth2_ports::DynStorage;
 
+use super::events::RecentEventsStore;
 use super::login::hash_password;
 
 // --- Audit helper -----------------------------------------------------------
@@ -45,12 +46,32 @@ pub fn build_audit(
         .with_metadata_json(metadata)
 }
 
-/// Write an audit log entry. Errors are logged but never surfaced to the caller —
-/// audit failures must not block the original admin action.
-async fn record_audit(db: &DynStorage, entry: AuditLogEntry) {
+/// Write an audit log entry and mirror it into the in-memory recent-events
+/// ring buffer so admin mutations show up on the dashboard Events tab.
+///
+/// Errors are logged but never surfaced to the caller — audit failures must
+/// not block the original admin action.
+async fn record_audit(db: &DynStorage, store: &RecentEventsStore, entry: AuditLogEntry) {
     if let Err(e) = db.write_audit_log(&entry).await {
         tracing::warn!(error = %e, action = %entry.action, "Failed to write audit log");
     }
+
+    // Metadata is stored as a JSON string; re-parse so consumers see structured fields.
+    let metadata: serde_json::Value = serde_json::from_str(&entry.metadata)
+        .unwrap_or_else(|_| serde_json::Value::String(entry.metadata.clone()));
+
+    let envelope = serde_json::json!({
+        "event_type": entry.action,
+        "source": "admin",
+        "idempotency_key": entry.id,
+        "received_at": entry.created_at.to_rfc3339(),
+        "actor_id": entry.actor_id,
+        "actor_email": entry.actor_email,
+        "target_kind": entry.target_kind,
+        "target_id": entry.target_id,
+        "metadata": metadata,
+    });
+    store.push(envelope).await;
 }
 
 // --- User CRUD --------------------------------------------------------------
@@ -94,6 +115,7 @@ impl From<User> for UserResponse {
 pub async fn create_user(
     req: HttpRequest,
     db: web::Data<DynStorage>,
+    events_store: web::Data<RecentEventsStore>,
     body: web::Json<CreateUserRequest>,
 ) -> Result<HttpResponse> {
     let CreateUserRequest {
@@ -149,7 +171,7 @@ pub async fn create_user(
             "enabled": user.enabled,
         }),
     );
-    record_audit(db.as_ref(), audit).await;
+    record_audit(db.as_ref(), events_store.as_ref(), audit).await;
 
     Ok(HttpResponse::Created().json(UserResponse::from(user)))
 }
@@ -168,6 +190,7 @@ pub async fn update_user(
     req: HttpRequest,
     path: web::Path<String>,
     db: web::Data<DynStorage>,
+    events_store: web::Data<RecentEventsStore>,
     body: web::Json<UpdateUserRequest>,
 ) -> Result<HttpResponse> {
     let user_id = path.into_inner();
@@ -212,7 +235,7 @@ pub async fn update_user(
             "enabled": body.enabled,
         }),
     );
-    record_audit(db.as_ref(), audit).await;
+    record_audit(db.as_ref(), events_store.as_ref(), audit).await;
 
     Ok(HttpResponse::Ok().json(UserResponse::from(user)))
 }
@@ -221,6 +244,7 @@ pub async fn delete_user(
     req: HttpRequest,
     path: web::Path<String>,
     db: web::Data<DynStorage>,
+    events_store: web::Data<RecentEventsStore>,
 ) -> Result<HttpResponse> {
     let user_id = path.into_inner();
     if db
@@ -237,7 +261,7 @@ pub async fn delete_user(
     let _ = db.revoke_tokens_by_user_id(&user_id).await;
 
     let audit = build_audit(&req, "user.delete", "user", &user_id, serde_json::json!({}));
-    record_audit(db.as_ref(), audit).await;
+    record_audit(db.as_ref(), events_store.as_ref(), audit).await;
 
     Ok(HttpResponse::Ok().json(serde_json::json!({ "message": "User deleted" })))
 }
@@ -251,6 +275,7 @@ pub async fn set_user_enabled(
     req: HttpRequest,
     path: web::Path<String>,
     db: web::Data<DynStorage>,
+    events_store: web::Data<RecentEventsStore>,
     body: web::Json<SetEnabledRequest>,
 ) -> Result<HttpResponse> {
     let user_id = path.into_inner();
@@ -272,7 +297,7 @@ pub async fn set_user_enabled(
         &user_id,
         serde_json::json!({ "enabled": body.enabled }),
     );
-    record_audit(db.as_ref(), audit).await;
+    record_audit(db.as_ref(), events_store.as_ref(), audit).await;
 
     Ok(HttpResponse::Ok().json(serde_json::json!({ "enabled": body.enabled })))
 }
@@ -286,6 +311,7 @@ pub async fn set_user_role(
     req: HttpRequest,
     path: web::Path<String>,
     db: web::Data<DynStorage>,
+    events_store: web::Data<RecentEventsStore>,
     body: web::Json<SetRoleRequest>,
 ) -> Result<HttpResponse> {
     let user_id = path.into_inner();
@@ -307,7 +333,7 @@ pub async fn set_user_role(
         &user_id,
         serde_json::json!({ "role": role }),
     );
-    record_audit(db.as_ref(), audit).await;
+    record_audit(db.as_ref(), events_store.as_ref(), audit).await;
 
     Ok(HttpResponse::Ok().json(serde_json::json!({ "role": role })))
 }
@@ -321,6 +347,7 @@ pub async fn reset_user_password(
     req: HttpRequest,
     path: web::Path<String>,
     db: web::Data<DynStorage>,
+    events_store: web::Data<RecentEventsStore>,
     body: web::Json<ResetPasswordRequest>,
 ) -> Result<HttpResponse> {
     let user_id = path.into_inner();
@@ -346,7 +373,7 @@ pub async fn reset_user_password(
         &user_id,
         serde_json::json!({}),
     );
-    record_audit(db.as_ref(), audit).await;
+    record_audit(db.as_ref(), events_store.as_ref(), audit).await;
 
     Ok(HttpResponse::Ok().json(serde_json::json!({ "message": "Password reset" })))
 }
@@ -379,6 +406,7 @@ fn default_auth_method() -> String {
 pub async fn create_client(
     req: HttpRequest,
     db: web::Data<DynStorage>,
+    events_store: web::Data<RecentEventsStore>,
     body: web::Json<CreateClientRequest>,
 ) -> Result<HttpResponse> {
     let body = body.into_inner();
@@ -456,7 +484,7 @@ pub async fn create_client(
             "grant_types": client.get_grant_types(),
         }),
     );
-    record_audit(db.as_ref(), audit).await;
+    record_audit(db.as_ref(), events_store.as_ref(), audit).await;
 
     // Return secret exactly once on creation.
     Ok(HttpResponse::Created().json(serde_json::json!({
@@ -494,6 +522,7 @@ pub async fn update_client(
     req: HttpRequest,
     path: web::Path<String>,
     db: web::Data<DynStorage>,
+    events_store: web::Data<RecentEventsStore>,
     body: web::Json<UpdateClientRequest>,
 ) -> Result<HttpResponse> {
     let id = path.into_inner();
@@ -544,7 +573,7 @@ pub async fn update_client(
             "enabled": body.enabled,
         }),
     );
-    record_audit(db.as_ref(), audit).await;
+    record_audit(db.as_ref(), events_store.as_ref(), audit).await;
 
     Ok(HttpResponse::Ok().json(serde_json::json!({
         "id": client.id,
@@ -559,6 +588,7 @@ pub async fn set_client_enabled(
     req: HttpRequest,
     path: web::Path<String>,
     db: web::Data<DynStorage>,
+    events_store: web::Data<RecentEventsStore>,
     body: web::Json<SetEnabledRequest>,
 ) -> Result<HttpResponse> {
     // Resolve internal id → client_id (same pattern as delete_client).
@@ -592,7 +622,7 @@ pub async fn set_client_enabled(
         &target.client_id,
         serde_json::json!({ "enabled": body.enabled }),
     );
-    record_audit(db.as_ref(), audit).await;
+    record_audit(db.as_ref(), events_store.as_ref(), audit).await;
 
     Ok(HttpResponse::Ok().json(serde_json::json!({ "enabled": body.enabled })))
 }
@@ -601,6 +631,7 @@ pub async fn regenerate_client_secret(
     req: HttpRequest,
     path: web::Path<String>,
     db: web::Data<DynStorage>,
+    events_store: web::Data<RecentEventsStore>,
 ) -> Result<HttpResponse> {
     let all = db
         .list_all_clients()
@@ -632,7 +663,7 @@ pub async fn regenerate_client_secret(
         &target.client_id,
         serde_json::json!({}),
     );
-    record_audit(db.as_ref(), audit).await;
+    record_audit(db.as_ref(), events_store.as_ref(), audit).await;
 
     Ok(HttpResponse::Ok().json(serde_json::json!({
         "client_id": target.client_id,
@@ -650,6 +681,7 @@ pub struct BulkRevokeByUserRequest {
 pub async fn bulk_revoke_by_user(
     req: HttpRequest,
     db: web::Data<DynStorage>,
+    events_store: web::Data<RecentEventsStore>,
     body: web::Json<BulkRevokeByUserRequest>,
 ) -> Result<HttpResponse> {
     let count = db
@@ -664,7 +696,7 @@ pub async fn bulk_revoke_by_user(
         &body.user_id,
         serde_json::json!({ "revoked": count }),
     );
-    record_audit(db.as_ref(), audit).await;
+    record_audit(db.as_ref(), events_store.as_ref(), audit).await;
 
     Ok(HttpResponse::Ok().json(serde_json::json!({ "revoked": count })))
 }
@@ -677,6 +709,7 @@ pub struct BulkRevokeByClientRequest {
 pub async fn bulk_revoke_by_client(
     req: HttpRequest,
     db: web::Data<DynStorage>,
+    events_store: web::Data<RecentEventsStore>,
     body: web::Json<BulkRevokeByClientRequest>,
 ) -> Result<HttpResponse> {
     let count = db
@@ -691,7 +724,7 @@ pub async fn bulk_revoke_by_client(
         &body.client_id,
         serde_json::json!({ "revoked": count }),
     );
-    record_audit(db.as_ref(), audit).await;
+    record_audit(db.as_ref(), events_store.as_ref(), audit).await;
 
     Ok(HttpResponse::Ok().json(serde_json::json!({ "revoked": count })))
 }
@@ -755,6 +788,7 @@ pub async fn list_denylist(
 pub async fn add_denylist(
     req: HttpRequest,
     db: web::Data<DynStorage>,
+    events_store: web::Data<RecentEventsStore>,
     body: web::Json<AddDenylistRequest>,
 ) -> Result<HttpResponse> {
     let kind = body.kind.to_lowercase();
@@ -795,7 +829,7 @@ pub async fn add_denylist(
             "reason": entry.reason,
         }),
     );
-    record_audit(db.as_ref(), audit).await;
+    record_audit(db.as_ref(), events_store.as_ref(), audit).await;
 
     Ok(HttpResponse::Created().json(DenylistResponse::from(entry)))
 }
@@ -804,6 +838,7 @@ pub async fn remove_denylist(
     req: HttpRequest,
     path: web::Path<String>,
     db: web::Data<DynStorage>,
+    events_store: web::Data<RecentEventsStore>,
 ) -> Result<HttpResponse> {
     let id = path.into_inner();
     db.remove_denylist_entry(&id)
@@ -817,7 +852,7 @@ pub async fn remove_denylist(
         &id,
         serde_json::json!({}),
     );
-    record_audit(db.as_ref(), audit).await;
+    record_audit(db.as_ref(), events_store.as_ref(), audit).await;
 
     Ok(HttpResponse::Ok().json(serde_json::json!({ "message": "Denylist entry removed" })))
 }

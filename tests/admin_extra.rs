@@ -9,7 +9,8 @@ use actix_session::{storage::CookieSessionStore, Session, SessionMiddleware};
 use actix_web::{cookie::Key, test, web, App, HttpResponse};
 use serde_json::{json, Value};
 
-use oauth2_actix::handlers::{admin, admin_extra};
+use oauth2_actix::handlers::events::RecentEventsStore;
+use oauth2_actix::handlers::{admin, admin_extra, events as events_handler};
 use oauth2_core::{Client, DenylistEntry, ListQuery, Token, User};
 use oauth2_ports::DynStorage;
 
@@ -97,6 +98,7 @@ async fn create_user_succeeds_and_hashes_password() {
                 session_key(),
             ))
             .app_data(web::Data::new(storage.clone()))
+            .app_data(web::Data::new(RecentEventsStore::new(16)))
             .route("/test/login", web::get().to(seed_session))
             .route("/admin/api/users", web::post().to(admin_extra::create_user)),
     )
@@ -142,6 +144,7 @@ async fn create_user_rejects_missing_fields() {
                 session_key(),
             ))
             .app_data(web::Data::new(storage))
+            .app_data(web::Data::new(RecentEventsStore::new(16)))
             .route("/test/login", web::get().to(seed_session))
             .route("/admin/api/users", web::post().to(admin_extra::create_user)),
     )
@@ -169,6 +172,7 @@ async fn create_user_rejects_duplicate_username() {
                 session_key(),
             ))
             .app_data(web::Data::new(storage))
+            .app_data(web::Data::new(RecentEventsStore::new(16)))
             .route("/test/login", web::get().to(seed_session))
             .route("/admin/api/users", web::post().to(admin_extra::create_user)),
     )
@@ -201,6 +205,7 @@ async fn update_user_patches_email_and_role() {
                 session_key(),
             ))
             .app_data(web::Data::new(storage.clone()))
+            .app_data(web::Data::new(RecentEventsStore::new(16)))
             .route("/test/login", web::get().to(seed_session))
             .route(
                 "/admin/api/users/{id}",
@@ -236,6 +241,7 @@ async fn update_user_ignores_invalid_role() {
                 session_key(),
             ))
             .app_data(web::Data::new(storage.clone()))
+            .app_data(web::Data::new(RecentEventsStore::new(16)))
             .route("/test/login", web::get().to(seed_session))
             .route(
                 "/admin/api/users/{id}",
@@ -267,6 +273,7 @@ async fn update_user_404_for_missing() {
                 session_key(),
             ))
             .app_data(web::Data::new(storage))
+            .app_data(web::Data::new(RecentEventsStore::new(16)))
             .route("/test/login", web::get().to(seed_session))
             .route(
                 "/admin/api/users/{id}",
@@ -312,6 +319,7 @@ async fn delete_user_removes_row_and_revokes_tokens() {
                 session_key(),
             ))
             .app_data(web::Data::new(storage.clone()))
+            .app_data(web::Data::new(RecentEventsStore::new(16)))
             .route("/test/login", web::get().to(seed_session))
             .route(
                 "/admin/api/users/{id}",
@@ -363,6 +371,7 @@ async fn set_user_enabled_toggles_flag_and_revokes_on_disable() {
                 session_key(),
             ))
             .app_data(web::Data::new(storage.clone()))
+            .app_data(web::Data::new(RecentEventsStore::new(16)))
             .route("/test/login", web::get().to(seed_session))
             .route(
                 "/admin/api/users/{id}/enabled",
@@ -416,6 +425,7 @@ async fn set_user_role_rejects_invalid_role() {
                 session_key(),
             ))
             .app_data(web::Data::new(storage))
+            .app_data(web::Data::new(RecentEventsStore::new(16)))
             .route("/test/login", web::get().to(seed_session))
             .route(
                 "/admin/api/users/{id}/role",
@@ -447,6 +457,7 @@ async fn reset_user_password_rejects_weak_password() {
                 session_key(),
             ))
             .app_data(web::Data::new(storage))
+            .app_data(web::Data::new(RecentEventsStore::new(16)))
             .route("/test/login", web::get().to(seed_session))
             .route(
                 "/admin/api/users/{id}/password",
@@ -490,6 +501,7 @@ async fn reset_user_password_updates_hash_and_revokes_tokens() {
                 session_key(),
             ))
             .app_data(web::Data::new(storage.clone()))
+            .app_data(web::Data::new(RecentEventsStore::new(16)))
             .route("/test/login", web::get().to(seed_session))
             .route(
                 "/admin/api/users/{id}/password",
@@ -533,6 +545,7 @@ async fn create_client_confidential_returns_secret_once() {
                 session_key(),
             ))
             .app_data(web::Data::new(storage.clone()))
+            .app_data(web::Data::new(RecentEventsStore::new(16)))
             .route("/test/login", web::get().to(seed_session))
             .route(
                 "/admin/api/clients",
@@ -574,6 +587,7 @@ async fn create_public_client_has_no_secret() {
                 session_key(),
             ))
             .app_data(web::Data::new(storage))
+            .app_data(web::Data::new(RecentEventsStore::new(16)))
             .route("/test/login", web::get().to(seed_session))
             .route(
                 "/admin/api/clients",
@@ -610,6 +624,7 @@ async fn create_client_rejects_empty_name() {
                 session_key(),
             ))
             .app_data(web::Data::new(storage))
+            .app_data(web::Data::new(RecentEventsStore::new(16)))
             .route("/test/login", web::get().to(seed_session))
             .route(
                 "/admin/api/clients",
@@ -641,6 +656,7 @@ async fn update_client_mutates_metadata() {
                 session_key(),
             ))
             .app_data(web::Data::new(storage.clone()))
+            .app_data(web::Data::new(RecentEventsStore::new(16)))
             .route("/test/login", web::get().to(seed_session))
             .route(
                 "/admin/api/clients/{id}",
@@ -695,6 +711,7 @@ async fn set_client_enabled_toggles_and_revokes_tokens_on_disable() {
                 session_key(),
             ))
             .app_data(web::Data::new(storage.clone()))
+            .app_data(web::Data::new(RecentEventsStore::new(16)))
             .route("/test/login", web::get().to(seed_session))
             .route(
                 "/admin/api/clients/{id}/enabled",
@@ -741,6 +758,7 @@ async fn regenerate_client_secret_rejects_public_clients() {
                 session_key(),
             ))
             .app_data(web::Data::new(storage))
+            .app_data(web::Data::new(RecentEventsStore::new(16)))
             .route("/test/login", web::get().to(seed_session))
             .route(
                 "/admin/api/clients/{id}/regenerate-secret",
@@ -775,6 +793,7 @@ async fn regenerate_client_secret_replaces_secret() {
                 session_key(),
             ))
             .app_data(web::Data::new(storage.clone()))
+            .app_data(web::Data::new(RecentEventsStore::new(16)))
             .route("/test/login", web::get().to(seed_session))
             .route(
                 "/admin/api/clients/{id}/regenerate-secret",
@@ -820,6 +839,7 @@ async fn add_denylist_entry_round_trips() {
                 session_key(),
             ))
             .app_data(web::Data::new(storage.clone()))
+            .app_data(web::Data::new(RecentEventsStore::new(16)))
             .route("/test/login", web::get().to(seed_session))
             .route(
                 "/admin/api/denylist",
@@ -869,6 +889,7 @@ async fn add_denylist_rejects_unknown_kind() {
                 session_key(),
             ))
             .app_data(web::Data::new(storage))
+            .app_data(web::Data::new(RecentEventsStore::new(16)))
             .route("/test/login", web::get().to(seed_session))
             .route(
                 "/admin/api/denylist",
@@ -897,6 +918,7 @@ async fn add_denylist_upserts_on_duplicate() {
                 session_key(),
             ))
             .app_data(web::Data::new(storage.clone()))
+            .app_data(web::Data::new(RecentEventsStore::new(16)))
             .route("/test/login", web::get().to(seed_session))
             .route(
                 "/admin/api/denylist",
@@ -941,6 +963,7 @@ async fn remove_denylist_clears_entry() {
                 session_key(),
             ))
             .app_data(web::Data::new(storage.clone()))
+            .app_data(web::Data::new(RecentEventsStore::new(16)))
             .route("/test/login", web::get().to(seed_session))
             .route(
                 "/admin/api/denylist/{id}",
@@ -989,6 +1012,7 @@ async fn admin_mutation_writes_audit_entry() {
                 session_key(),
             ))
             .app_data(web::Data::new(storage.clone()))
+            .app_data(web::Data::new(RecentEventsStore::new(16)))
             .route("/test/login", web::get().to(seed_session))
             .route("/admin/api/users", web::post().to(admin_extra::create_user)),
     )
@@ -1017,6 +1041,59 @@ async fn admin_mutation_writes_audit_entry() {
     assert_eq!(entry.actor_email, "admin@test.example");
     assert_eq!(entry.target_kind, "user");
     assert!(entry.metadata.contains("audit-target"));
+}
+
+#[actix_web::test]
+async fn admin_mutation_fans_out_to_recent_events_store() {
+    let storage = setup_storage().await;
+    let events_store = RecentEventsStore::new(32);
+    let app = test::init_service(
+        App::new()
+            .wrap(SessionMiddleware::new(
+                CookieSessionStore::default(),
+                session_key(),
+            ))
+            .app_data(web::Data::new(storage))
+            .app_data(web::Data::new(events_store))
+            .route("/test/login", web::get().to(seed_session))
+            .route("/admin/api/users", web::post().to(admin_extra::create_user))
+            .route(
+                "/admin/api/events/recent",
+                web::get().to(events_handler::recent_events),
+            ),
+    )
+    .await;
+    let cookie = admin_cookie!(app);
+
+    let req = test::TestRequest::post()
+        .uri("/admin/api/users")
+        .insert_header(("Cookie", cookie.clone()))
+        .set_json(json!({
+            "username": "event-target",
+            "email": "event@test.example",
+            "password": "passphrase-12345"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+
+    let req = test::TestRequest::get()
+        .uri("/admin/api/events/recent")
+        .insert_header(("Cookie", cookie))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+
+    let body: Value = test::read_body_json(resp).await;
+    let items = body["items"].as_array().expect("items array");
+    let ev = items
+        .iter()
+        .find(|i| i["event_type"] == "user.create")
+        .expect("user.create event fanned out to recent events store");
+    assert_eq!(ev["source"], "admin");
+    assert!(!ev["idempotency_key"].as_str().unwrap_or("").is_empty());
+    assert_eq!(ev["target_kind"], "user");
+    assert_eq!(ev["metadata"]["username"], "event-target");
 }
 
 #[actix_web::test]
@@ -1083,6 +1160,7 @@ async fn bulk_revoke_by_user_revokes_all_their_tokens() {
                 session_key(),
             ))
             .app_data(web::Data::new(storage.clone()))
+            .app_data(web::Data::new(RecentEventsStore::new(16)))
             .route("/test/login", web::get().to(seed_session))
             .route(
                 "/admin/api/tokens/revoke-by-user",
@@ -1153,6 +1231,7 @@ async fn bulk_revoke_by_client_revokes_only_that_client() {
                 session_key(),
             ))
             .app_data(web::Data::new(storage.clone()))
+            .app_data(web::Data::new(RecentEventsStore::new(16)))
             .route("/test/login", web::get().to(seed_session))
             .route(
                 "/admin/api/tokens/revoke-by-client",
