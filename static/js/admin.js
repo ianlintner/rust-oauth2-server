@@ -104,6 +104,66 @@ function prometheusLabeled(metrics, name, label, value) {
   return match ? match.value : 0;
 }
 
+// Compute quantile from a Prometheus histogram's cumulative `_bucket{le="…"}` series.
+// Works with default `prometheus` crate histograms which only emit buckets (not quantiles).
+// q in [0,1]. Returns value in the histogram's native unit (seconds for durations).
+function histogramQuantile(metrics, baseName, q) {
+  const buckets = metrics[baseName + '_bucket'];
+  if (!buckets || !buckets.length) return 0;
+  const parsed = buckets
+    .map(b => ({
+      le: b.labels.le === '+Inf' ? Infinity : parseFloat(b.labels.le),
+      count: b.value,
+    }))
+    .filter(b => !isNaN(b.le))
+    .sort((a, b) => a.le - b.le);
+  if (!parsed.length) return 0;
+  const total = parsed[parsed.length - 1].count;
+  if (total <= 0) return 0;
+  const target = q * total;
+  let prevLe = 0, prevCount = 0;
+  for (const { le, count } of parsed) {
+    if (count >= target) {
+      if (le === Infinity) return prevLe;
+      if (count === prevCount) return le;
+      const frac = (target - prevCount) / (count - prevCount);
+      return prevLe + frac * (le - prevLe);
+    }
+    prevLe = le;
+    prevCount = count;
+  }
+  return prevLe;
+}
+
+// In-memory trend buffers for sparklines (last ~20 polls per metric).
+const _trendHistory = {};
+function pushTrend(key, value, max = 20) {
+  if (!_trendHistory[key]) _trendHistory[key] = [];
+  _trendHistory[key].push(value);
+  if (_trendHistory[key].length > max) _trendHistory[key].shift();
+  return _trendHistory[key];
+}
+function trendDelta(key) {
+  const h = _trendHistory[key];
+  if (!h || h.length < 2) return null;
+  return h[h.length - 1] - h[h.length - 2];
+}
+// Build a compact sparkline SVG path from a numeric series.
+function sparklinePath(series, w = 80, h = 24) {
+  if (!series || series.length < 2) return '';
+  const min = Math.min(...series);
+  const max = Math.max(...series);
+  const range = max - min || 1;
+  const step = w / (series.length - 1);
+  return series
+    .map((v, i) => {
+      const x = (i * step).toFixed(1);
+      const y = (h - ((v - min) / range) * h).toFixed(1);
+      return `${i === 0 ? 'M' : 'L'}${x},${y}`;
+    })
+    .join(' ');
+}
+
 // ─── Chart helpers ────────────────────────────────────────────────────────────
 
 const _charts = {};
@@ -123,9 +183,58 @@ function createOrUpdateChart(id, config) {
 function chartDefaults() {
   const dark = document.documentElement.classList.contains('dark');
   return {
-    gridColor: dark ? 'rgba(148,163,184,0.15)' : 'rgba(148,163,184,0.3)',
+    gridColor: dark ? 'rgba(148,163,184,0.08)' : 'rgba(148,163,184,0.18)',
     textColor: dark ? '#94a3b8' : '#64748b',
-    bg: dark ? '#1e293b' : '#ffffff',
+    bg: dark ? '#0f172a' : '#ffffff',
+    tooltipBg: dark ? 'rgba(15,23,42,0.95)' : 'rgba(255,255,255,0.98)',
+    tooltipBorder: dark ? 'rgba(148,163,184,0.2)' : 'rgba(148,163,184,0.3)',
+    tooltipText: dark ? '#e2e8f0' : '#0f172a',
+  };
+}
+
+// Shared palette — modern engineering-dashboard tone.
+const PALETTE = {
+  indigo:  '#6366f1',
+  emerald: '#10b981',
+  rose:    '#f43f5e',
+  amber:   '#f59e0b',
+  cyan:    '#06b6d4',
+  violet:  '#a855f7',
+  slate:   '#64748b',
+};
+
+function baseChartOpts() {
+  const { textColor, gridColor, tooltipBg, tooltipBorder, tooltipText } = chartDefaults();
+  return {
+    responsive: true,
+    maintainAspectRatio: false,
+    animation: { duration: 400, easing: 'easeOutQuart' },
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        backgroundColor: tooltipBg,
+        borderColor: tooltipBorder,
+        borderWidth: 1,
+        titleColor: tooltipText,
+        bodyColor: tooltipText,
+        padding: 10,
+        cornerRadius: 6,
+        displayColors: true,
+        titleFont: { family: "'Manrope', system-ui, sans-serif", weight: '600', size: 12 },
+        bodyFont:  { family: "'JetBrains Mono', monospace", size: 11 },
+      },
+    },
+    scales: {
+      x: {
+        ticks: { color: textColor, font: { family: "'Manrope', system-ui, sans-serif", size: 11 } },
+        grid: { color: gridColor, drawBorder: false },
+      },
+      y: {
+        beginAtZero: true,
+        ticks: { color: textColor, font: { family: "'JetBrains Mono', monospace", size: 10 } },
+        grid: { color: gridColor, drawBorder: false },
+      },
+    },
   };
 }
 
@@ -214,23 +323,22 @@ function dashboardPage() {
 
     async initCharts() {
       const m = await fetchPrometheus();
-      const { textColor, gridColor } = chartDefaults();
+      const opts = baseChartOpts();
 
-      const scaleOpts = {
-        x: { ticks: { color: textColor }, grid: { color: gridColor } },
-        y: { beginAtZero: true, ticks: { color: textColor }, grid: { color: gridColor } },
-      };
-
-      // Token issued/revoked bar chart from metrics counters
-      const issued = prometheusScalar(m, 'oauth2_server_oauth_token_issued_total');
+      // Token issued/revoked
+      const issued  = prometheusScalar(m, 'oauth2_server_oauth_token_issued_total');
       const revoked = prometheusScalar(m, 'oauth2_server_oauth_token_revoked_total');
       createOrUpdateChart('tokenChart', {
         type: 'bar',
         data: {
           labels: ['Issued', 'Revoked'],
-          datasets: [{ data: [issued, revoked], backgroundColor: ['#2563eb', '#ef4444'] }],
+          datasets: [{
+            data: [issued, revoked],
+            backgroundColor: [PALETTE.indigo, PALETTE.rose],
+            borderRadius: 6, borderSkipped: false, barThickness: 36,
+          }],
         },
-        options: { responsive: true, plugins: { legend: { display: false } }, scales: scaleOpts },
+        options: opts,
       });
 
       // HTTP status distribution
@@ -242,41 +350,72 @@ function dashboardPage() {
         type: 'doughnut',
         data: {
           labels: ['2xx Success', '4xx Client', '5xx Server'],
-          datasets: [{ data: [s2xx, s4xx, s5xx], backgroundColor: ['#10b981', '#f59e0b', '#ef4444'] }],
+          datasets: [{
+            data: [s2xx, s4xx, s5xx],
+            backgroundColor: [PALETTE.emerald, PALETTE.amber, PALETTE.rose],
+            borderWidth: 0, hoverOffset: 6,
+          }],
         },
-        options: { responsive: true, plugins: { legend: { position: 'bottom' } } },
+        options: {
+          ...opts,
+          cutout: '66%',
+          plugins: {
+            ...opts.plugins,
+            legend: {
+              display: true,
+              position: 'bottom',
+              labels: {
+                color: chartDefaults().textColor,
+                font: { family: "'Manrope', system-ui, sans-serif", size: 11 },
+                boxWidth: 10, boxHeight: 10, padding: 14, usePointStyle: true,
+              },
+            },
+          },
+          scales: {},
+        },
       });
 
-      // Latency p50/p95/p99 — use fake buckets if histogram quantiles not available
-      const p50 = prometheusLabeled(m, 'oauth2_server_http_request_duration_seconds', 'quantile', '0.5') * 1000;
-      const p95 = prometheusLabeled(m, 'oauth2_server_http_request_duration_seconds', 'quantile', '0.95') * 1000;
-      const p99 = prometheusLabeled(m, 'oauth2_server_http_request_duration_seconds', 'quantile', '0.99') * 1000;
+      // Latency p50/p95/p99 — computed from histogram buckets.
+      const p50 = histogramQuantile(m, 'oauth2_server_http_request_duration_seconds', 0.5)  * 1000;
+      const p95 = histogramQuantile(m, 'oauth2_server_http_request_duration_seconds', 0.95) * 1000;
+      const p99 = histogramQuantile(m, 'oauth2_server_http_request_duration_seconds', 0.99) * 1000;
+      pushTrend('p95', p95);
       createOrUpdateChart('latencyChart', {
         type: 'bar',
         data: {
           labels: ['p50', 'p95', 'p99'],
-          datasets: [{ label: 'ms', data: [p50, p95, p99], backgroundColor: '#8b5cf6' }],
+          datasets: [{
+            label: 'latency (ms)',
+            data: [p50.toFixed(1), p95.toFixed(1), p99.toFixed(1)],
+            backgroundColor: [PALETTE.cyan, PALETTE.indigo, PALETTE.violet],
+            borderRadius: 6, borderSkipped: false, barThickness: 34,
+          }],
         },
         options: {
-          responsive: true,
-          plugins: { legend: { display: false } },
+          ...opts,
+          indexAxis: 'y',
           scales: {
-            ...scaleOpts,
-            y: { ...scaleOpts.y, title: { display: true, text: 'ms', color: textColor } },
+            x: { ...opts.scales.x, title: { display: true, text: 'ms', color: chartDefaults().textColor, font: { size: 10 } } },
+            y: opts.scales.y,
           },
         },
       });
 
-      // Rate-limit rejections
+      // Resilience events
       const rl = prometheusScalar(m, 'oauth2_server_rate_limit_rejected_total');
-      const cb = prometheusLabeled(m, 'oauth2_server_circuit_breaker_state', 'state', '1'); // 1=Open
+      const cb = prometheusScalar(m, 'oauth2_server_circuit_breaker_trips_total');
+      const bp = prometheusScalar(m, 'oauth2_server_back_pressure_rejected_total');
       createOrUpdateChart('resilienceChart', {
         type: 'bar',
         data: {
-          labels: ['Rate-limit rejects', 'Circuit trips'],
-          datasets: [{ data: [rl, cb], backgroundColor: ['#f59e0b', '#ef4444'] }],
+          labels: ['Rate-limit', 'Circuit trips', 'Back-pressure'],
+          datasets: [{
+            data: [rl, cb, bp],
+            backgroundColor: [PALETTE.amber, PALETTE.rose, PALETTE.violet],
+            borderRadius: 6, borderSkipped: false, barThickness: 34,
+          }],
         },
-        options: { responsive: true, plugins: { legend: { display: false } }, scales: scaleOpts },
+        options: opts,
       });
     },
 
@@ -567,14 +706,11 @@ function metricsPage() {
     scalar(name) { return prometheusScalar(this.metrics, name); },
     labeled(name, label, value) { return prometheusLabeled(this.metrics, name, label, value); },
 
-    drawCharts() {
-      const { textColor, gridColor } = chartDefaults();
-      const scale = {
-        x: { ticks: { color: textColor }, grid: { color: gridColor } },
-        y: { beginAtZero: true, ticks: { color: textColor }, grid: { color: gridColor } },
-      };
+    hq(name, q) { return histogramQuantile(this.metrics, name, q); },
 
-      // Auth metrics
+    drawCharts() {
+      const opts = baseChartOpts();
+
       createOrUpdateChart('m-tokens', {
         type: 'bar',
         data: {
@@ -586,53 +722,53 @@ function metricsPage() {
               this.scalar('oauth2_server_oauth_authorization_codes_issued'),
               this.scalar('oauth2_server_oauth_failed_authentications'),
             ],
-            backgroundColor: ['#2563eb', '#ef4444', '#10b981', '#f59e0b'],
+            backgroundColor: [PALETTE.indigo, PALETTE.rose, PALETTE.emerald, PALETTE.amber],
+            borderRadius: 6, borderSkipped: false, barThickness: 32,
           }],
         },
-        options: { responsive: true, plugins: { legend: { display: false } }, scales: scale },
+        options: opts,
       });
 
-      // Latency
+      // HTTP latency — computed from buckets
+      const hp50 = this.hq('oauth2_server_http_request_duration_seconds', 0.5)  * 1000;
+      const hp95 = this.hq('oauth2_server_http_request_duration_seconds', 0.95) * 1000;
+      const hp99 = this.hq('oauth2_server_http_request_duration_seconds', 0.99) * 1000;
       createOrUpdateChart('m-latency', {
         type: 'bar',
         data: {
           labels: ['p50', 'p95', 'p99'],
           datasets: [{
             label: 'ms',
-            data: [
-              (this.labeled('oauth2_server_http_request_duration_seconds', 'quantile', '0.5') * 1000).toFixed(1),
-              (this.labeled('oauth2_server_http_request_duration_seconds', 'quantile', '0.95') * 1000).toFixed(1),
-              (this.labeled('oauth2_server_http_request_duration_seconds', 'quantile', '0.99') * 1000).toFixed(1),
-            ],
-            backgroundColor: '#8b5cf6',
+            data: [hp50.toFixed(1), hp95.toFixed(1), hp99.toFixed(1)],
+            backgroundColor: [PALETTE.cyan, PALETTE.indigo, PALETTE.violet],
+            borderRadius: 6, borderSkipped: false, barThickness: 32,
           }],
         },
-        options: { responsive: true, plugins: { legend: { display: false } }, scales: scale },
+        options: { ...opts, indexAxis: 'y' },
       });
 
-      // DB query latency
+      // DB query latency — computed from buckets
+      const dp50 = this.hq('oauth2_server_db_query_duration_seconds', 0.5)  * 1000;
+      const dp95 = this.hq('oauth2_server_db_query_duration_seconds', 0.95) * 1000;
+      const dp99 = this.hq('oauth2_server_db_query_duration_seconds', 0.99) * 1000;
       createOrUpdateChart('m-db', {
         type: 'bar',
         data: {
           labels: ['p50', 'p95', 'p99'],
           datasets: [{
             label: 'ms',
-            data: [
-              (this.labeled('oauth2_server_db_query_duration_seconds', 'quantile', '0.5') * 1000).toFixed(1),
-              (this.labeled('oauth2_server_db_query_duration_seconds', 'quantile', '0.95') * 1000).toFixed(1),
-              (this.labeled('oauth2_server_db_query_duration_seconds', 'quantile', '0.99') * 1000).toFixed(1),
-            ],
-            backgroundColor: '#06b6d4',
+            data: [dp50.toFixed(1), dp95.toFixed(1), dp99.toFixed(1)],
+            backgroundColor: [PALETTE.cyan, PALETTE.emerald, PALETTE.amber],
+            borderRadius: 6, borderSkipped: false, barThickness: 32,
           }],
         },
-        options: { responsive: true, plugins: { legend: { display: false } }, scales: scale },
+        options: { ...opts, indexAxis: 'y' },
       });
 
-      // Resilience gauges
       createOrUpdateChart('m-resilience', {
         type: 'bar',
         data: {
-          labels: ['Rate-limit rejects', 'CB trips', 'Backpressure rejects', 'In-flight'],
+          labels: ['Rate-limit', 'CB trips', 'Back-pressure', 'In-flight'],
           datasets: [{
             data: [
               this.scalar('oauth2_server_rate_limit_rejected_total'),
@@ -640,10 +776,11 @@ function metricsPage() {
               this.scalar('oauth2_server_back_pressure_rejected_total'),
               this.scalar('oauth2_server_concurrent_requests_in_flight'),
             ],
-            backgroundColor: ['#f59e0b', '#ef4444', '#f97316', '#6366f1'],
+            backgroundColor: [PALETTE.amber, PALETTE.rose, PALETTE.violet, PALETTE.indigo],
+            borderRadius: 6, borderSkipped: false, barThickness: 32,
           }],
         },
-        options: { responsive: true, plugins: { legend: { display: false } }, scales: scale },
+        options: opts,
       });
     },
   };
