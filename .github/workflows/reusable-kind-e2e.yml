@@ -115,8 +115,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          curl -fsSL "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
+          KUSTOMIZE_VERSION="v5.4.3"
+          curl -fsSL "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2F${KUSTOMIZE_VERSION}/kustomize_${KUSTOMIZE_VERSION}_linux_amd64.tar.gz" \
+            | tar xzf -
           sudo mv kustomize /usr/local/bin/
+          kustomize version
 
       - name: Enable config debug logging
         if: inputs.enable_config_debug
