@@ -790,7 +790,7 @@ function metricsPage() {
 
 function eventsPage() {
   return {
-    ...makeGrid('/events/admin/recent', 'created_at', 'desc'),
+    ...makeGrid('/admin/api/events/recent', 'created_at', 'desc'),
     pluginHealth: null,
 
     async init() {
