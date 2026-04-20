@@ -20,7 +20,7 @@ on:
         required: false
         default: "full"
         type: choice
-        options: [full, pr-only, issue-only, upgrade-only, dry-run]
+        options: [full, pr-only, issue-only, upgrade, dry-run]
 
 # Prevent concurrent caretaker runs so each run sees the up-to-date memory
 # store written by the previous run.
