@@ -1050,10 +1050,27 @@ pub struct TokenRequest {
 /// JWT Bearer assertion type per RFC 7523 §2.2.
 const JWT_BEARER_ASSERTION_TYPE: &str = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer";
 
+/// Process-wide replay guard for JWT client assertions (RFC 7523 §3 /
+/// RFC 9700 §2.5). Lazily initialized on first use; see
+/// `crates/oauth2-actix/src/security/jti_replay.rs` for semantics. This is
+/// intentionally a process-wide singleton so every code path that validates
+/// a client assertion shares one view of seen `(client_id, jti)` pairs
+/// without having to thread the guard through every handler signature.
+fn jti_replay_guard() -> &'static crate::security::jti_replay::JtiReplayGuard {
+    use std::sync::OnceLock;
+    static GUARD: OnceLock<crate::security::jti_replay::JtiReplayGuard> = OnceLock::new();
+    GUARD.get_or_init(crate::security::jti_replay::JtiReplayGuard::new)
+}
+
 /// Validate a JWT client assertion (RFC 7523 §3).
 ///
 /// Supports both `client_secret_jwt` (HMAC / HS256) and `private_key_jwt`
 /// (RSA / RS256) depending on `client.token_endpoint_auth_method`.
+///
+/// After signature + `aud` + `iss` + `sub` validation, the assertion's
+/// `jti` is recorded in the process-wide replay guard (RFC 7523 §3 /
+/// RFC 9700 §2.5). A second presentation of the same `(client_id, jti)`
+/// within the assertion's validity window is rejected with `invalid_client`.
 fn validate_jwt_client_assertion(
     client: &oauth2_core::Client,
     assertion: &str,
@@ -1088,6 +1105,7 @@ fn validate_jwt_client_assertion(
                     "JWT iss/sub must equal client_id",
                 ));
             }
+            enforce_jti_replay(&client.client_id, &claims)?;
             Ok(())
         }
         "private_key_jwt" => {
@@ -1153,11 +1171,48 @@ fn validate_jwt_client_assertion(
                     "JWT iss/sub must equal client_id",
                 ));
             }
+            enforce_jti_replay(&client.client_id, &claims)?;
             Ok(())
         }
         _ => Err(OAuth2Error::invalid_client(
             "Client is not configured for JWT authentication",
         )),
+    }
+}
+
+/// RFC 7523 §3 / RFC 9700 §2.5: extract `jti` + `exp` from the validated
+/// client-assertion claims and record them in the process-wide replay
+/// guard. Returns `invalid_client` if the `(client_id, jti)` pair has
+/// already been observed within the assertion's validity window, or if
+/// the assertion is missing a `jti` (required by RFC 7523 §3 when the
+/// AS enforces replay detection).
+fn enforce_jti_replay(client_id: &str, claims: &serde_json::Value) -> Result<(), OAuth2Error> {
+    let jti = claims.get("jti").and_then(|v| v.as_str()).ok_or_else(|| {
+        OAuth2Error::invalid_client("client_assertion missing required jti claim (RFC 7523 §3)")
+    })?;
+    let exp = claims
+        .get("exp")
+        .and_then(|v| v.as_i64())
+        .ok_or_else(|| OAuth2Error::invalid_client("client_assertion missing exp claim"))?;
+    // `exp` has already been checked by `jsonwebtoken::decode` so we know
+    // it is in the future; convert to a TTL for the replay guard.
+    let now = chrono::Utc::now().timestamp();
+    let remaining_secs = (exp - now).max(0) as u64;
+    let ttl = std::time::Duration::from_secs(remaining_secs);
+
+    use crate::security::jti_replay::ObserveResult;
+    match jti_replay_guard().observe(client_id, jti, ttl) {
+        ObserveResult::Fresh => Ok(()),
+        ObserveResult::Replay => {
+            tracing::warn!(
+                client_id = %client_id,
+                jti = %jti,
+                "RFC 7523 §3: rejected replayed client_assertion jti"
+            );
+            Err(OAuth2Error::invalid_client(
+                "client_assertion jti has already been used",
+            ))
+        }
     }
 }
 
