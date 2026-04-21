@@ -5,7 +5,7 @@ pub mod telemetry;
 #[cfg(feature = "actix")]
 pub mod actix;
 
-pub use metrics::Metrics;
+pub use metrics::{Metrics, STANDARD_LATENCY_BUCKETS, STANDARD_SIZE_BUCKETS};
 pub use storage::ObservedStorage;
 pub use telemetry::{annotate_span_with_trace_ids, init_telemetry, shutdown_telemetry};
 
