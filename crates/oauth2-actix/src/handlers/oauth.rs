@@ -598,6 +598,19 @@ pub async fn authorize(
         ));
     }
 
+    // RFC 9700 §4.7: per-client `require_state` enforcement. When the
+    // client has opted in, the `state` parameter is mandatory on the
+    // authorization request. PKCE already covers the CSRF case on its
+    // own; this flag is a defense-in-depth layer for clients that also
+    // bind their user-agent session to `state` on the redirect.
+    // Checked before JAR overlay — a client that requires state must
+    // carry it on the outer request too, not just in the JAR payload.
+    if client.require_state && query.state.is_none() {
+        return Err(OAuth2Error::invalid_request(
+            "state parameter is required for this client (RFC 9700 §4.7)",
+        ));
+    }
+
     // RFC 9101 §4: If a JAR `request` parameter is present, verify its signature and
     // overlay the JWT payload claims on top of the current effective parameters.
     // JAR claims take precedence over the corresponding query-string parameters.

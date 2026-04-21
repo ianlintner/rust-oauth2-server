@@ -83,6 +83,13 @@ pub struct Client {
     /// unaffected.
     #[serde(default = "default_true")]
     pub enabled: bool,
+    /// RFC 9700 §4.7: when `true`, the AS rejects authorization requests that
+    /// omit the `state` parameter. Defense-in-depth for CSRF on the redirect
+    /// path that PKCE already covers. Defaults to `false` so existing clients
+    /// continue to work; operators opt in per-client.
+    #[serde(default)]
+    #[cfg_attr(feature = "sqlx", sqlx(default))]
+    pub require_state: bool,
 }
 
 fn default_true() -> bool {
@@ -126,6 +133,7 @@ impl Client {
             frontchannel_logout_session_required: false,
             post_logout_redirect_uris: String::new(),
             enabled: true,
+            require_state: false,
         }
     }
 
