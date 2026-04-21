@@ -3832,6 +3832,7 @@ dependencies = [
  "actix-files",
  "actix-session",
  "actix-web",
+ "async-trait",
  "chrono",
  "env_logger",
  "hex",

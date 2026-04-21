@@ -90,6 +90,7 @@ pub struct RecentEventsStore {
 }
 
 impl RecentEventsStore {
+    #[cfg(feature = "redis-cache")]
     const REDIS_KEY: &'static str = "oauth2:recent_events";
 
     pub fn new(capacity: usize) -> Self {
