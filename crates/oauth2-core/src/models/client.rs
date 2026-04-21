@@ -166,26 +166,40 @@ impl Client {
 
     pub fn validate_redirect_uri(&self, redirect_uri: &str) -> bool {
         let registered = self.get_redirect_uris();
-        // Fast path: exact match.
+        // Fast path: exact match. A client that literally registered
+        // `http://localhost:3000/callback` may still use that exact URI —
+        // only the port-wildcard loopback exception below is tightened.
         if registered.contains(&redirect_uri.to_string()) {
             return true;
         }
-        // RFC 8252 §7.3: loopback redirect URIs — any port on 127.0.0.1/[::1]/localhost
-        // is permitted when the client has registered a loopback URI.
+        // RFC 8252 §7.3: loopback redirect URIs — the AS accepts any port
+        // on the loopback host at request time, even if the client
+        // registered a different (or zero) port.
+        //
+        // RFC 8252 §8.3 requires the IP literal representation
+        // (`127.0.0.1` or `[::1]`); the `localhost` hostname is
+        // non-deterministic (Windows `hosts` overrides, split-horizon
+        // DNS, IPv4/IPv6 resolution) and MUST NOT benefit from the
+        // port-wildcard exception. Registering a `localhost` loopback
+        // URI still works via the exact-match fast path above — what
+        // this check tightens is "registered `127.0.0.1:3000` →
+        // requested `127.0.0.1:54321` accepted" vs "registered
+        // `localhost:3000` → requested `localhost:54321` accepted".
         if let Ok(requested) = redirect_uri.parse::<url::Url>() {
-            let host_is_loopback = matches!(
+            let host_is_ip_loopback = matches!(
                 requested.host_str(),
-                Some("localhost") | Some("127.0.0.1") | Some("::1")
+                Some("127.0.0.1") | Some("::1") | Some("[::1]")
             );
-            if host_is_loopback && matches!(requested.scheme(), "http" | "https") {
+            if host_is_ip_loopback && matches!(requested.scheme(), "http" | "https") {
                 for reg in &registered {
                     if let Ok(reg_url) = reg.parse::<url::Url>() {
-                        let reg_loopback = matches!(
+                        let reg_ip_loopback = matches!(
                             reg_url.host_str(),
-                            Some("localhost") | Some("127.0.0.1") | Some("::1")
+                            Some("127.0.0.1") | Some("::1") | Some("[::1]")
                         );
-                        if reg_loopback
+                        if reg_ip_loopback
                             && reg_url.scheme() == requested.scheme()
+                            && reg_url.host_str() == requested.host_str()
                             && reg_url.path() == requested.path()
                         {
                             return true;
