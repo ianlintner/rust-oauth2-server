@@ -1050,10 +1050,27 @@ pub struct TokenRequest {
 /// JWT Bearer assertion type per RFC 7523 §2.2.
 const JWT_BEARER_ASSERTION_TYPE: &str = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer";
 
+/// Process-wide replay guard for JWT client assertions (RFC 7523 §3 /
+/// RFC 9700 §2.5). Lazily initialized on first use; see
+/// `crates/oauth2-actix/src/security/jti_replay.rs` for semantics. This is
+/// intentionally a process-wide singleton so every code path that validates
+/// a client assertion shares one view of seen `(client_id, jti)` pairs
+/// without having to thread the guard through every handler signature.
+fn jti_replay_guard() -> &'static crate::security::jti_replay::JtiReplayGuard {
+    use std::sync::OnceLock;
+    static GUARD: OnceLock<crate::security::jti_replay::JtiReplayGuard> = OnceLock::new();
+    GUARD.get_or_init(crate::security::jti_replay::JtiReplayGuard::new)
+}
+
 /// Validate a JWT client assertion (RFC 7523 §3).
 ///
 /// Supports both `client_secret_jwt` (HMAC / HS256) and `private_key_jwt`
 /// (RSA / RS256) depending on `client.token_endpoint_auth_method`.
+///
+/// After signature + `aud` + `iss` + `sub` validation, the assertion's
+/// `jti` is recorded in the process-wide replay guard (RFC 7523 §3 /
+/// RFC 9700 §2.5). A second presentation of the same `(client_id, jti)`
+/// within the assertion's validity window is rejected with `invalid_client`.
 fn validate_jwt_client_assertion(
     client: &oauth2_core::Client,
     assertion: &str,
@@ -1088,6 +1105,7 @@ fn validate_jwt_client_assertion(
                     "JWT iss/sub must equal client_id",
                 ));
             }
+            enforce_jti_replay(&client.client_id, &claims)?;
             Ok(())
         }
         "private_key_jwt" => {
@@ -1153,11 +1171,48 @@ fn validate_jwt_client_assertion(
                     "JWT iss/sub must equal client_id",
                 ));
             }
+            enforce_jti_replay(&client.client_id, &claims)?;
             Ok(())
         }
         _ => Err(OAuth2Error::invalid_client(
             "Client is not configured for JWT authentication",
         )),
+    }
+}
+
+/// RFC 7523 §3 / RFC 9700 §2.5: extract `jti` + `exp` from the validated
+/// client-assertion claims and record them in the process-wide replay
+/// guard. Returns `invalid_client` if the `(client_id, jti)` pair has
+/// already been observed within the assertion's validity window, or if
+/// the assertion is missing a `jti` (required by RFC 7523 §3 when the
+/// AS enforces replay detection).
+fn enforce_jti_replay(client_id: &str, claims: &serde_json::Value) -> Result<(), OAuth2Error> {
+    let jti = claims.get("jti").and_then(|v| v.as_str()).ok_or_else(|| {
+        OAuth2Error::invalid_client("client_assertion missing required jti claim (RFC 7523 §3)")
+    })?;
+    let exp = claims
+        .get("exp")
+        .and_then(|v| v.as_i64())
+        .ok_or_else(|| OAuth2Error::invalid_client("client_assertion missing exp claim"))?;
+    // `exp` has already been checked by `jsonwebtoken::decode` so we know
+    // it is in the future; convert to a TTL for the replay guard.
+    let now = chrono::Utc::now().timestamp();
+    let remaining_secs = (exp - now).max(0) as u64;
+    let ttl = std::time::Duration::from_secs(remaining_secs);
+
+    use crate::security::jti_replay::ObserveResult;
+    match jti_replay_guard().observe(client_id, jti, ttl) {
+        ObserveResult::Fresh => Ok(()),
+        ObserveResult::Replay => {
+            tracing::warn!(
+                client_id = %client_id,
+                jti = %jti,
+                "RFC 7523 §3: rejected replayed client_assertion jti"
+            );
+            Err(OAuth2Error::invalid_client(
+                "client_assertion jti has already been used",
+            ))
+        }
     }
 }
 
@@ -1516,7 +1571,7 @@ async fn handle_authorization_code_grant(
     }
 
     // Validate authorization code
-    let auth_code = auth_actor
+    let auth_code = match auth_actor
         .send(ValidateAuthorizationCode {
             code: code.clone(),
             client_id: req.client_id.clone(),
@@ -1525,7 +1580,45 @@ async fn handle_authorization_code_grant(
             span: tracing::Span::current(),
         })
         .await
-        .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))??;
+        .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))?
+    {
+        Ok(code) => code,
+        Err(validation_err) => {
+            // RFC 9700 §2.1.5: on authorization-code replay the AS MUST
+            // revoke every token issued from that code. A *replay* is
+            // specifically a code that exists and is already `used` —
+            // distinct from an expired or never-issued code, which we
+            // ignore here. Fetch the raw record (bypassing `is_valid`)
+            // and, if we find a used entry carrying a `token_family`,
+            // cascade-revoke the entire lineage via the TokenActor.
+            if let Ok(Some(stale)) = auth_actor
+                .send(crate::actors::LookupAuthorizationCode {
+                    code: code.clone(),
+                    span: tracing::Span::current(),
+                })
+                .await
+                .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))?
+            {
+                if stale.used {
+                    if let Some(family) = stale.token_family.clone() {
+                        tracing::warn!(
+                            client_id = %req.client_id,
+                            token_family = %family,
+                            "RFC 9700 §2.1.5: authorization-code replay detected — cascade-revoking token family"
+                        );
+                        let _ = token_actor
+                            .route(&req.client_id)
+                            .send(crate::actors::RevokeTokenFamily {
+                                family,
+                                span: tracing::Span::current(),
+                            })
+                            .await;
+                    }
+                }
+            }
+            return Err(validation_err);
+        }
+    };
 
     // Validate client grant permissions + authenticate if required.
     let client = client_actor
@@ -1578,8 +1671,15 @@ async fn handle_authorization_code_grant(
     // to use the refresh_token grant and the `offline_access` scope was requested
     // (or the client explicitly supports refresh_token without scope restriction).
     let include_refresh = client.supports_grant_type("refresh_token");
+    // RFC 9700 §2.1.5: adopt the auth-code's token_family so every token
+    // derived from this grant shares a lineage that can be cascade-revoked
+    // on code replay. Fall back to a fresh UUID for legacy codes issued
+    // before migration V18 rolled out.
     let token_family = if include_refresh {
-        Some(Uuid::new_v4().to_string())
+        auth_code
+            .token_family
+            .clone()
+            .or_else(|| Some(Uuid::new_v4().to_string()))
     } else {
         None
     };
@@ -1926,6 +2026,12 @@ async fn handle_refresh_token_grant(
         .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))??;
 
     // Mint new access + refresh token pair.
+    //
+    // RFC 8707 §2.2: the client MAY include `resource` on refresh. We pass it
+    // straight through so the rotated access token is audience-restricted to
+    // the requested resource server. Strict "subset of originally authorized
+    // resources" enforcement requires persisting the resource set on the Token
+    // record (pending follow-up; tracked under Phase 6.3).
     let token = token_actor
         .route(&req.client_id)
         .send(CreateToken {
@@ -1934,7 +2040,7 @@ async fn handle_refresh_token_grant(
             scope,
             include_refresh: true,
             token_family: Some(family),
-            resource: None,
+            resource: req.resource.clone(),
             cnf: None,
             authorization_details: None,
             span: tracing::Span::current(),

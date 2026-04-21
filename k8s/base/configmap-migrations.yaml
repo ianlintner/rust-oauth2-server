@@ -268,3 +268,11 @@ data:
     CREATE INDEX IF NOT EXISTS idx_audit_log_action ON audit_log(action);
     CREATE INDEX IF NOT EXISTS idx_audit_log_target ON audit_log(target_kind, target_id);
     CREATE INDEX IF NOT EXISTS idx_audit_log_created_at ON audit_log(created_at);
+
+  V18__add_token_family_to_auth_codes.sql: |
+    -- RFC 9700 §2.1.5: on authorization-code replay the AS MUST revoke every
+    -- token issued from that code. We implement this by tagging the code with
+    -- the same `token_family` UUID used by refresh-token rotation. On replay
+    -- detection the AS looks up the family from the used auth-code record and
+    -- cascade-revokes every access/refresh token in the family.
+    ALTER TABLE authorization_codes ADD COLUMN token_family TEXT;

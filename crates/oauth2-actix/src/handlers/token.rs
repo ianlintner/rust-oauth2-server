@@ -219,11 +219,26 @@ pub async fn introspect(
             let client_id = token.client_id.clone();
             let token_type = token.token_type.clone();
 
+            // RFC 7662 §5 / RFC 9700 §2.5: limit PII returned to callers who
+            // do not own the token. The cross-client case is already rejected
+            // above with `inactive`. The remaining ambiguous case is the
+            // anonymous / public-introspection path: resource servers that
+            // validate bearer tokens without client credentials should not
+            // receive the token subject's identity (username, sub). They
+            // still need the non-PII lifecycle fields (active, scope, exp,
+            // iat, nbf, aud, iss, token_type) plus client_id and jti for
+            // correlation.
+            let is_authenticated_owner = caller.is_some();
+
             let response = IntrospectionResponse {
                 active,
                 scope: Some(scope),
                 client_id: Some(client_id.clone()),
-                username: user_id.clone(),
+                username: if is_authenticated_owner {
+                    user_id.clone()
+                } else {
+                    None
+                },
                 token_type: Some(token_type),
                 exp: claims
                     .as_ref()
@@ -238,7 +253,11 @@ pub async fn introspect(
                     .as_ref()
                     .map(|c| c.iat)
                     .or(Some(token.created_at.timestamp())),
-                sub: claims.as_ref().map(|c| c.sub.clone()).or(user_id),
+                sub: if is_authenticated_owner {
+                    claims.as_ref().map(|c| c.sub.clone()).or(user_id)
+                } else {
+                    None
+                },
                 aud: claims.as_ref().map(|c| c.aud.clone()).or(Some(client_id)),
                 jti: claims
                     .as_ref()

@@ -459,7 +459,8 @@ Items marked ✅ have been implemented; remaining items are ordered by priority.
 | **Phase 2 items**   | ✅ Done       | main           | Full RFC 7591/7592, private_key_jwt, client_secret_jwt                                                        |
 | **Phase 3 items**   | ✅ Done       | main           | PAR, JAR, Resource Indicators, form_post, Hybrid Flow, JWT Introspection                                      |
 | **Phase 4 items**   | ✅ Done       | main           | DPoP, mTLS, Token Exchange, RAR, Step-Up, Protected Resource Metadata, Token Status List, OIDC Claims Request |
-| **Phase 5 items**   | � In progress | main           | 5.1 JAR `request` inline, 5.2 Hybrid Flow `code id_token`, 5.3 `response_mode=fragment` ✅ Done               |
+| **Phase 5 items**   | ⚠️ Partial    | main           | 5.1 JAR inline, 5.2 Hybrid Flow, 5.3 fragment, 5.6 client_secret_jwt, 5.7 private_key_jwt done; 5.4, 5.5, 5.8–5.15 open |
+| **Phase 6 items**   | ⏳ In progress | —              | RFC 9700 hardening (see §9)                                                                                    |
 
 ### Phase 1 Chunk Status
 
@@ -605,4 +606,106 @@ All items are independently mergeable.
 
 ---
 
-_Last updated: 2026-04-13 — Phase 5 plan added; Phases 1–4 complete_
+## 9. Phase 6 — RFC 9700 Security BCP Hardening
+
+**Goal:** Close the remaining compliance and enforcement gaps identified by an explicit,
+section-by-section audit against RFC 9700 (Best Current Practice for OAuth 2.0 Security,
+BCP 240, January 2025). Phases 1–5 delivered the structural pieces (PKCE S256-only, no
+ROPC/implicit, refresh rotation with family cascade, `iss` in authorization responses,
+security response headers, constant-time comparisons, session fixation mitigations,
+JAR/PAR/RAR/hybrid flow). Phase 6 focuses on the *enforcement* gaps and the
+defense-in-depth items that the BCP marks as strong SHOULDs.
+
+### 9.1 RFC 9700 Section-by-Section Compliance Matrix
+
+Status legend: ✅ compliant · ⚠️ partial / needs verification · ❌ not implemented ·
+N/A not applicable to this deployment posture.
+
+| § | Requirement | Level | Status | Location / Notes |
+|---|---|---|---|---|
+| 2.1.1 | Redirect URI exact string match (no wildcards / pattern / partial) | MUST | ✅ | `crates/oauth2-core/src/models/client.rs:167-198` |
+| 2.1.1 | Loopback redirect: any port on 127.0.0.1/[::1] | MUST | ✅ | same — path still exact-matched |
+| 2.1.1 | Reject unregistered `redirect_uri` (no defaulting) | MUST | ✅ | authorize handler rejects |
+| 2.1.1.2 | PKCE required for ALL code-grant clients (public + confidential) | MUST | ✅ | `crates/oauth2-actix/src/handlers/oauth.rs:697-709` |
+| 2.1.1.2 | `code_challenge_method=S256` required; `plain` rejected | MUST | ✅ | `oauth.rs:702-704` |
+| 2.1.1.2 | Constant-time compare of `code_verifier` hash vs challenge | SHOULD | ✅ | `oauth.rs:2026` (`subtle::ConstantTimeEq`) |
+| 2.1.2 | Implicit grant (`response_type=token`) rejected | MUST NOT | ✅ | `oauth.rs:582` |
+| 2.1.2 | Hybrid flow with access token in fragment (`code token`) not offered | SHOULD NOT | ✅ | Only `code` and `code id_token` supported |
+| 2.1.3 | `iss` parameter in authorization response (RFC 9207) | MUST | ✅ | `oauth.rs:1001-1002` |
+| 2.1.3 | `iss` also on error authorization redirects | MUST | ⚠️ | Success path confirmed; error paths to be verified under 6.7 test vectors |
+| 2.1.4 | `state` parameter echoed unchanged when present | MUST | ✅ | passthrough in all handlers |
+| 2.1.4 | Server-side `state` enforcement option | SHOULD | ❌ | Tracked as 5.10; carried into 6.6 |
+| 2.1.5 | Authorization codes single-use | MUST | ✅ | `is_used()` flag + `mark_code_used` |
+| 2.1.5 | Code TTL ≤ 10 minutes | MUST | ✅ | `crates/oauth2-core/src/models/authorization.rs:56` (10 min) |
+| 2.1.5 | Code bound to `client_id` + `redirect_uri` + PKCE verifier | MUST | ✅ | `crates/oauth2-actix/src/actors/auth_actor.rs:215-238` |
+| 2.1.5 | On code replay: revoke all tokens issued from that code | MUST | ❌ | **Gap — Phase 6.1** |
+| 2.1.6 | OIDC `nonce` validated in ID Token | SHOULD | ✅ | hybrid flow issues `nonce`-bound id_token |
+| 2.2 | Access tokens sender-constrained (DPoP / mTLS) OR short-lived + aud | SHOULD/MUST | ⚠️ | Bindings stored (`cnf.jkt`, `cnf.x5t#S256`) but proof validation incomplete — **Phase 6.2** |
+| 2.3 | Access token audience restriction | SHOULD | ❌ | `Claims.aud = client_id` unconditional — **Phase 6.3** |
+| 2.3 | Resource Indicators (RFC 8707) for narrowing `aud` | SHOULD | ⚠️ | `resource` param accepted + stored on auth codes, but not yet wired into issued `aud` — **Phase 6.3** |
+| 2.3 | Short access token lifetimes | SHOULD | ⚠️ | 3600s hardcoded; no config knob — **Phase 6.4** |
+| 2.4 | ROPC (`grant_type=password`) removed | MUST NOT | ✅ | `oauth.rs:1349` |
+| 2.4 | `password` absent from `grant_types_supported` | MUST NOT | ✅ | discovery doc |
+| 2.5 | Asymmetric client auth preferred (`private_key_jwt`, mTLS) | SHOULD | ✅ | `private_key_jwt`, `client_secret_jwt` — mTLS client-auth is Phase 6.10 |
+| 2.5 | JWT client assertion: validate `iss=sub=client_id`, `aud`, `exp`; reject replayed `jti` | MUST | ⚠️ | Signature + exp validated; **`jti` replay store missing — Phase 6.5** |
+| 2.5 | Credentials never in URI query | MUST NOT | ✅ | Basic / form-body / assertion only |
+| 2.5 | Public client (`none`): no secret, PKCE required | MUST | ✅ | `is_public()` path skips secret, PKCE mandatory upstream |
+| 2.6 | TLS for all OAuth endpoints; TLS ≥ 1.2 | MUST | ⚠️ | Enforcement at proxy / deployment; no application-layer redirect — **Phase 6.8** |
+| 2.6 | Bearer tokens never in URI query | MUST NOT | ✅ | Header-only; form-body fallback limited to token-endpoint ops |
+| 2.6 | `Cache-Control: no-store` on token responses | MUST | ✅ | `token.rs:19`, `oauth.rs:166` |
+| 2.6 | `Referrer-Policy: no-referrer` on authorization responses | SHOULD | ⚠️ | Present on HTML surface (`lib.rs`); verify on authorize redirects |
+| 4.1 | Redirect URI substring / suffix / regex matching forbidden | MUST | ✅ | exact string match only |
+| 4.1.3 | Reject `redirect_uri` with unregistered query params | SHOULD | ⚠️ | Exact match includes query; verify test vector |
+| 4.4 | Mix-up attack mitigation via `iss` (RFC 9207) | MUST | ✅ | 2.1.3 above |
+| 4.5 | Code injection mitigation: PKCE | MUST | ✅ | enforced universally |
+| 4.7 | CSRF on redirect: PKCE provides binding; `state` still recommended | MUST | ✅ | PKCE enforced |
+| 4.8 | PKCE chosen-challenge attack: S256-only | MUST | ✅ | `plain` rejected |
+| 4.10 | AS must not be open redirector (validate client_id + redirect_uri before redirecting) | MUST | ✅ | invalid redirects render error, not redirect |
+| 4.11 | 303 See Other (not 307) after credential POST | MUST | ⚠️ | Login uses 302 Found — **Phase 6.7** |
+| 4.14 | Refresh token rotation for public clients | MUST | ✅ | `crates/oauth2-actix/src/handlers/oauth.rs:1897-1943` |
+| 4.14 | Replay of rotated refresh token → cascade revoke family | MUST | ✅ | `token_actor.rs:569-572, 711-714` |
+| 4.14 | Refresh-token absolute-max-lifetime cap for public clients | SHOULD | ❌ | No cap — **Phase 6.4** |
+| 4.14 | Sender-constrained refresh tokens (DPoP/mTLS) | SHOULD | ⚠️ | Depends on 6.2 proof validation |
+| 4.15 | `X-Frame-Options: DENY` or CSP `frame-ancestors 'none'` on AS UI | MUST | ✅ | `crates/oauth2-server/src/lib.rs:964, 982`; `oauth.rs:186` |
+| 4.16 | Phishing-resistant authentication (WebAuthn / passkeys) | SHOULD | ❌ | Out of scope for Phase 6; separate track |
+
+### 9.2 Phase 6 Chunked Plan
+
+| # | Item | RFC ref | Effort | Priority |
+|---|---|---|---|---|
+| 6.1 | Revoke token family on authorization-code replay | RFC 9700 §2.1.5 | S | High |
+| 6.2 | DPoP proof validation on token / introspection / refresh paths | RFC 9449, RFC 9700 §2.2 | L | High |
+| 6.3 | Wire `aud` claim to RFC 8707 `resource` parameter | RFC 8707, RFC 9068, RFC 9700 §2.3 | M | High |
+| 6.4 | Configurable token TTLs + refresh absolute-max cap | RFC 9700 §2.3, §4.14 | S | High |
+| 6.5 | JWT client-assertion `jti` replay store | RFC 7523 §3, RFC 9700 §2.5 | M | High |
+| 6.6 | Per-client `require_state` policy flag | RFC 9700 §4.7 | S | Medium |
+| 6.7 | Login redirect: 302 → 303 See Other | RFC 9700 §4.11 | XS | Medium |
+| 6.8 | Application-layer TLS enforcement + HSTS on API responses | RFC 9700 §2.6 | S | Medium |
+| 6.9 | Enable rate limiting on `/oauth/token` + `/device/token` by default; separate bucket for `invalid_client` | RFC 9700 §2.5, RFC 8628 §3.5 (slow_down) | M | Medium |
+| 6.10 | mTLS client auth method (`tls_client_auth`, `self_signed_tls_client_auth`) | RFC 8705 | L | Medium |
+| 6.11 | Introspection PII scoping (do not leak `username` cross-client) | RFC 7662 §5 | S | Medium |
+| 6.12 | JAR / `private_key_jwt`: support client `jwks_uri` with TTL cache | RFC 9101, RFC 7523 | M | Medium |
+| 6.13 | RFC 8252 Native Apps: loopback + custom-URI scheme validation (was 5.8) | RFC 8252 | S | Medium |
+| 6.14 | `rfc9700_compliance.rs` conformance suite covering all test vectors | — | S | High |
+
+### 9.3 RFC 9700 Conformance Test Vectors
+
+These become acceptance criteria for Phase 6 (and live as `tests/rfc9700_compliance.rs`):
+
+1. `code_challenge_method=plain` → 400 `invalid_request`.
+2. Public client omitting `code_challenge` at authorize → 400.
+3. Replay of used authorization code → 400 `invalid_grant` AND every token in the family issued from that code is revoked (6.1).
+4. Replay of a rotated refresh token → 400 AND entire family revoked.
+5. Every authorization response (success and error) includes `iss`.
+6. `redirect_uri` with trailing-slash mismatch vs registration → rejected.
+7. `redirect_uri` with extra query param vs registration → rejected.
+8. Login form POST that authenticates → 303 See Other (6.7).
+9. Token endpoint response headers include `Cache-Control: no-store`.
+10. `/authorize` and `/consent` responses include `X-Frame-Options: DENY` (or CSP `frame-ancestors 'none'`).
+11. Discovery JSON: `code_challenge_methods_supported=["S256"]`; `grant_types_supported` excludes `password`; `response_types_supported` excludes `token`; `authorization_response_iss_parameter_supported=true`.
+12. Client assertion replaying the same `jti` within its exp window → 400 (6.5).
+13. Token request with `resource=https://api.example.com` → issued JWT has `aud=["https://api.example.com"]` (6.3).
+
+---
+
+_Last updated: 2026-04-20 — Phase 6 (RFC 9700 hardening) opened; Phases 1–4 complete, Phase 5 partial (5.1/5.2/5.3/5.6/5.7 done)._

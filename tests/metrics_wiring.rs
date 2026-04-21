@@ -418,7 +418,7 @@ async fn login_bad_password_increments_failed_authentications() {
         .set_form([("username", "alice"), ("password", "wrong")])
         .to_request();
     let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 302);
+    assert_eq!(resp.status(), 303); // RFC 9700 §4.11
 
     let req = test::TestRequest::get().uri("/metrics").to_request();
     let resp = test::call_service(&app, req).await;
@@ -461,7 +461,7 @@ async fn login_unknown_user_increments_failed_authentications() {
         .set_form([("username", "nobody"), ("password", "whatever")])
         .to_request();
     let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 302);
+    assert_eq!(resp.status(), 303); // RFC 9700 §4.11
 
     let req = test::TestRequest::get().uri("/metrics").to_request();
     let resp = test::call_service(&app, req).await;

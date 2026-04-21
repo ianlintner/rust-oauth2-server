@@ -6,17 +6,18 @@
 //! independently and cited by RFC section number.
 
 use actix::Actor;
-use actix_web::{test, web, App};
+use actix_session::{storage::CookieSessionStore, SessionMiddleware};
+use actix_web::{cookie::Key, test, web, App};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
 use oauth2_actix::actors::TokenActorPool;
 use oauth2_actix::handlers::wellknown::OidcConfig;
-use oauth2_core::{Client, TokenResponse};
+use oauth2_core::{Client, TokenResponse, User};
 use oauth2_observability::Metrics;
 
 // ---------------------------------------------------------------------------
-// Shared setup.
+// Shared setup (same pattern as tests/rfc_compliance.rs).
 // ---------------------------------------------------------------------------
 
 async fn setup(
@@ -31,6 +32,7 @@ async fn setup(
     String,
     Metrics,
     OidcConfig,
+    oauth2_ports::DynStorage,
 ) {
     let storage = oauth2_storage_factory::create_storage("sqlite::memory:")
         .await
@@ -40,6 +42,22 @@ async fn setup(
     for client in clients {
         storage.save_client(&client).await.expect("save_client");
     }
+
+    let now = chrono::Utc::now();
+    let user = User {
+        id: "user_rfc9700".to_string(),
+        username: "alice".to_string(),
+        // Argon2 hash of "correct-horse-battery-staple" generated offline; any
+        // password verification in this suite uses this exact value.
+        password_hash: oauth2_actix::handlers::login::hash_password("correct-horse-battery-staple")
+            .expect("hash"),
+        email: "alice@example.test".to_string(),
+        enabled: true,
+        role: "user".to_string(),
+        created_at: now,
+        updated_at: now,
+    };
+    storage.save_user(&user).await.expect("save_user");
 
     let jwt_secret = "rfc9700_test_secret_at_least_32_chars_long".to_string();
     let metrics = Metrics::new().expect("metrics");
@@ -54,7 +72,7 @@ async fn setup(
     }
     let token_pool = TokenActorPool::new(vec![token_actor.start()]);
     let client_actor = oauth2_actix::actors::ClientActor::new(storage.clone()).start();
-    let auth_actor = oauth2_actix::actors::AuthActor::new(storage).start();
+    let auth_actor = oauth2_actix::actors::AuthActor::new(storage.clone()).start();
 
     let oidc_config = OidcConfig {
         issuer: issuer.to_string(),
@@ -71,6 +89,7 @@ async fn setup(
         jwt_secret,
         metrics,
         oidc_config,
+        storage,
     )
 }
 
@@ -94,7 +113,7 @@ async fn rfc9700_aud_reflects_resource_parameter_on_client_credentials() {
         "test".to_string(),
     );
 
-    let (token_actor, client_actor, auth_actor, jwt_secret, metrics, oidc_config) =
+    let (token_actor, client_actor, auth_actor, jwt_secret, metrics, oidc_config, _storage) =
         setup(vec![client], ISSUER, None, None).await;
     let keyset = Arc::new(RwLock::new(oauth2_core::models::key_set::KeySet::default()));
 
@@ -159,6 +178,67 @@ async fn rfc9700_aud_reflects_resource_parameter_on_client_credentials() {
 }
 
 // ---------------------------------------------------------------------------
+// §4.11 — 303 See Other after credential POST.
+// ---------------------------------------------------------------------------
+
+/// RFC 9700 §4.11: the AS MUST use HTTP 303 (or a GET-based redirect) after
+/// a credential POST so that user-agents do not replay the POST body to the
+/// redirect target.
+#[actix_web::test]
+async fn rfc9700_login_returns_303_after_credentials_post() {
+    let (_token_actor, _client_actor, _auth_actor, _jwt_secret, metrics, _oidc, storage) =
+        setup(vec![], "https://auth.example.com", None, None).await;
+
+    let app = test::init_service(
+        App::new()
+            .wrap(SessionMiddleware::new(
+                CookieSessionStore::default(),
+                Key::generate(),
+            ))
+            .app_data(web::Data::new(storage))
+            .app_data(web::Data::new(metrics))
+            .route(
+                "/auth/login",
+                web::post().to(oauth2_actix::handlers::login::login_submit),
+            ),
+    )
+    .await;
+
+    // Wrong password path — still a credential POST, still MUST be 303.
+    let resp = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri("/auth/login")
+            .set_form([("username", "alice"), ("password", "not-the-password")])
+            .to_request(),
+    )
+    .await;
+    assert_eq!(
+        resp.status(),
+        303,
+        "RFC 9700 §4.11: login endpoint must return 303 See Other after credential POST"
+    );
+
+    // Correct-credentials path — also 303.
+    let resp = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri("/auth/login")
+            .set_form([
+                ("username", "alice"),
+                ("password", "correct-horse-battery-staple"),
+            ])
+            .to_request(),
+    )
+    .await;
+    assert_eq!(
+        resp.status(),
+        303,
+        "RFC 9700 §4.11: successful login must return 303 See Other"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // §2.1.1.2 / §2.1.2 / §2.4 — discovery document excludes deprecated flows.
 // ---------------------------------------------------------------------------
 
@@ -166,7 +246,7 @@ async fn rfc9700_aud_reflects_resource_parameter_on_client_credentials() {
 /// prohibited by RFC 9700 (implicit grant, ROPC, `plain` PKCE).
 #[actix_web::test]
 async fn rfc9700_discovery_excludes_deprecated_flows() {
-    let (token_actor, client_actor, auth_actor, jwt_secret, metrics, oidc_config) =
+    let (token_actor, client_actor, auth_actor, jwt_secret, metrics, oidc_config, _storage) =
         setup(vec![], "https://auth.example.com", None, None).await;
     let keyset = Arc::new(RwLock::new(oauth2_core::models::key_set::KeySet::default()));
 
@@ -262,13 +342,14 @@ async fn rfc9700_access_token_ttl_is_configurable() {
         "test".to_string(),
     );
 
-    let (token_actor, client_actor, auth_actor, jwt_secret, metrics, oidc_config) = setup(
-        vec![client],
-        ISSUER,
-        Some(CUSTOM_ACCESS_TTL),
-        Some(CUSTOM_REFRESH_TTL),
-    )
-    .await;
+    let (token_actor, client_actor, auth_actor, jwt_secret, metrics, oidc_config, _storage) =
+        setup(
+            vec![client],
+            ISSUER,
+            Some(CUSTOM_ACCESS_TTL),
+            Some(CUSTOM_REFRESH_TTL),
+        )
+        .await;
     let keyset = Arc::new(RwLock::new(oauth2_core::models::key_set::KeySet::default()));
 
     let app = test::init_service(
