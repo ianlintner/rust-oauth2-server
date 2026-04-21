@@ -34,6 +34,12 @@ pub struct AuthorizationCode {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "sqlx", sqlx(default))]
     pub claims_request: Option<String>,
+    /// RFC 9700 §2.1.5: same `token_family` UUID assigned to every access /
+    /// refresh token issued from this code. On authorization-code replay the
+    /// AS looks up this family and cascade-revokes the entire lineage.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "sqlx", sqlx(default))]
+    pub token_family: Option<String>,
 }
 
 impl AuthorizationCode {
@@ -71,6 +77,10 @@ impl AuthorizationCode {
             resource,
             authorization_details,
             claims_request,
+            // RFC 9700 §2.1.5: mint a fresh token_family UUID per code so
+            // every derived access/refresh token shares a lineage that can
+            // be cascade-revoked on code replay.
+            token_family: Some(Uuid::new_v4().to_string()),
         }
     }
 

@@ -167,6 +167,37 @@ pub struct MarkAuthorizationCodeUsed {
     pub span: tracing::Span,
 }
 
+/// RFC 9700 §2.1.5: fetch an authorization code by its value WITHOUT
+/// enforcing `is_valid()`. Used by the replay-detection path in the
+/// token handler to recover the stored `token_family` so the entire
+/// token lineage can be cascade-revoked.
+#[derive(Message)]
+#[rtype(result = "Result<Option<AuthorizationCode>, OAuth2Error>")]
+pub struct LookupAuthorizationCode {
+    pub code: String,
+    pub span: tracing::Span,
+}
+
+impl Handler<LookupAuthorizationCode> for AuthActor {
+    type Result = ResponseFuture<Result<Option<AuthorizationCode>, OAuth2Error>>;
+
+    fn handle(&mut self, msg: LookupAuthorizationCode, _: &mut Self::Context) -> Self::Result {
+        let db = self.db.clone();
+        let code_prefix = msg.code.chars().take(12).collect::<String>();
+        let actor_span = tracing::info_span!(
+            parent: &msg.span,
+            "actor.auth.lookup_authorization_code",
+            trace_id = tracing::field::Empty,
+            span_id = tracing::field::Empty,
+            code_prefix = %code_prefix,
+            code_len = msg.code.len()
+        );
+        annotate_span_with_trace_ids(&actor_span);
+
+        Box::pin(async move { db.get_authorization_code(&msg.code).await }.instrument(actor_span))
+    }
+}
+
 impl Handler<ValidateAuthorizationCode> for AuthActor {
     type Result = ResponseFuture<Result<AuthorizationCode, OAuth2Error>>;
 

@@ -1516,7 +1516,7 @@ async fn handle_authorization_code_grant(
     }
 
     // Validate authorization code
-    let auth_code = auth_actor
+    let auth_code = match auth_actor
         .send(ValidateAuthorizationCode {
             code: code.clone(),
             client_id: req.client_id.clone(),
@@ -1525,7 +1525,45 @@ async fn handle_authorization_code_grant(
             span: tracing::Span::current(),
         })
         .await
-        .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))??;
+        .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))?
+    {
+        Ok(code) => code,
+        Err(validation_err) => {
+            // RFC 9700 §2.1.5: on authorization-code replay the AS MUST
+            // revoke every token issued from that code. A *replay* is
+            // specifically a code that exists and is already `used` —
+            // distinct from an expired or never-issued code, which we
+            // ignore here. Fetch the raw record (bypassing `is_valid`)
+            // and, if we find a used entry carrying a `token_family`,
+            // cascade-revoke the entire lineage via the TokenActor.
+            if let Ok(Some(stale)) = auth_actor
+                .send(crate::actors::LookupAuthorizationCode {
+                    code: code.clone(),
+                    span: tracing::Span::current(),
+                })
+                .await
+                .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))?
+            {
+                if stale.used {
+                    if let Some(family) = stale.token_family.clone() {
+                        tracing::warn!(
+                            client_id = %req.client_id,
+                            token_family = %family,
+                            "RFC 9700 §2.1.5: authorization-code replay detected — cascade-revoking token family"
+                        );
+                        let _ = token_actor
+                            .route(&req.client_id)
+                            .send(crate::actors::RevokeTokenFamily {
+                                family,
+                                span: tracing::Span::current(),
+                            })
+                            .await;
+                    }
+                }
+            }
+            return Err(validation_err);
+        }
+    };
 
     // Validate client grant permissions + authenticate if required.
     let client = client_actor
@@ -1578,8 +1616,15 @@ async fn handle_authorization_code_grant(
     // to use the refresh_token grant and the `offline_access` scope was requested
     // (or the client explicitly supports refresh_token without scope restriction).
     let include_refresh = client.supports_grant_type("refresh_token");
+    // RFC 9700 §2.1.5: adopt the auth-code's token_family so every token
+    // derived from this grant shares a lineage that can be cascade-revoked
+    // on code replay. Fall back to a fresh UUID for legacy codes issued
+    // before migration V18 rolled out.
     let token_family = if include_refresh {
-        Some(Uuid::new_v4().to_string())
+        auth_code
+            .token_family
+            .clone()
+            .or_else(|| Some(Uuid::new_v4().to_string()))
     } else {
         None
     };

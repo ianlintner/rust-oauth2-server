@@ -594,6 +594,53 @@ impl Handler<RevokeToken> for TokenActor {
     }
 }
 
+/// RFC 9700 §2.1.5 / §4.14.2: revoke every access + refresh token that
+/// carries the supplied `family` UUID. Used on authorization-code replay
+/// (cascade from the auth-code's family) and on refresh-token replay
+/// (cascade from the rotated token's family).
+#[derive(Message)]
+#[rtype(result = "Result<u64, OAuth2Error>")]
+pub struct RevokeTokenFamily {
+    pub family: String,
+    pub span: tracing::Span,
+}
+
+impl Handler<RevokeTokenFamily> for TokenActor {
+    type Result = ResponseFuture<Result<u64, OAuth2Error>>;
+
+    fn handle(&mut self, msg: RevokeTokenFamily, _: &mut Self::Context) -> Self::Result {
+        let db = self.db.clone();
+        let actor_span = tracing::info_span!(
+            parent: &msg.span,
+            "actor.token.revoke_family",
+            trace_id = tracing::field::Empty,
+            span_id = tracing::field::Empty,
+            token_family = %msg.family
+        );
+        annotate_span_with_trace_ids(&actor_span);
+
+        // A family revocation may invalidate many tokens whose access_token
+        // strings we do not know without a query. Dropping the whole LRU
+        // is the simplest correct answer — the cache is a TTL-bounded
+        // performance aid, not a source of truth. Repopulation happens
+        // lazily on subsequent ValidateToken calls.
+        self.token_cache.clear();
+
+        Box::pin(
+            async move {
+                let revoked = db.revoke_token_family(&msg.family).await?;
+                tracing::info!(
+                    token_family = %msg.family,
+                    revoked_count = revoked,
+                    "Revoked token family (RFC 9700 §2.1.5 cascade)"
+                );
+                Ok(revoked)
+            }
+            .instrument(actor_span),
+        )
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Refresh-token lookup (database round-trip, no cache)
 // ---------------------------------------------------------------------------
