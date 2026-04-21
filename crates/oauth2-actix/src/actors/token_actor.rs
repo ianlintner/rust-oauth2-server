@@ -17,6 +17,12 @@ use oauth2_core::{Claims, OAuth2Error, Token};
 const TOKEN_CACHE_TTL_SECS: u64 = 60;
 /// Default max entries in the token validation cache.
 const TOKEN_CACHE_MAX_ENTRIES: usize = 10_000;
+/// Default access token lifetime in seconds. Overridable via config
+/// (`jwt.access_token_ttl_secs`) — see RFC 9700 §2.3.
+const DEFAULT_ACCESS_TOKEN_TTL_SECS: i64 = 3600;
+/// Default refresh token lifetime in seconds (30 days). Overridable via
+/// config (`jwt.refresh_token_ttl_secs`).
+const DEFAULT_REFRESH_TOKEN_TTL_SECS: i64 = 2_592_000;
 /// Redis key prefix for the L2 token cache.
 #[cfg(feature = "redis-cache")]
 const REDIS_TOKEN_PREFIX: &str = "oauth2:token:";
@@ -47,6 +53,10 @@ pub struct TokenActor {
     /// Optional Redis L2 cache behind the in-process LRU.
     #[allow(dead_code)]
     redis: RedisConn,
+    /// Access token lifetime in seconds (RFC 9700 §2.3).
+    access_token_ttl_secs: i64,
+    /// Refresh token lifetime in seconds.
+    refresh_token_ttl_secs: i64,
 }
 
 impl TokenActor {
@@ -61,6 +71,8 @@ impl TokenActor {
             token_cache: LruCache::new(NonZeroUsize::new(TOKEN_CACHE_MAX_ENTRIES).unwrap()),
             token_cache_ttl: std::time::Duration::from_secs(TOKEN_CACHE_TTL_SECS),
             redis: Default::default(),
+            access_token_ttl_secs: DEFAULT_ACCESS_TOKEN_TTL_SECS,
+            refresh_token_ttl_secs: DEFAULT_REFRESH_TOKEN_TTL_SECS,
         }
     }
 
@@ -80,7 +92,17 @@ impl TokenActor {
             token_cache: LruCache::new(NonZeroUsize::new(TOKEN_CACHE_MAX_ENTRIES).unwrap()),
             token_cache_ttl: std::time::Duration::from_secs(TOKEN_CACHE_TTL_SECS),
             redis: Default::default(),
+            access_token_ttl_secs: DEFAULT_ACCESS_TOKEN_TTL_SECS,
+            refresh_token_ttl_secs: DEFAULT_REFRESH_TOKEN_TTL_SECS,
         }
+    }
+
+    /// Configure access and refresh token lifetimes. Callers that do not
+    /// invoke this method retain the 1-hour access / 30-day refresh defaults.
+    pub fn with_token_ttls(mut self, access_ttl_secs: i64, refresh_ttl_secs: i64) -> Self {
+        self.access_token_ttl_secs = access_ttl_secs;
+        self.refresh_token_ttl_secs = refresh_ttl_secs;
+        self
     }
 
     pub fn with_keyset(mut self, keyset: Arc<RwLock<KeySet>>) -> Self {
@@ -152,6 +174,8 @@ impl Handler<CreateToken> for TokenActor {
         let event_bus = self.event_bus.clone();
         let keyset = self.keyset.clone();
         let access_tokens_opaque = self.access_tokens_opaque;
+        let access_token_ttl_secs = self.access_token_ttl_secs;
+        let refresh_token_ttl_secs = self.refresh_token_ttl_secs;
 
         let parent_span = msg.span.clone();
         let actor_span = tracing::info_span!(
@@ -205,7 +229,7 @@ impl Handler<CreateToken> for TokenActor {
                         subject.clone(),
                         aud.clone(),
                         msg.scope.clone(),
-                        3600, // 1 hour
+                        access_token_ttl_secs,
                         &issuer,
                     );
                     // Always preserve client_id claim even when aud is overridden.
@@ -229,7 +253,7 @@ impl Handler<CreateToken> for TokenActor {
                         subject,
                         msg.client_id.clone(),
                         msg.scope.clone(),
-                        2592000, // 30 days
+                        refresh_token_ttl_secs,
                         &issuer,
                     );
                     let token = if let Some(ref key) = signing_key {
@@ -249,7 +273,7 @@ impl Handler<CreateToken> for TokenActor {
                     msg.client_id.clone(),
                     msg.user_id.clone(),
                     msg.scope.clone(),
-                    3600,
+                    access_token_ttl_secs as i32,
                     msg.token_family,
                 );
 

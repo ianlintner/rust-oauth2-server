@@ -817,6 +817,8 @@ pub async fn run() -> std::io::Result<()> {
         .unwrap_or(1);
     let token_pool = {
         let mut shards = Vec::with_capacity(shard_count);
+        let access_ttl = config.jwt.access_token_ttl_secs as i64;
+        let refresh_ttl = config.jwt.refresh_token_ttl_secs as i64;
         for _ in 0..shard_count {
             let shard = if let Some(ref event_bus) = event_bus {
                 let eb = event_bus.clone();
@@ -830,7 +832,8 @@ pub async fn run() -> std::io::Result<()> {
                         eb,
                     )
                     .with_keyset(keyset.clone())
-                    .with_access_tokens_opaque(config.jwt.access_tokens_opaque);
+                    .with_access_tokens_opaque(config.jwt.access_tokens_opaque)
+                    .with_token_ttls(access_ttl, refresh_ttl);
                     attach_token_cache(actor, &cache_redis)
                 })
             } else {
@@ -843,7 +846,8 @@ pub async fn run() -> std::io::Result<()> {
                         issuer.clone(),
                     )
                     .with_keyset(keyset.clone())
-                    .with_access_tokens_opaque(config.jwt.access_tokens_opaque);
+                    .with_access_tokens_opaque(config.jwt.access_tokens_opaque)
+                    .with_token_ttls(access_ttl, refresh_ttl);
                     attach_token_cache(actor, &cache_redis)
                 })
             };
@@ -870,15 +874,17 @@ pub async fn run() -> std::io::Result<()> {
         })
     };
 
+    let auth_code_ttl = config.jwt.authorization_code_ttl_secs as i64;
     let auth_actor = if let Some(ref event_bus) = event_bus {
         actix::Actor::create(|ctx| {
             ctx.set_mailbox_capacity(ACTOR_MAILBOX_CAPACITY);
             oauth2_actix::actors::AuthActor::with_events(storage.clone(), event_bus.clone())
+                .with_auth_code_ttl(auth_code_ttl)
         })
     } else {
         actix::Actor::create(|ctx| {
             ctx.set_mailbox_capacity(ACTOR_MAILBOX_CAPACITY);
-            oauth2_actix::actors::AuthActor::new(storage.clone())
+            oauth2_actix::actors::AuthActor::new(storage.clone()).with_auth_code_ttl(auth_code_ttl)
         })
     };
 

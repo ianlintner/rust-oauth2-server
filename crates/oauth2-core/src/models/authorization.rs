@@ -37,7 +37,9 @@ pub struct AuthorizationCode {
 }
 
 impl AuthorizationCode {
-    #[allow(clippy::too_many_arguments)]
+    /// Build an authorization code with the RFC-default 10-minute lifetime.
+    ///
+    /// Prefer [`new_with_ttl`] when a configurable TTL is available.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         code: String,
@@ -52,8 +54,44 @@ impl AuthorizationCode {
         authorization_details: Option<String>,
         claims_request: Option<String>,
     ) -> Self {
+        Self::new_with_ttl(
+            code,
+            client_id,
+            user_id,
+            redirect_uri,
+            scope,
+            code_challenge,
+            code_challenge_method,
+            nonce,
+            resource,
+            authorization_details,
+            claims_request,
+            600,
+        )
+    }
+
+    /// Build an authorization code with an explicit TTL in seconds.
+    ///
+    /// Caps at RFC 6749 §4.1.2's 10-minute maximum; values greater than 600
+    /// are clamped. RFC 9700 §2.1.5 recommends values well under the max.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_with_ttl(
+        code: String,
+        client_id: String,
+        user_id: String,
+        redirect_uri: String,
+        scope: String,
+        code_challenge: Option<String>,
+        code_challenge_method: Option<String>,
+        nonce: Option<String>,
+        resource: Option<String>,
+        authorization_details: Option<String>,
+        claims_request: Option<String>,
+        ttl_seconds: i64,
+    ) -> Self {
         let now = Utc::now();
-        let expires_at = now + Duration::minutes(10);
+        let clamped_ttl = ttl_seconds.clamp(1, 600);
+        let expires_at = now + Duration::seconds(clamped_ttl);
 
         Self {
             id: Uuid::new_v4().to_string(),

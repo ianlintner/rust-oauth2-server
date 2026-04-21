@@ -121,10 +121,42 @@ pub struct JwtConfig {
     /// Refresh tokens remain JWT-backed for rotation/replay checks.
     #[serde(default)]
     pub access_tokens_opaque: bool,
+    /// Access token lifetime, in seconds. RFC 9700 §2.3 recommends short
+    /// access-token lifetimes compensated by refresh rotation.
+    #[serde(default = "default_access_token_ttl_secs")]
+    pub access_token_ttl_secs: u64,
+    /// Refresh token lifetime, in seconds. Defaults to 30 days.
+    #[serde(default = "default_refresh_token_ttl_secs")]
+    pub refresh_token_ttl_secs: u64,
+    /// Authorization-code lifetime, in seconds. RFC 6749 §4.1.2 caps at
+    /// 10 minutes; RFC 9700 §2.1.5 encourages even shorter windows.
+    #[serde(default = "default_authorization_code_ttl_secs")]
+    pub authorization_code_ttl_secs: u64,
 }
 
 fn default_grace_hours() -> u64 {
     24
+}
+
+fn default_access_token_ttl_secs() -> u64 {
+    std::env::var("OAUTH2_ACCESS_TOKEN_TTL_SECS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(3600)
+}
+
+fn default_refresh_token_ttl_secs() -> u64 {
+    std::env::var("OAUTH2_REFRESH_TOKEN_TTL_SECS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(2_592_000) // 30 days
+}
+
+fn default_authorization_code_ttl_secs() -> u64 {
+    std::env::var("OAUTH2_AUTHORIZATION_CODE_TTL_SECS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(600) // 10 minutes — RFC 6749 §4.1.2 max
 }
 
 /// Configuration for distributed caching (Redis L2 behind in-process LRU).
@@ -526,6 +558,9 @@ impl Config {
                     .ok()
                     .and_then(|v| v.parse().ok())
                     .unwrap_or(false),
+                access_token_ttl_secs: default_access_token_ttl_secs(),
+                refresh_token_ttl_secs: default_refresh_token_ttl_secs(),
+                authorization_code_ttl_secs: default_authorization_code_ttl_secs(),
             },
             events: EventConfig {
                 enabled: std::env::var("OAUTH2_EVENTS_ENABLED")

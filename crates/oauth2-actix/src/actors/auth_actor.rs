@@ -26,7 +26,12 @@ pub struct AuthActor {
     /// RFC 9126: in-memory store of pushed authorization requests.
     /// Key = `request_uri` (urn:ietf:params:oauth:request-uri:{uuid}).
     par_store: Arc<Mutex<HashMap<String, PAREntry>>>,
+    /// Authorization code lifetime in seconds (RFC 6749 §4.1.2 / RFC 9700 §2.1.5).
+    auth_code_ttl_secs: i64,
 }
+
+/// Default authorization code lifetime: 10 minutes (RFC 6749 §4.1.2 max).
+const DEFAULT_AUTH_CODE_TTL_SECS: i64 = 600;
 
 impl AuthActor {
     pub fn new(db: DynStorage) -> Self {
@@ -34,6 +39,7 @@ impl AuthActor {
             db,
             event_bus: None,
             par_store: Arc::new(Mutex::new(HashMap::new())),
+            auth_code_ttl_secs: DEFAULT_AUTH_CODE_TTL_SECS,
         }
     }
 
@@ -42,7 +48,15 @@ impl AuthActor {
             db,
             event_bus: Some(event_bus),
             par_store: Arc::new(Mutex::new(HashMap::new())),
+            auth_code_ttl_secs: DEFAULT_AUTH_CODE_TTL_SECS,
         }
+    }
+
+    /// Configure the authorization-code lifetime. Values > 600 are clamped
+    /// to the RFC 6749 §4.1.2 maximum inside `AuthorizationCode::new_with_ttl`.
+    pub fn with_auth_code_ttl(mut self, ttl_secs: i64) -> Self {
+        self.auth_code_ttl_secs = ttl_secs;
+        self
     }
 
     /// PAR TTL: pushed requests expire after 60 seconds (RFC 9126 §2.2).
@@ -93,6 +107,7 @@ impl Handler<CreateAuthorizationCode> for AuthActor {
     fn handle(&mut self, msg: CreateAuthorizationCode, _: &mut Self::Context) -> Self::Result {
         let db = self.db.clone();
         let event_bus = self.event_bus.clone();
+        let auth_code_ttl_secs = self.auth_code_ttl_secs;
 
         let parent_span = msg.span.clone();
         let actor_span = tracing::info_span!(
@@ -108,7 +123,7 @@ impl Handler<CreateAuthorizationCode> for AuthActor {
         Box::pin(
             async move {
                 let code = generate_code();
-                let auth_code = AuthorizationCode::new(
+                let auth_code = AuthorizationCode::new_with_ttl(
                     code,
                     msg.client_id.clone(),
                     msg.user_id.clone(),
@@ -120,6 +135,7 @@ impl Handler<CreateAuthorizationCode> for AuthActor {
                     msg.resource,
                     msg.authorization_details,
                     msg.claims_request,
+                    auth_code_ttl_secs,
                 );
 
                 db.save_authorization_code(&auth_code).await?;
