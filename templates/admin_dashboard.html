@@ -1103,12 +1103,12 @@
                 <template x-if="!loading && (error || items.length === 0)">
                   <tr><td colspan="4" class="table-cell py-10 text-center text-slate-400" x-text="error || 'No events recorded yet'"></td></tr>
                 </template>
-                <template x-for="item in items" :key="item.id || item.idempotency_key">
+                <template x-for="item in items" :key="(item.event && item.event.id) || item.correlation_id">
                   <tr class="table-row">
-                    <td class="table-cell"><span class="badge badge-blue" x-text="item.event_type || item.type || '—'"></span></td>
-                    <td class="table-cell text-slate-500" x-text="item.source || '—'"></td>
-                    <td class="table-cell"><code class="text-xs" x-text="(item.idempotency_key || '—').slice(0, 16) + '…'"></code></td>
-                    <td class="table-cell text-slate-500 whitespace-nowrap" x-text="relativeTime(item.received_at || item.created_at)"></td>
+                    <td class="table-cell"><span class="badge badge-blue" x-text="(item.event && item.event.event_type) || item.event_type || '—'"></span></td>
+                    <td class="table-cell text-slate-500" x-text="item.producer || item.source || '—'"></td>
+                    <td class="table-cell"><code class="text-xs" x-text="(item.idempotency_key || (item.event && item.event.id) || '—').slice(0, 16) + '…'"></code></td>
+                    <td class="table-cell text-slate-500 whitespace-nowrap" x-text="relativeTime(item.produced_at || item.received_at || item.created_at)"></td>
                   </tr>
                 </template>
               </tbody>
