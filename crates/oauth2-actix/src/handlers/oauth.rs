@@ -1354,6 +1354,11 @@ pub async fn token(
         None
     };
 
+    // Capture client_id before form is moved into grant handlers.
+    // Used to key the invalid_client penalty bucket (keyed by client_id rather
+    // than IP so it works correctly behind any proxy/Istio topology).
+    let client_id_for_rate_limit = form.client_id.clone();
+
     // Clone metrics for the failure-inspection wrapper below. Each grant
     // handler still owns its own `web::Data<Metrics>` for success paths
     // (`oauth_token_issued_total.inc()`).
@@ -1435,20 +1440,18 @@ pub async fn token(
     }
 
     // RFC 9700 §2.5: record invalid_client failures in the penalty bucket.
-    // Once the per-IP budget is exhausted, return 429 to block credential
-    // stuffing without revealing that credentials are wrong.
+    // Keyed by client_id (not peer IP) so this works correctly behind any
+    // proxy or service mesh topology. Once the per-client_id budget is
+    // exhausted, return 429 to block credential stuffing without leaking
+    // whether credentials are valid.
     if let Err(ref err) = result {
         if err.error == "invalid_client" {
             if let Some(ref limiter) = invalid_client_limiter {
-                let ip = req
-                    .peer_addr()
-                    .map(|a| a.ip().to_string())
-                    .unwrap_or_else(|| "unknown".to_string());
-                match limiter.0.check(&ip).await {
+                match limiter.0.check(&client_id_for_rate_limit).await {
                     Ok(rl) if !rl.allowed => {
                         let retry_after = rl.retry_after.map(|d| d.as_secs().max(1)).unwrap_or(1);
                         tracing::warn!(
-                            client_ip = %ip,
+                            client_id = %client_id_for_rate_limit,
                             "Invalid-client rate limit exceeded on token endpoint"
                         );
                         return Err(OAuth2Error::too_many_requests(&format!(

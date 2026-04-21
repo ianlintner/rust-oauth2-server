@@ -156,6 +156,109 @@ async fn invalid_client_no_limiter_returns_401() {
     assert_eq!(body.error, "invalid_client");
 }
 
+/// Different client_ids have independent buckets — exhausting one does not
+/// affect another. Verifies the key is client_id, not a shared IP.
+#[actix_web::test]
+async fn invalid_client_buckets_are_isolated_per_client_id() {
+    let storage = oauth2_storage_factory::create_storage("sqlite::memory:")
+        .await
+        .expect("storage");
+    storage.init().await.expect("init");
+
+    // Register two clients with the same secret so "WRONG" fails for both.
+    for id in ["client_iso_a", "client_iso_b"] {
+        let c = Client::new(
+            id.to_string(),
+            "real_secret".to_string(),
+            vec!["https://client.example.test/cb".to_string()],
+            vec!["client_credentials".to_string()],
+            "read".to_string(),
+            "Iso Client".to_string(),
+        );
+        storage.save_client(&c).await.expect("save_client");
+    }
+
+    let jwt_secret = "isolation_test_secret_at_least_32_chars!!".to_string();
+    let metrics = Metrics::new().expect("metrics");
+    let token_actor = oauth2_actix::actors::TokenActor::new(
+        storage.clone(),
+        jwt_secret.clone(),
+        "http://localhost".to_string(),
+    )
+    .start();
+    let token_pool = TokenActorPool::new(vec![token_actor]);
+    let client_actor = oauth2_actix::actors::ClientActor::new(storage.clone()).start();
+    let auth_actor = oauth2_actix::actors::AuthActor::new(storage).start();
+    let oidc_config = OidcConfig {
+        issuer: "http://localhost".to_string(),
+        jwt_secret: jwt_secret.clone(),
+        id_token_alg: "HS256".to_string(),
+        id_token_kid: None,
+        id_token_private_key_pem: None,
+    };
+
+    // Bucket: 2 failures max per client_id.
+    let ic_limiter = Arc::new(oauth2_ratelimit::in_memory::InMemoryRateLimiter::new(2, 60))
+        as Arc<dyn oauth2_ratelimit::RateLimiter>;
+
+    let app = test::init_service(
+        App::new()
+            .app_data(web::Data::new(token_pool))
+            .app_data(web::Data::new(client_actor))
+            .app_data(web::Data::new(auth_actor))
+            .app_data(web::Data::new(jwt_secret))
+            .app_data(web::Data::new(metrics))
+            .app_data(web::Data::new(oidc_config))
+            .app_data(web::Data::new(false))
+            .app_data(web::Data::new(InvalidClientRateLimiter(ic_limiter)))
+            .service(web::scope("/oauth").route(
+                "/token",
+                web::post().to(oauth2_actix::handlers::oauth::token),
+            )),
+    )
+    .await;
+
+    let bad_req = |client_id: &str| {
+        let body =
+            format!("grant_type=client_credentials&client_id={client_id}&client_secret=WRONG");
+        test::TestRequest::post()
+            .uri("/oauth/token")
+            .set_payload(body)
+            .insert_header(("Content-Type", "application/x-www-form-urlencoded"))
+            .to_request()
+    };
+
+    // Exhaust client_iso_a's bucket (2 failures → 3rd is 429).
+    assert_eq!(
+        test::call_service(&app, bad_req("client_iso_a"))
+            .await
+            .status(),
+        401
+    );
+    assert_eq!(
+        test::call_service(&app, bad_req("client_iso_a"))
+            .await
+            .status(),
+        401
+    );
+    assert_eq!(
+        test::call_service(&app, bad_req("client_iso_a"))
+            .await
+            .status(),
+        429,
+        "client_iso_a bucket exhausted"
+    );
+
+    // client_iso_b still has a full bucket — first failure returns 401, not 429.
+    assert_eq!(
+        test::call_service(&app, bad_req("client_iso_b"))
+            .await
+            .status(),
+        401,
+        "client_iso_b bucket is independent"
+    );
+}
+
 /// Successful token requests do NOT consume the invalid_client bucket.
 #[actix_web::test]
 async fn valid_requests_do_not_deplete_invalid_client_bucket() {

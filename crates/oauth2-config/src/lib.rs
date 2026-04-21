@@ -300,6 +300,9 @@ pub struct DebugConfig {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct RateLimitConfig {
+    /// IP-based global rate limiter applied by middleware to all routes.
+    /// Requires correct proxy IP extraction — leave `false` behind load balancers
+    /// until `trust_proxy_headers` or `externalTrafficPolicy: Local` is configured.
     #[serde(default = "default_rate_limit_enabled")]
     pub enabled: bool,
     #[serde(default = "default_max_requests")]
@@ -310,14 +313,16 @@ pub struct RateLimitConfig {
     pub backend: String,
     #[serde(default)]
     pub redis_url: Option<String>,
-    /// Max invalid_client failures per IP per window before returning 429.
-    /// Protects token endpoints from credential-stuffing attacks (RFC 9700 §2.5).
+    /// Max `invalid_client` failures per `client_id` per window before returning 429.
+    /// Protects `/oauth/token` from credential-stuffing (RFC 9700 §2.5).
+    /// Keyed by `client_id` so it works correctly behind any proxy topology.
+    /// Independent of `enabled` — active whenever `invalid_client_max_requests > 0`.
     #[serde(default = "default_invalid_client_max_requests")]
     pub invalid_client_max_requests: u32,
 }
 
 fn default_rate_limit_enabled() -> bool {
-    true
+    false
 }
 fn default_max_requests() -> u32 {
     100
@@ -625,7 +630,7 @@ impl Config {
                 enabled: std::env::var("OAUTH2_RATE_LIMIT_ENABLED")
                     .ok()
                     .and_then(|v| v.parse().ok())
-                    .unwrap_or(true),
+                    .unwrap_or(false),
                 max_requests: std::env::var("OAUTH2_RATE_LIMIT_MAX_REQUESTS")
                     .ok()
                     .and_then(|v| v.parse().ok())

@@ -658,14 +658,18 @@ pub async fn run() -> std::io::Result<()> {
 
     // --- Invalid-client penalty bucket (RFC 9700 §2.5) ---
     //
-    // Separate stricter limiter keyed per IP. Counts only `invalid_client`
-    // failures on the token endpoint. When exhausted the handler returns 429
-    // instead of leaking that credentials are wrong (blocks credential stuffing).
+    // Keyed by `client_id` (not IP) so it works correctly behind any proxy
+    // topology (Istio, ALB, NGINX). Counts only `invalid_client` failures on
+    // the token endpoint; when exhausted the handler returns 429 instead of
+    // leaking that credentials are wrong (blocks credential stuffing).
+    //
+    // Independent of `rate_limit.enabled` — active whenever
+    // `invalid_client_max_requests > 0`, regardless of IP rate limit config.
     let invalid_client_limiter: Option<Arc<dyn oauth2_ratelimit::RateLimiter>> = {
         let rl_config = config.rate_limit.clone().unwrap_or_default();
-        if rl_config.enabled {
+        if rl_config.invalid_client_max_requests > 0 {
             let limiter: Arc<dyn oauth2_ratelimit::RateLimiter> = match rl_config.backend.as_str() {
-                "redis" => {
+                "redis" if rl_config.enabled => {
                     #[cfg(feature = "redis-rate-limit")]
                     {
                         let redis_url = rl_config
@@ -710,7 +714,7 @@ pub async fn run() -> std::io::Result<()> {
             tracing::info!(
                 invalid_client_max_requests = rl_config.invalid_client_max_requests,
                 window_secs = rl_config.window_secs,
-                "Invalid-client rate limit bucket enabled"
+                "Invalid-client rate limit bucket enabled (keyed by client_id)"
             );
             Some(limiter)
         } else {
