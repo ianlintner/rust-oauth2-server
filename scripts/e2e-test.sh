@@ -385,7 +385,7 @@ BAD_LOGIN_RESP=$(curl -s -D - -o /dev/null -b "$COOKIE_JAR" -c "$COOKIE_JAR" \
 BAD_LOGIN_STATUS=$(echo "$BAD_LOGIN_RESP" | tail -1)
 BAD_LOGIN_LOCATION=$(echo "$BAD_LOGIN_RESP" | grep -i "^location:" | head -1 | tr -d '\r' | awk '{print $2}')
 
-if [[ "$BAD_LOGIN_STATUS" == "302" ]] && echo "$BAD_LOGIN_LOCATION" | grep -q "error=invalid_credentials"; then
+if [[ "$BAD_LOGIN_STATUS" == "303" ]] && echo "$BAD_LOGIN_LOCATION" | grep -q "error=invalid_credentials"; then
   pass "Wrong password → redirect with error=invalid_credentials"
 else
   fail "Wrong password should redirect with error" "status=${BAD_LOGIN_STATUS} location=${BAD_LOGIN_LOCATION}"
@@ -399,10 +399,10 @@ LOGIN_RESP=$(curl -s -D - -o /dev/null -b "$COOKIE_JAR" -c "$COOKIE_JAR" \
 LOGIN_STATUS=$(echo "$LOGIN_RESP" | tail -1)
 LOGIN_LOCATION=$(echo "$LOGIN_RESP" | grep -i "^location:" | head -1 | tr -d '\r' | awk '{print $2}')
 
-if [[ "$LOGIN_STATUS" == "302" ]]; then
-  pass "Correct credentials → 302 redirect"
+if [[ "$LOGIN_STATUS" == "303" ]]; then
+  pass "Correct credentials → 303 redirect"
 else
-  fail "Expected 302 after login" "got ${LOGIN_STATUS}"
+  fail "Expected 303 after login" "got ${LOGIN_STATUS}"
 fi
 
 if echo "$LOGIN_LOCATION" | grep -q "/oauth/authorize"; then
