@@ -77,22 +77,48 @@ impl IdempotencyStore {
     }
 }
 
-/// In-memory ring-buffer of recently ingested events (admin visibility, best-effort).
+/// Ring-buffer of recently ingested events (admin visibility, best-effort).
+///
+/// Backed by Redis when the `redis-cache` feature is enabled and a connection
+/// is provided; otherwise falls back to an in-process `VecDeque`.
 #[derive(Clone)]
 pub struct RecentEventsStore {
     capacity: usize,
     inner: Arc<Mutex<VecDeque<serde_json::Value>>>,
+    #[cfg(feature = "redis-cache")]
+    redis: Option<redis::aio::ConnectionManager>,
 }
 
 impl RecentEventsStore {
+    const REDIS_KEY: &'static str = "oauth2:recent_events";
+
     pub fn new(capacity: usize) -> Self {
         Self {
             capacity,
             inner: Arc::new(Mutex::new(VecDeque::with_capacity(capacity))),
+            #[cfg(feature = "redis-cache")]
+            redis: None,
         }
     }
 
+    #[cfg(feature = "redis-cache")]
+    pub fn with_redis(mut self, conn: redis::aio::ConnectionManager) -> Self {
+        self.redis = Some(conn);
+        self
+    }
+
     pub async fn push(&self, value: serde_json::Value) {
+        #[cfg(feature = "redis-cache")]
+        if let Some(mut conn) = self.redis.clone() {
+            use redis::AsyncCommands;
+            if let Ok(json) = serde_json::to_string(&value) {
+                let cap = self.capacity as isize - 1;
+                let _: Result<(), _> = conn.lpush(Self::REDIS_KEY, &json).await;
+                let _: Result<(), _> = conn.ltrim(Self::REDIS_KEY, 0, cap).await;
+                let _: Result<(), _> = conn.expire(Self::REDIS_KEY, 86400).await;
+            }
+            return;
+        }
         let mut guard = self.inner.lock().await;
         if guard.len() >= self.capacity {
             guard.pop_front();
@@ -101,6 +127,18 @@ impl RecentEventsStore {
     }
 
     pub async fn snapshot(&self) -> Vec<serde_json::Value> {
+        #[cfg(feature = "redis-cache")]
+        if let Some(mut conn) = self.redis.clone() {
+            use redis::AsyncCommands;
+            let raw: Vec<String> = conn
+                .lrange(Self::REDIS_KEY, 0, self.capacity as isize - 1)
+                .await
+                .unwrap_or_default();
+            return raw
+                .iter()
+                .filter_map(|s| serde_json::from_str(s).ok())
+                .collect();
+        }
         self.inner.lock().await.iter().rev().cloned().collect()
     }
 }

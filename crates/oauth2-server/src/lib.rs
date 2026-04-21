@@ -397,9 +397,23 @@ pub async fn run() -> std::io::Result<()> {
         Key::generate()
     };
 
+    // Optional Redis L2 cache — must be built before recent_events_store so we can attach it.
+    let cache_redis_manager = build_cache_redis_manager(&config).await;
+
     // Ring-buffer of recent events for the admin dashboard events page.
     // Constructed here so the event bridge plugin can hold a clone.
-    let recent_events_store = oauth2_actix::handlers::events::RecentEventsStore::new(500);
+    // When Redis is available, push/snapshot go through Redis so all replicas share the view.
+    let recent_events_store = {
+        let store = oauth2_actix::handlers::events::RecentEventsStore::new(500);
+        #[cfg(feature = "redis-cache")]
+        let store = if let Some(conn) = cache_redis_manager.clone() {
+            tracing::info!("RecentEventsStore backed by Redis (cross-replica visibility)");
+            store.with_redis(conn)
+        } else {
+            store
+        };
+        store
+    };
 
     // Bridge: forwards every event published through the actor bus into RecentEventsStore
     // so the admin Events page shows OAuth flow events (token issued, revoked, etc.).
@@ -610,9 +624,6 @@ pub async fn run() -> std::io::Result<()> {
         oauth2_actix::handlers::events::IdempotencyStore::new(Duration::from_secs(5 * 60))
             // Explicitly set to default to make it configurable without changing call sites.
             .with_max_entries(100_000);
-
-    // Optional Redis L2 cache shared across all replicas.
-    let cache_redis_manager = build_cache_redis_manager(&config).await;
 
     // --- Rate limiting ---
     let rate_limiter: Option<Arc<dyn oauth2_ratelimit::RateLimiter>> = {
