@@ -34,6 +34,8 @@ utoipa-swagger-ui = { version = "9.0.2", features = ["actix-web"] }
 tracing = "0.1"
 tracing-actix-web = "0.7"
 
+async-trait = "0.1"
+
 # Misc
 serde_json = "1.0"
 env_logger = "0.11"

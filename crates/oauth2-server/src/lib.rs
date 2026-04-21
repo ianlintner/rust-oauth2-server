@@ -397,6 +397,28 @@ pub async fn run() -> std::io::Result<()> {
         Key::generate()
     };
 
+    // Ring-buffer of recent events for the admin dashboard events page.
+    // Constructed here so the event bridge plugin can hold a clone.
+    let recent_events_store = oauth2_actix::handlers::events::RecentEventsStore::new(500);
+
+    // Bridge: forwards every event published through the actor bus into RecentEventsStore
+    // so the admin Events page shows OAuth flow events (token issued, revoked, etc.).
+    struct RecentEventsPlugin(oauth2_actix::handlers::events::RecentEventsStore);
+
+    #[async_trait::async_trait]
+    impl oauth2_events::EventPlugin for RecentEventsPlugin {
+        async fn emit(&self, envelope: &oauth2_events::EventEnvelope) -> Result<(), String> {
+            if let Ok(json) = serde_json::to_value(envelope) {
+                self.0.push(json).await;
+            }
+            Ok(())
+        }
+
+        fn name(&self) -> &str {
+            "recent_events_store"
+        }
+    }
+
     // Initialize event system first
     let event_actor = if config.events.enabled {
         use oauth2_events::{ConsoleEventLogger, EventFilter, InMemoryEventLogger};
@@ -417,11 +439,18 @@ pub async fn run() -> std::io::Result<()> {
         // Create plugins based on backend config
         let plugins: Vec<Arc<dyn oauth2_events::EventPlugin>> = match config.events.backend.as_str()
         {
-            "console" => vec![Arc::new(ConsoleEventLogger::new())],
-            "in_memory" => vec![Arc::new(InMemoryEventLogger::new(1000))],
+            "console" => vec![
+                Arc::new(ConsoleEventLogger::new()),
+                Arc::new(RecentEventsPlugin(recent_events_store.clone())),
+            ],
+            "in_memory" => vec![
+                Arc::new(InMemoryEventLogger::new(1000)),
+                Arc::new(RecentEventsPlugin(recent_events_store.clone())),
+            ],
             "both" => vec![
                 Arc::new(InMemoryEventLogger::new(1000)),
                 Arc::new(ConsoleEventLogger::new()),
+                Arc::new(RecentEventsPlugin(recent_events_store.clone())),
             ],
             "redis" | "redis_streams" => {
                 #[cfg(feature = "events-redis")]
@@ -446,10 +475,16 @@ pub async fn run() -> std::io::Result<()> {
                     match oauth2_events::RedisStreamsEventPublisher::connect(&url, stream, maxlen)
                         .await
                     {
-                        Ok(p) => vec![Arc::new(p)],
+                        Ok(p) => vec![
+                            Arc::new(p),
+                            Arc::new(RecentEventsPlugin(recent_events_store.clone())),
+                        ],
                         Err(e) => {
                             tracing::warn!(error = %e, "Redis event backend init failed; falling back to in_memory");
-                            vec![Arc::new(InMemoryEventLogger::new(1000))]
+                            vec![
+                                Arc::new(InMemoryEventLogger::new(1000)),
+                                Arc::new(RecentEventsPlugin(recent_events_store.clone())),
+                            ]
                         }
                     }
                 }
@@ -481,10 +516,16 @@ pub async fn run() -> std::io::Result<()> {
                         topic,
                         config.events.kafka_client_id.clone(),
                     ) {
-                        Ok(p) => vec![Arc::new(p)],
+                        Ok(p) => vec![
+                            Arc::new(p),
+                            Arc::new(RecentEventsPlugin(recent_events_store.clone())),
+                        ],
                         Err(e) => {
                             tracing::warn!(error = %e, "Kafka event backend init failed; falling back to in_memory");
-                            vec![Arc::new(InMemoryEventLogger::new(1000))]
+                            vec![
+                                Arc::new(InMemoryEventLogger::new(1000)),
+                                Arc::new(RecentEventsPlugin(recent_events_store.clone())),
+                            ]
                         }
                     }
                 }
@@ -519,10 +560,16 @@ pub async fn run() -> std::io::Result<()> {
                     match oauth2_events::RabbitEventPublisher::connect(&url, exchange, routing_key)
                         .await
                     {
-                        Ok(p) => vec![Arc::new(p)],
+                        Ok(p) => vec![
+                            Arc::new(p),
+                            Arc::new(RecentEventsPlugin(recent_events_store.clone())),
+                        ],
                         Err(e) => {
                             tracing::warn!(error = %e, "Rabbit event backend init failed; falling back to in_memory");
-                            vec![Arc::new(InMemoryEventLogger::new(1000))]
+                            vec![
+                                Arc::new(InMemoryEventLogger::new(1000)),
+                                Arc::new(RecentEventsPlugin(recent_events_store.clone())),
+                            ]
                         }
                     }
                 }
@@ -563,9 +610,6 @@ pub async fn run() -> std::io::Result<()> {
         oauth2_actix::handlers::events::IdempotencyStore::new(Duration::from_secs(5 * 60))
             // Explicitly set to default to make it configurable without changing call sites.
             .with_max_entries(100_000);
-
-    // Ring-buffer of recent events for the admin dashboard events page.
-    let recent_events_store = oauth2_actix::handlers::events::RecentEventsStore::new(500);
 
     // Optional Redis L2 cache shared across all replicas.
     let cache_redis_manager = build_cache_redis_manager(&config).await;
