@@ -1018,10 +1018,17 @@ pub async fn run() -> std::io::Result<()> {
             // IP denylist check runs before rate limiting so that
             // denylisted IPs don't consume rate-limit quota.
             .wrap(oauth2_actix::middleware::denylist::DenylistGuard)
-            // Resilience is the outermost layer (last .wrap() call).
-            // Tripped circuit / full concurrency pool → 503 on the cheapest
-            // path, before rate-limiting, session, or logging run.
+            // Resilience is next-outermost. Tripped circuit / full concurrency
+            // pool → 503 on the cheapest path, before rate-limiting, session,
+            // or logging run.
             .wrap(resilience_mw)
+            // RFC 9700 §2.6: outermost layer — reject plain HTTP before any
+            // other processing when `server.enforce_https = true`. No-op
+            // when disabled (the dev default).
+            .wrap(oauth2_actix::middleware::https_redirect::HttpsRedirect::new(
+                config.server.enforce_https,
+                config.server.trust_proxy_headers,
+            ))
             // Shared state
             .app_data(web::Data::new(token_pool.clone()))
             .app_data(web::Data::new(client_actor.clone()))

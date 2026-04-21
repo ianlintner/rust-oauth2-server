@@ -55,6 +55,14 @@ pub struct ServerConfig {
     /// When empty, CORS is fail-closed (all cross-origin requests are denied).
     #[serde(default)]
     pub allowed_origins: Vec<String>,
+    /// RFC 9700 §2.6: when `true`, application-layer middleware rejects
+    /// plain-HTTP requests with an HTTP 308 redirect to the matching
+    /// `https://` URL. Safe to enable behind TLS-terminating reverse proxies
+    /// that set `X-Forwarded-Proto`; requires `trust_proxy_headers = true`
+    /// for the header to be honored. Defaults to `false` so development
+    /// setups keep working without TLS.
+    #[serde(default)]
+    pub enforce_https: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -493,6 +501,11 @@ impl Config {
                     .map(|s| s.trim().to_string())
                     .filter(|s| !s.is_empty()),
                 allowed_origins: vec![],
+                enforce_https: std::env::var("OAUTH2_SERVER_ENFORCE_HTTPS")
+                    .ok()
+                    .or_else(|| std::env::var("OAUTH2_ENFORCE_HTTPS").ok())
+                    .and_then(|v| v.parse::<bool>().ok())
+                    .unwrap_or(false),
             },
             database: DatabaseConfig {
                 url: std::env::var("OAUTH2_DATABASE_URL")
