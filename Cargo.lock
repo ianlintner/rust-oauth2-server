@@ -4982,6 +4982,7 @@ dependencies = [
  "oauth2-observability",
  "oauth2-openapi",
  "oauth2-ports",
+ "oauth2-ratelimit",
  "oauth2-server",
  "oauth2-social-login",
  "oauth2-storage-factory",

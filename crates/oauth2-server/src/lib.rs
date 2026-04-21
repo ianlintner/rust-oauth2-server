@@ -656,6 +656,68 @@ pub async fn run() -> std::io::Result<()> {
         }
     };
 
+    // --- Invalid-client penalty bucket (RFC 9700 §2.5) ---
+    //
+    // Separate stricter limiter keyed per IP. Counts only `invalid_client`
+    // failures on the token endpoint. When exhausted the handler returns 429
+    // instead of leaking that credentials are wrong (blocks credential stuffing).
+    let invalid_client_limiter: Option<Arc<dyn oauth2_ratelimit::RateLimiter>> = {
+        let rl_config = config.rate_limit.clone().unwrap_or_default();
+        if rl_config.enabled {
+            let limiter: Arc<dyn oauth2_ratelimit::RateLimiter> = match rl_config.backend.as_str() {
+                "redis" => {
+                    #[cfg(feature = "redis-rate-limit")]
+                    {
+                        let redis_url = rl_config
+                            .redis_url
+                            .as_deref()
+                            .map(str::trim)
+                            .filter(|url| !url.is_empty());
+                        if let Some(redis_url) = redis_url {
+                            match oauth2_ratelimit::redis::RedisRateLimiter::new(
+                                redis_url,
+                                rl_config.invalid_client_max_requests,
+                                rl_config.window_secs,
+                            )
+                            .await
+                            {
+                                Ok(l) => Arc::new(l),
+                                Err(_) => {
+                                    Arc::new(oauth2_ratelimit::in_memory::InMemoryRateLimiter::new(
+                                        rl_config.invalid_client_max_requests,
+                                        rl_config.window_secs,
+                                    ))
+                                }
+                            }
+                        } else {
+                            Arc::new(oauth2_ratelimit::in_memory::InMemoryRateLimiter::new(
+                                rl_config.invalid_client_max_requests,
+                                rl_config.window_secs,
+                            ))
+                        }
+                    }
+                    #[cfg(not(feature = "redis-rate-limit"))]
+                    Arc::new(oauth2_ratelimit::in_memory::InMemoryRateLimiter::new(
+                        rl_config.invalid_client_max_requests,
+                        rl_config.window_secs,
+                    ))
+                }
+                _ => Arc::new(oauth2_ratelimit::in_memory::InMemoryRateLimiter::new(
+                    rl_config.invalid_client_max_requests,
+                    rl_config.window_secs,
+                )),
+            };
+            tracing::info!(
+                invalid_client_max_requests = rl_config.invalid_client_max_requests,
+                window_secs = rl_config.window_secs,
+                "Invalid-client rate limit bucket enabled"
+            );
+            Some(limiter)
+        } else {
+            None
+        }
+    };
+
     // --- Resilience (back-pressure, bulkheads, circuit breaker) ---
     let resilience_concurrency: Option<Arc<oauth2_resilience::ConcurrencyLimiter>>;
     let resilience_bulkheads: Option<Arc<oauth2_resilience::BulkheadRegistry>>;
@@ -1077,6 +1139,13 @@ pub async fn run() -> std::io::Result<()> {
         // Add event bus handle if enabled
         if let Some(ref event_bus) = event_bus {
             app = app.app_data(web::Data::new(event_bus.clone()));
+        }
+
+        // Invalid-client penalty bucket (RFC 9700 §2.5)
+        if let Some(ref ic_limiter) = invalid_client_limiter {
+            app = app.app_data(web::Data::new(
+                oauth2_actix::middleware::rate_limit::InvalidClientRateLimiter(ic_limiter.clone()),
+            ));
         }
 
         app

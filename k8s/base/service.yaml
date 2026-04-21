@@ -4,6 +4,20 @@ metadata:
   name: oauth2-server
   labels:
     app: oauth2-server
+    # Paved-path spec §1 rule 4 — standard workload labels.
+    app.kubernetes.io/name: oauth2-server
+    app.kubernetes.io/instance: oauth2-server
+    app.kubernetes.io/component: authorization-server
+    app.kubernetes.io/part-of: identity-platform
+    app.kubernetes.io/managed-by: kustomize
+  annotations:
+    # Paved-path spec §1 rule 3 — Prometheus scrape directives. The
+    # `/metrics` endpoint is currently served on the same port as user
+    # traffic (8080) rather than on a dedicated metrics listener. Moving
+    # it onto a separate port named `metrics` is tracked as a follow-up.
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8080"
+    prometheus.io/path: "/metrics"
 spec:
   type: ClusterIP
   ports:

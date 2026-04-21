@@ -598,6 +598,19 @@ pub async fn authorize(
         ));
     }
 
+    // RFC 9700 §4.7: per-client `require_state` enforcement. When the
+    // client has opted in, the `state` parameter is mandatory on the
+    // authorization request. PKCE already covers the CSRF case on its
+    // own; this flag is a defense-in-depth layer for clients that also
+    // bind their user-agent session to `state` on the redirect.
+    // Checked before JAR overlay — a client that requires state must
+    // carry it on the outer request too, not just in the JAR payload.
+    if client.require_state && query.state.is_none() {
+        return Err(OAuth2Error::invalid_request(
+            "state parameter is required for this client (RFC 9700 §4.7)",
+        ));
+    }
+
     // RFC 9101 §4: If a JAR `request` parameter is present, verify its signature and
     // overlay the JWT payload claims on top of the current effective parameters.
     // JAR claims take precedence over the corresponding query-string parameters.
@@ -1228,6 +1241,9 @@ pub async fn token(
     storage: Option<web::Data<DynStorage>>,
     metrics: web::Data<Metrics>,
     oidc_config: web::Data<OidcConfig>,
+    invalid_client_limiter: Option<
+        web::Data<crate::middleware::rate_limit::InvalidClientRateLimiter>,
+    >,
 ) -> Result<HttpResponse, OAuth2Error> {
     // OAuch: reject duplicate parameters (prevents parser differentials / smuggling).
     ensure_no_duplicate_query_params(&req)?;
@@ -1415,6 +1431,36 @@ pub async fn token(
     if let Err(ref err) = result {
         if matches!(err.error.as_str(), "invalid_client" | "invalid_grant") {
             metrics_for_failure.oauth_failed_authentications.inc();
+        }
+    }
+
+    // RFC 9700 §2.5: record invalid_client failures in the penalty bucket.
+    // Once the per-IP budget is exhausted, return 429 to block credential
+    // stuffing without revealing that credentials are wrong.
+    if let Err(ref err) = result {
+        if err.error == "invalid_client" {
+            if let Some(ref limiter) = invalid_client_limiter {
+                let ip = req
+                    .peer_addr()
+                    .map(|a| a.ip().to_string())
+                    .unwrap_or_else(|| "unknown".to_string());
+                match limiter.0.check(&ip).await {
+                    Ok(rl) if !rl.allowed => {
+                        let retry_after = rl.retry_after.map(|d| d.as_secs().max(1)).unwrap_or(1);
+                        tracing::warn!(
+                            client_ip = %ip,
+                            "Invalid-client rate limit exceeded on token endpoint"
+                        );
+                        return Err(OAuth2Error::too_many_requests(&format!(
+                            "Too many failed authentication attempts. Retry after {retry_after}s."
+                        )));
+                    }
+                    Err(e) => {
+                        tracing::error!(error = %e, "Invalid-client rate limiter error, failing open");
+                    }
+                    _ => {}
+                }
+            }
         }
     }
 

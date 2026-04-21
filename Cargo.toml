@@ -95,6 +95,7 @@ rsa = { version = "0.9", features = ["pem"] }
 rand_core = { version = "0.6", features = ["std"] }
 
 # Workspace crates used directly by root integration tests.
+oauth2-ratelimit = { path = "oauth2-ratelimit" }
 oauth2-storage-sqlx = { path = "crates/oauth2-storage-sqlx" }
 oauth2-storage-mongo = { path = "crates/oauth2-storage-mongo" }
 
