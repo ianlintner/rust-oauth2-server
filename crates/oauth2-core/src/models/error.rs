@@ -53,6 +53,10 @@ impl OAuth2Error {
     pub fn access_denied(description: &str) -> Self {
         Self::new("access_denied", Some(description))
     }
+
+    pub fn too_many_requests(description: &str) -> Self {
+        Self::new("too_many_requests", Some(description))
+    }
 }
 
 impl fmt::Display for OAuth2Error {
@@ -68,6 +72,7 @@ impl ResponseError for OAuth2Error {
             "invalid_client" => StatusCode::UNAUTHORIZED,
             "access_denied" => StatusCode::FORBIDDEN,
             "server_error" => StatusCode::INTERNAL_SERVER_ERROR,
+            "too_many_requests" => StatusCode::TOO_MANY_REQUESTS,
             _ => StatusCode::BAD_REQUEST,
         }
     }

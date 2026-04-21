@@ -1241,6 +1241,9 @@ pub async fn token(
     storage: Option<web::Data<DynStorage>>,
     metrics: web::Data<Metrics>,
     oidc_config: web::Data<OidcConfig>,
+    invalid_client_limiter: Option<
+        web::Data<crate::middleware::rate_limit::InvalidClientRateLimiter>,
+    >,
 ) -> Result<HttpResponse, OAuth2Error> {
     // OAuch: reject duplicate parameters (prevents parser differentials / smuggling).
     ensure_no_duplicate_query_params(&req)?;
@@ -1428,6 +1431,36 @@ pub async fn token(
     if let Err(ref err) = result {
         if matches!(err.error.as_str(), "invalid_client" | "invalid_grant") {
             metrics_for_failure.oauth_failed_authentications.inc();
+        }
+    }
+
+    // RFC 9700 §2.5: record invalid_client failures in the penalty bucket.
+    // Once the per-IP budget is exhausted, return 429 to block credential
+    // stuffing without revealing that credentials are wrong.
+    if let Err(ref err) = result {
+        if err.error == "invalid_client" {
+            if let Some(ref limiter) = invalid_client_limiter {
+                let ip = req
+                    .peer_addr()
+                    .map(|a| a.ip().to_string())
+                    .unwrap_or_else(|| "unknown".to_string());
+                match limiter.0.check(&ip).await {
+                    Ok(rl) if !rl.allowed => {
+                        let retry_after = rl.retry_after.map(|d| d.as_secs().max(1)).unwrap_or(1);
+                        tracing::warn!(
+                            client_ip = %ip,
+                            "Invalid-client rate limit exceeded on token endpoint"
+                        );
+                        return Err(OAuth2Error::too_many_requests(&format!(
+                            "Too many failed authentication attempts. Retry after {retry_after}s."
+                        )));
+                    }
+                    Err(e) => {
+                        tracing::error!(error = %e, "Invalid-client rate limiter error, failing open");
+                    }
+                    _ => {}
+                }
+            }
         }
     }
 

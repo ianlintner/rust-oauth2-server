@@ -7,6 +7,12 @@ use std::future::{ready, Ready};
 use std::rc::Rc;
 use std::sync::Arc;
 
+/// Penalty bucket for `invalid_client` failures on the token endpoint.
+///
+/// Injected as `app_data` so the token handler can record credential failures
+/// and block credential-stuffing once the per-IP limit is reached.
+pub struct InvalidClientRateLimiter(pub Arc<dyn oauth2_ratelimit::RateLimiter>);
+
 use actix_web::body::EitherBody;
 use actix_web::dev::{forward_ready, Service, ServiceRequest, ServiceResponse, Transform};
 use actix_web::{Error, HttpResponse};

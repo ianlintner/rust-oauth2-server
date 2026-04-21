@@ -310,10 +310,14 @@ pub struct RateLimitConfig {
     pub backend: String,
     #[serde(default)]
     pub redis_url: Option<String>,
+    /// Max invalid_client failures per IP per window before returning 429.
+    /// Protects token endpoints from credential-stuffing attacks (RFC 9700 §2.5).
+    #[serde(default = "default_invalid_client_max_requests")]
+    pub invalid_client_max_requests: u32,
 }
 
 fn default_rate_limit_enabled() -> bool {
-    false
+    true
 }
 fn default_max_requests() -> u32 {
     100
@@ -324,6 +328,9 @@ fn default_window_secs() -> u64 {
 fn default_rate_limit_backend() -> String {
     "in_memory".to_string()
 }
+fn default_invalid_client_max_requests() -> u32 {
+    5
+}
 
 impl Default for RateLimitConfig {
     fn default() -> Self {
@@ -333,6 +340,7 @@ impl Default for RateLimitConfig {
             window_secs: default_window_secs(),
             backend: default_rate_limit_backend(),
             redis_url: None,
+            invalid_client_max_requests: default_invalid_client_max_requests(),
         }
     }
 }
@@ -617,7 +625,7 @@ impl Config {
                 enabled: std::env::var("OAUTH2_RATE_LIMIT_ENABLED")
                     .ok()
                     .and_then(|v| v.parse().ok())
-                    .unwrap_or(false),
+                    .unwrap_or(true),
                 max_requests: std::env::var("OAUTH2_RATE_LIMIT_MAX_REQUESTS")
                     .ok()
                     .and_then(|v| v.parse().ok())
@@ -629,6 +637,12 @@ impl Config {
                 backend: std::env::var("OAUTH2_RATE_LIMIT_BACKEND")
                     .unwrap_or_else(|_| "in_memory".to_string()),
                 redis_url: std::env::var("OAUTH2_RATE_LIMIT_REDIS_URL").ok(),
+                invalid_client_max_requests: std::env::var(
+                    "OAUTH2_RATE_LIMIT_INVALID_CLIENT_MAX_REQUESTS",
+                )
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(5),
             }),
             social: None,
             session: None,
