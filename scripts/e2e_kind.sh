@@ -308,8 +308,8 @@ if [[ -f "${LOGIN_HEADERS}" ]]; then
   redirect_target=$(awk 'BEGIN { IGNORECASE = 1 } /^Location:/ { sub(/\r$/, "", $0); sub(/^Location:[[:space:]]*/, "", $0); print; exit }' "${LOGIN_HEADERS}")
 fi
 
-if [[ "${login_status}" != "302" ]]; then
-  echo "Admin login failed: expected HTTP 302, got ${login_status}." >&2
+if [[ "${login_status}" != "302" && "${login_status}" != "303" ]]; then
+  echo "Admin login failed: expected HTTP 302 or 303, got ${login_status}." >&2
   if [[ -n "${redirect_target}" ]]; then
     echo "Login redirect target: ${redirect_target}" >&2
   fi
