@@ -34,8 +34,8 @@ login_status=$(curl -sS -X POST "${BASE_URL}/auth/login" \
   --data-urlencode "password=${OAUTH2_SEED_PASSWORD:-changeme}" \
   -c "${COOKIE_JAR}" -o /dev/null -w '%{http_code}' 2>/dev/null || echo "000")
 
-if [[ "$login_status" != "302" ]]; then
-  _add_finding "FLOW-LOGIN-001" "medium" "Admin login returned ${login_status} (expected 302)" \
+if [[ "$login_status" != "303" ]]; then
+  _add_finding "FLOW-LOGIN-001" "medium" "Admin login returned ${login_status} (expected 303)" \
     "$(jq -n --arg ep "/auth/login" --arg st "${login_status}" '{"endpoint":$ep,"status":$st}')"
 fi
 

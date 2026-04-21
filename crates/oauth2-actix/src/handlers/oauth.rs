@@ -1926,6 +1926,12 @@ async fn handle_refresh_token_grant(
         .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))??;
 
     // Mint new access + refresh token pair.
+    //
+    // RFC 8707 §2.2: the client MAY include `resource` on refresh. We pass it
+    // straight through so the rotated access token is audience-restricted to
+    // the requested resource server. Strict "subset of originally authorized
+    // resources" enforcement requires persisting the resource set on the Token
+    // record (pending follow-up; tracked under Phase 6.3).
     let token = token_actor
         .route(&req.client_id)
         .send(CreateToken {
@@ -1934,7 +1940,7 @@ async fn handle_refresh_token_grant(
             scope,
             include_refresh: true,
             token_family: Some(family),
-            resource: None,
+            resource: req.resource.clone(),
             cnf: None,
             authorization_details: None,
             span: tracing::Span::current(),

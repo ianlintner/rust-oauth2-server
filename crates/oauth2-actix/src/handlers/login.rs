@@ -162,7 +162,7 @@ pub async fn login_submit(
                 retry_after_secs = retry_after,
                 "Login rate limit exceeded"
             );
-            return Ok(HttpResponse::Found()
+            return Ok(HttpResponse::SeeOther()
                 .append_header(("Location", "/auth/login?error=too_many_attempts"))
                 .append_header(("Retry-After", retry_after.to_string()))
                 .finish());
@@ -189,14 +189,14 @@ pub async fn login_submit(
                 "Login attempt against disabled account"
             );
             metrics.oauth_failed_authentications.inc();
-            return Ok(HttpResponse::Found()
+            return Ok(HttpResponse::SeeOther()
                 .append_header(("Location", "/auth/login?error=invalid_credentials"))
                 .finish());
         }
         None => {
             // Unknown username — return generic error to avoid user enumeration.
             metrics.oauth_failed_authentications.inc();
-            return Ok(HttpResponse::Found()
+            return Ok(HttpResponse::SeeOther()
                 .append_header(("Location", "/auth/login?error=invalid_credentials"))
                 .finish());
         }
@@ -211,7 +211,7 @@ pub async fn login_submit(
                 user.username
             );
             metrics.oauth_failed_authentications.inc();
-            return Ok(HttpResponse::Found()
+            return Ok(HttpResponse::SeeOther()
                 .append_header(("Location", "/auth/login?error=invalid_credentials"))
                 .finish());
         }
@@ -222,7 +222,7 @@ pub async fn login_submit(
         .is_err()
     {
         metrics.oauth_failed_authentications.inc();
-        return Ok(HttpResponse::Found()
+        return Ok(HttpResponse::SeeOther()
             .append_header(("Location", "/auth/login?error=invalid_credentials"))
             .finish());
     }
@@ -262,7 +262,10 @@ pub async fn login_submit(
         .filter(|u| is_safe_redirect(u))
         .unwrap_or_else(|| "/profile".to_string());
 
-    Ok(HttpResponse::Found()
+    // RFC 9700 §4.11: use HTTP 303 (See Other) after a credential POST so
+    // that the user-agent unambiguously switches to GET and does not replay
+    // the form body to the redirect target.
+    Ok(HttpResponse::SeeOther()
         .append_header(("Location", redirect_url))
         .finish())
 }
