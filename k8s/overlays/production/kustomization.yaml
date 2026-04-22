@@ -9,6 +9,7 @@ commonLabels:
 
 patchesStrategicMerge:
   - observability-patch.yaml
+  - postgres-pvc-patch.yaml
 
 images:
   - name: docker.io/ianlintner068/oauth2-server

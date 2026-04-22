@@ -1,0 +1,14 @@
+# AKS-specific storage class override for the production PostgreSQL PVC.
+#
+# The base manifest targets `standard`, which matches kind/minikube defaults
+# used in the dev and e2e overlays. On AKS `bigboy` the PVC was originally
+# provisioned against `managed-premium` (an Azure-specific SSD class), and
+# a PVC's `storageClassName` is immutable after binding. Keep this patch in
+# sync with whichever class the bound PV was provisioned against, otherwise
+# Flux reconciliation will fail with a dry-run "spec is immutable" error.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-pvc
+spec:
+  storageClassName: managed-premium
