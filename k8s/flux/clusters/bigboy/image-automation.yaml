@@ -54,12 +54,14 @@ spec:
     name: oauth2-server
   policy:
     semver:
-      # Match stable semver releases. Pre-release variants (`-mongo`,
-      # `-mongo-only`, `sha-*`) are excluded by the `filterTags` regex
-      # below so they never get promoted to production.
+      # Production uses the `-mongo` build variant (CARGO_FEATURES=mongo).
+      # The `filterTags` regex below restricts candidates to semver tags
+      # with the `-mongo` suffix so plain semver or `-mongo-only` builds
+      # are never promoted.
       range: ">=0.7.0"
   filterTags:
-    pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
+    pattern: '^(?P<version>[0-9]+\.[0-9]+\.[0-9]+)-mongo$'
+    extract: '$version'
 
 ---
 apiVersion: image.toolkit.fluxcd.io/v1beta2
