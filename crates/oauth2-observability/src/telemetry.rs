@@ -82,7 +82,7 @@ fn build_resource(service_name: &str) -> Resource {
         .ok()
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_string());
+        .unwrap_or_else(|| env!("APP_INFO_VERSION").to_string());
     builder = builder.with_attribute(KeyValue::new("service.version", version));
 
     if let Some(env_name) = std::env::var("DEPLOYMENT_ENVIRONMENT")

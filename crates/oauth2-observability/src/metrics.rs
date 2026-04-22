@@ -358,7 +358,11 @@ impl Metrics {
         app_info
             .with_label_values(&[
                 "oauth2-server",
-                env!("CARGO_PKG_VERSION"),
+                // Workspace root version (see build.rs). Using the
+                // observability crate's own `CARGO_PKG_VERSION` would
+                // report the wrong number because release automation
+                // only bumps the root manifest.
+                env!("APP_INFO_VERSION"),
                 option_env!("RUSTC_VERSION").unwrap_or("unknown"),
             ])
             .set(1);
