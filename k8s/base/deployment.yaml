@@ -28,7 +28,7 @@ spec:
       serviceAccountName: oauth2-server
       containers:
         - name: oauth2-server
-          image: docker.io/ianlintner068/oauth2-server:latest
+          image: docker.io/example/oauth2-server:latest
           imagePullPolicy: IfNotPresent
           command: ["/app/rust_oauth2_server"]
           ports:

@@ -11,7 +11,7 @@ set -euo pipefail
 
 CLUSTER_NAME="${CLUSTER_NAME:-oauth2-test}"
 NAMESPACE="${NAMESPACE:-oauth2-server}"
-IMAGE_REF="${IMAGE_REF:-docker.io/ianlintner068/oauth2-server:test}"
+IMAGE_REF="${IMAGE_REF:-docker.io/example/oauth2-server:test}"
 KUSTOMIZE_DIR="${KUSTOMIZE_DIR:-k8s/overlays/e2e-kind}"
 KEEP_CLUSTER="${KEEP_CLUSTER:-0}"
 KEEP_NAMESPACE="${KEEP_NAMESPACE:-0}"
@@ -25,7 +25,7 @@ Usage: scripts/e2e_kind.sh [--keep-cluster] [--keep-namespace] [--cluster NAME] 
 Environment overrides:
   CLUSTER_NAME   (default: oauth2-test)
   NAMESPACE      (default: oauth2-server)
-  IMAGE_REF      (default: docker.io/ianlintner068/oauth2-server:test)
+  IMAGE_REF      (default: docker.io/example/oauth2-server:test)
   KUSTOMIZE_DIR  (default: k8s/overlays/e2e-kind)
   KEEP_CLUSTER   (default: 0)
   KEEP_NAMESPACE (default: 0)
@@ -140,19 +140,6 @@ _diag() {
   _kubectl get nodes -o wide >&2 || true
   echo "\n--- kube-system pods" >&2
   _kubectl get pods -n kube-system -o wide >&2 || true
-  echo "\n--- Flyway job logs" >&2
-  local pods
-  pods=$(_kubectl get pods -n "${NAMESPACE}" -l job-name=flyway-migration -o jsonpath='{.items[*].metadata.name}' 2>/dev/null || true)
-  for pod in $pods; do
-    echo "--- describe pod/${pod}" >&2
-    _kubectl describe pod "$pod" -n "${NAMESPACE}" >&2 || true
-    echo "--- logs pod/${pod} (init: wait-for-postgres)" >&2
-    _kubectl logs "$pod" -n "${NAMESPACE}" -c wait-for-postgres --tail=200 >&2 || true
-    echo "--- logs pod/${pod} (container: flyway)" >&2
-    _kubectl logs "$pod" -n "${NAMESPACE}" -c flyway --tail=400 >&2 || true
-    echo "--- logs pod/${pod} (container: flyway, previous)" >&2
-    _kubectl logs "$pod" -n "${NAMESPACE}" -c flyway --previous --tail=400 >&2 || true
-  done
   echo "\n--- oauth2-server logs" >&2
   _kubectl logs deployment/oauth2-server -n "${NAMESPACE}" -c oauth2-server --tail=300 >&2 || true
 }
@@ -228,30 +215,6 @@ _kubectl create namespace "${NAMESPACE}"
 
 echo "==> Deploying manifests via kustomize (${KUSTOMIZE_DIR})"
 kustomize build "${KUSTOMIZE_DIR}" | _kubectl apply -n "${NAMESPACE}" -f -
-
-# Ensure migration job is fresh for each run.
-_kubectl delete job flyway-migration -n "${NAMESPACE}" --ignore-not-found || true
-kustomize build "${KUSTOMIZE_DIR}" | _kubectl apply -n "${NAMESPACE}" -f -
-
-echo "==> Waiting for Postgres readiness"
-if ! _kubectl rollout status statefulset/postgres -n "${NAMESPACE}" --timeout=240s; then
-  echo "Postgres did not become ready in time." >&2
-  _diag
-  exit 1
-fi
-
-echo "==> Waiting for Flyway migrations"
-if ! _kubectl wait --for=condition=complete job/flyway-migration -n "${NAMESPACE}" --timeout=360s; then
-  echo "Flyway migration job did not complete in time." >&2
-  _diag
-  exit 1
-fi
-
-# Restart the deployment so that pods start fresh against the fully-migrated
-# database.  Without this, pods that started during Flyway execution may have
-# failed to seed the admin user and will not retry on their own.
-echo "==> Restarting oauth2-server to ensure post-migration clean start"
-_kubectl rollout restart deployment/oauth2-server -n "${NAMESPACE}"
 
 echo "==> Waiting for OAuth2 server rollout"
 if ! _kubectl rollout status deployment/oauth2-server -n "${NAMESPACE}" --timeout=240s; then

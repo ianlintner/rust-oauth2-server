@@ -6,5 +6,5 @@ resources:
   - service.yaml
 
 images:
-  - name: docker.io/ianlintner068/oauth2-resource-server
+  - name: docker.io/example/oauth2-resource-server
     newTag: latest

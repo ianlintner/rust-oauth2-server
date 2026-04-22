@@ -13,5 +13,5 @@ patchesStrategicMerge:
   - ingress-patch.yaml
 
 images:
-  - name: docker.io/ianlintner068/oauth2-server
+  - name: docker.io/example/oauth2-server
     newTag: staging

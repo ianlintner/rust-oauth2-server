@@ -3,16 +3,15 @@ kind: Kustomization
 
 # E2E overlay for KIND/local testing.
 # Goals:
-# - Don’t require ingress controllers or metrics-server
+# - Don't require ingress controllers or metrics-server
 # - Keep cluster dependencies minimal
-# - Make Postgres storage ephemeral (faster, less flaky)
 # - Reduce server replicas to 1
 
 resources:
   - ../../base
 
 images:
-  - name: docker.io/ianlintner068/oauth2-server
+  - name: docker.io/example/oauth2-server
     newTag: test
 
 patches:

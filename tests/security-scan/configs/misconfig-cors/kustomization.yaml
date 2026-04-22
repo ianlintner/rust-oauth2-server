@@ -5,13 +5,12 @@ resources:
   - ../../../../k8s/base
 
 images:
-  - name: docker.io/ianlintner068/oauth2-server
+  - name: docker.io/example/oauth2-server
     newTag: test
 
 patches:
   - path: patches/delete-ingress.yaml
   - path: patches/delete-hpa.yaml
-  - path: patches/delete-postgres-pvc.yaml
   - path: patches/secret-cors.yaml
   - target:
       group: apps
@@ -25,9 +24,3 @@ patches:
       kind: Deployment
       name: oauth2-server
     path: patches/deployment-cors.yaml
-  - target:
-      group: apps
-      version: v1
-      kind: StatefulSet
-      name: postgres
-    path: patches/postgres-ephemeral.json

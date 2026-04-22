@@ -4,8 +4,6 @@ kind: Kustomization
 # Distributed production profile:
 # - multi-replica OAuth2 control plane
 # - shared Redis for cross-pod rate limiting + L2 cache
-# - PgBouncer in front of PostgreSQL
-# - production-oriented PostgreSQL tuning
 #
 # Build/publish the image with at least:
 #   cargo build --release --features distributed
@@ -31,5 +29,5 @@ patchesStrategicMerge:
   - observability-patch.yaml
 
 images:
-  - name: docker.io/ianlintner068/oauth2-server
+  - name: docker.io/example/oauth2-server
     newTag: v1.0.0

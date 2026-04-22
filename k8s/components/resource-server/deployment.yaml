@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
         - name: resource-server
-          image: docker.io/ianlintner068/oauth2-resource-server:latest
+          image: docker.io/example/oauth2-resource-server:latest
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
