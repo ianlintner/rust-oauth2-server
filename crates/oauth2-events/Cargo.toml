@@ -11,6 +11,9 @@ default = []
 events-redis = ["dep:redis"]
 events-kafka = ["dep:rdkafka"]
 events-rabbit = ["dep:lapin"]
+# Enable W3C trace-context extraction into EventEnvelope (via OpenTelemetry).
+# When disabled, envelopes are still built but carry no `traceparent`/`tracestate`.
+otel = ["dep:opentelemetry", "dep:tracing-opentelemetry"]
 
 [dependencies]
 # Actor-based bus implementation
@@ -29,8 +32,8 @@ tracing = "0.1"
 
 tokio = { version = "1.35", features = ["full"] }
 
-opentelemetry = { version = "0.31", features = ["trace", "metrics"] }
-tracing-opentelemetry = "0.32"
+opentelemetry = { version = "0.31", features = ["trace", "metrics"], optional = true }
+tracing-opentelemetry = { version = "0.32", optional = true }
 
 # Optional backends
 redis = { version = "0.27", optional = true, features = ["tokio-comp", "connection-manager"] }

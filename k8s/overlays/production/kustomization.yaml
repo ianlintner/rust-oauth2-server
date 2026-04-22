@@ -7,6 +7,9 @@ bases:
 commonLabels:
   environment: production
 
+patchesStrategicMerge:
+  - observability-patch.yaml
+
 images:
   - name: docker.io/ianlintner068/oauth2-server
     newTag: v1.0.0

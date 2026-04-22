@@ -4,6 +4,7 @@
 
 use std::time::{Duration, SystemTime};
 
+use oauth2_observability::TracedRedis;
 use redis::aio::ConnectionManager;
 
 use crate::{RateLimitError, RateLimitResult, RateLimiter};
@@ -12,8 +13,12 @@ use crate::{RateLimitError, RateLimitResult, RateLimiter};
 ///
 /// Uses a fixed-window counter per key with an atomic Lua script.
 /// Key format: `ratelimit:{key}`, TTL = `window_secs`.
+///
+/// The connection is wrapped in [`TracedRedis`] so each Lua-script invocation
+/// emits an OTel-semconv `redis.command` child span of the surrounding HTTP
+/// request span (e.g. `POST /token`).
 pub struct RedisRateLimiter {
-    conn: ConnectionManager,
+    conn: TracedRedis,
     max_requests: u32,
     window_secs: u64,
 }
@@ -33,7 +38,7 @@ impl RedisRateLimiter {
             .await
             .map_err(|e| RateLimitError::Backend(format!("Redis connection manager error: {e}")))?;
         Ok(Self {
-            conn,
+            conn: TracedRedis::from_url(conn, redis_url),
             max_requests,
             window_secs,
         })
@@ -44,14 +49,14 @@ impl RedisRateLimiter {
 impl RateLimiter for RedisRateLimiter {
     async fn check(&self, key: &str) -> Result<RateLimitResult, RateLimitError> {
         let redis_key = format!("ratelimit:{key}");
-        let mut conn = self.conn.clone();
+        let mut conn = self.conn.fork();
 
         // Atomic INCR + EXPIRE via Lua script to avoid race conditions.
         // If the process crashes between INCR and EXPIRE, the key would
         // persist forever with no TTL, permanently blocking that client.
         // We also handle pre-existing keys without TTL (e.g. leftover from
         // a prior bug or manual Redis writes) by checking TTL inside the script.
-        let script = redis::Script::new(
+        let script = TracedRedis::script(
             r"local count = redis.call('INCR', KEYS[1])
 if count == 1 then
     redis.call('EXPIRE', KEYS[1], ARGV[1])
@@ -63,10 +68,13 @@ if ttl < 0 then
 end
 return {count, ttl}",
         );
-        let (count, ttl): (u32, i64) = script
-            .key(&redis_key)
-            .arg(self.window_secs as i64)
-            .invoke_async(&mut conn)
+        let invocation = {
+            let mut inv = script.prepare_invoke();
+            inv.key(&redis_key).arg(self.window_secs as i64);
+            inv
+        };
+        let (count, ttl): (u32, i64) = conn
+            .script_invoke(&invocation)
             .await
             .map_err(|e| RateLimitError::Backend(format!("Redis Lua script error: {e}")))?;
 

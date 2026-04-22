@@ -47,8 +47,11 @@ utoipa = "5.4"
 actix-rt = "2.9"
 
 [features]
-# Default behavior remains the same: SQL backends are available (SQLite/Postgres via SQLx).
-default = ["sqlx"]
+# SQL backends + OpenTelemetry export compiled in by default. Traces only emit
+# when OTEL_EXPORTER_OTLP_ENDPOINT (or OAUTH2_OTLP_ENDPOINT) is set at runtime;
+# otherwise the SDK is a no-op. To build without OTEL:
+#   cargo build --no-default-features --features sqlx
+default = ["sqlx", "otel"]
 
 # SQL-backed storage (SQLite/Postgres) via SQLx.
 sqlx = ["oauth2-core/sqlx", "oauth2-server/sqlx", "oauth2-storage-factory/sqlx"]
@@ -64,6 +67,10 @@ events-rabbit = ["oauth2-events/events-rabbit", "oauth2-server/events-rabbit"]
 # Optional Redis-backed distributed runtime features.
 redis-cache = ["oauth2-server/redis-cache"]
 redis-rate-limit = ["oauth2-server/redis-rate-limit"]
+
+# Optional OpenTelemetry export (OTLP). Wave 0 foundation — enables the
+# OTEL SDK only when explicitly requested.
+otel = ["oauth2-observability/otel", "oauth2-server/otel", "oauth2-social-login/otel"]
 
 # Convenience feature for the distributed deployment profile.
 distributed = ["redis-cache", "redis-rate-limit", "events-redis"]
@@ -101,6 +108,15 @@ oauth2-storage-mongo = { path = "crates/oauth2-storage-mongo" }
 
 # Used by integration tests (e.g., migrations and SQL-level assertions).
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio-rustls", "sqlite", "postgres", "any", "chrono", "uuid", "macros", "migrate"] }
+
+# OTEL SDK is a dev-dep only — the `tests/otel_trace_propagation.rs`
+# integration test (feature-gated `#[cfg(feature = "otel")]`) installs an
+# in-memory span exporter to assert parent/child span shape without a live
+# collector. These versions match `crates/oauth2-observability`.
+opentelemetry = { version = "0.31", features = ["trace"] }
+opentelemetry_sdk = { version = "0.31", features = ["rt-tokio", "testing"] }
+tracing-opentelemetry = "0.32"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [[test]]
 name = "bdd"

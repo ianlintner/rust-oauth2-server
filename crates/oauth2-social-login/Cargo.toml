@@ -17,6 +17,18 @@ actix-session = { version = "0.11", features = ["cookie-session"] }
 oauth2 = "5.0"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 
+# Optional: OTEL-aware HTTP middleware that injects W3C traceparent/tracestate
+# into outgoing requests and emits a CLIENT span per call. Gated behind `otel`.
+# Version selection: reqwest-tracing 0.5.x is the only line still on reqwest
+# 0.12 (0.6+ require reqwest 0.13, which `oauth2 = 5.0` does not yet permit).
+# 0.5.8 exposes OTEL feature flags up to `opentelemetry_0_30` only; we set a
+# `TraceContextPropagator` on the 0.30 global inside this crate (see service.rs)
+# to bridge until the upstream middleware catches up to OTEL 0.31.
+reqwest-middleware = { version = "0.4", optional = true }
+reqwest-tracing = { version = "0.5.8", optional = true, default-features = false, features = ["opentelemetry_0_30"] }
+opentelemetry_0_30_pkg = { package = "opentelemetry", version = "0.30", optional = true }
+opentelemetry_sdk_0_30_pkg = { package = "opentelemetry_sdk", version = "0.30", optional = true }
+
 # Password hashing (Argon2id) – for creating placeholder hashes for social users
 argon2 = "0.5"
 
@@ -29,3 +41,13 @@ tracing = "0.1"
 
 # UUID for user IDs
 uuid = { version = "1", features = ["v4"] }
+
+[features]
+# OpenTelemetry-aware outbound HTTP: emits a CLIENT span per request and injects
+# W3C traceparent/tracestate into headers for downstream propagation.
+otel = [
+    "dep:reqwest-middleware",
+    "dep:reqwest-tracing",
+    "dep:opentelemetry_0_30_pkg",
+    "dep:opentelemetry_sdk_0_30_pkg",
+]

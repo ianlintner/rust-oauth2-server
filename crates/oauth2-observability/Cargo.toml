@@ -9,6 +9,17 @@ repository = "https://github.com/ianlintner/rust_oauth2_server"
 [features]
 default = []
 actix = ["dep:actix-web", "dep:futures"]
+# Enable OpenTelemetry export (OTLP). When disabled, only structured JSON logs
+# via `tracing-subscriber` are emitted — no OTEL SDK pulled into the dep graph.
+otel = [
+    "dep:opentelemetry",
+    "dep:opentelemetry_sdk",
+    "dep:opentelemetry-otlp",
+    "dep:tracing-opentelemetry",
+]
+# Pulls in the `redis` crate so callers can wrap their `ConnectionManager`
+# in `TracedRedis` for OTel-semconv `redis.command` spans.
+redis = ["dep:redis"]
 
 [dependencies]
 async-trait = "0.1"
@@ -21,14 +32,17 @@ oauth2-ports = { path = "../oauth2-ports" }
 prometheus = "0.14"
 
 # Tracing / OpenTelemetry
-opentelemetry = { version = "0.31", features = ["trace", "metrics"] }
-opentelemetry_sdk = { version = "0.31", features = ["rt-tokio"] }
-opentelemetry-otlp = { version = "0.31", default-features = false, features = ["grpc-tonic", "trace", "metrics"] }
+opentelemetry = { version = "0.31", features = ["trace", "metrics"], optional = true }
+opentelemetry_sdk = { version = "0.31", features = ["rt-tokio"], optional = true }
+opentelemetry-otlp = { version = "0.31", default-features = false, features = ["grpc-tonic", "trace", "metrics"], optional = true }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
-tracing-opentelemetry = "0.32"
+tracing-opentelemetry = { version = "0.32", optional = true }
 tracing-log = "0.2"
 
 # Actix integration (optional)
 actix-web = { version = "4.4", optional = true }
 futures = { version = "0.3", optional = true }
+
+# Redis (optional) — only needed when callers want the `TracedRedis` wrapper.
+redis = { version = "0.27", features = ["tokio-comp", "connection-manager"], optional = true }

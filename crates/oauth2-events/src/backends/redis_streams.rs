@@ -3,10 +3,24 @@ use async_trait::async_trait;
 use redis::aio::ConnectionManager;
 use std::time::Duration;
 use tokio::sync::Mutex;
+use tracing::{info_span, Instrument};
 
 /// Redis Streams event publisher.
 ///
 /// Publishes envelopes as JSON to a Redis Stream via `XADD`.
+///
+/// ## Trace-context propagation
+///
+/// Redis Streams entries are a flat `field value [field value ...]` list —
+/// there is no separate header channel analogous to Kafka headers or AMQP
+/// `headers`. The envelope itself is the carrier: `EventEnvelope` (see
+/// `crate::envelope`) already captures `traceparent` / `tracestate` from the
+/// current span when the `otel` feature is enabled, and writes them out as
+/// JSON fields under the `payload` key of each XADD entry. Consumers
+/// deserialize the envelope and can use `EventEnvelope::traceparent` /
+/// `tracestate` as the parent context via the global W3C propagator.
+/// `backends/kafka.rs` and `backends/rabbit.rs` additionally inject the same
+/// headers into their native header channels for backends that expose them.
 pub struct RedisStreamsEventPublisher {
     stream: String,
     maxlen: Option<usize>,
@@ -61,19 +75,31 @@ impl RedisStreamsEventPublisher {
 #[async_trait]
 impl EventPlugin for RedisStreamsEventPublisher {
     async fn emit(&self, envelope: &EventEnvelope) -> Result<(), String> {
-        let payload_json =
-            serde_json::to_string(envelope).map_err(|e| format!("serialize envelope: {e}"))?;
+        let span = info_span!(
+            "redis_streams.publish",
+            "messaging.system" = "redis_streams",
+            "messaging.destination" = %self.stream,
+            "messaging.operation" = "publish",
+            "otel.kind" = "producer",
+        );
 
-        let cmd = self.xadd_cmd(envelope, &payload_json);
-        let mut conn = self.conn.lock().await;
+        async {
+            let payload_json =
+                serde_json::to_string(envelope).map_err(|e| format!("serialize envelope: {e}"))?;
 
-        // XADD returns the stream entry ID.
-        let _id: String = cmd
-            .query_async(&mut *conn)
-            .await
-            .map_err(|e| format!("redis XADD: {e}"))?;
+            let cmd = self.xadd_cmd(envelope, &payload_json);
+            let mut conn = self.conn.lock().await;
 
-        Ok(())
+            // XADD returns the stream entry ID.
+            let _id: String = cmd
+                .query_async(&mut *conn)
+                .await
+                .map_err(|e| format!("redis XADD: {e}"))?;
+
+            Ok(())
+        }
+        .instrument(span)
+        .await
     }
 
     fn name(&self) -> &str {

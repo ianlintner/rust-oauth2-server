@@ -69,7 +69,7 @@ build_variant "default" ""
 
 if [[ "${include_mongo_variants}" == "1" ]]; then
   build_variant "mongo" "-mongo" --features mongo
-  build_variant "mongo-only" "-mongo-only" --no-default-features --features mongo
+  build_variant "mongo-only" "-mongo-only" --no-default-features --features mongo,otel
 fi
 
 echo "==> Built release binaries"

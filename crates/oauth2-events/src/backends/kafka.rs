@@ -3,6 +3,12 @@ use async_trait::async_trait;
 use rdkafka::config::ClientConfig;
 use rdkafka::producer::{FutureProducer, FutureRecord};
 use std::time::Duration;
+use tracing::{info_span, Instrument};
+
+#[cfg(feature = "otel")]
+use crate::propagation::{inject_current_context, KafkaHeadersInjector};
+#[cfg(not(feature = "otel"))]
+use rdkafka::message::OwnedHeaders;
 
 /// Kafka event publisher.
 ///
@@ -40,22 +46,49 @@ impl KafkaEventPublisher {
 #[async_trait]
 impl EventPlugin for KafkaEventPublisher {
     async fn emit(&self, envelope: &EventEnvelope) -> Result<(), String> {
-        let payload =
-            serde_json::to_vec(envelope).map_err(|e| format!("serialize envelope: {e}"))?;
-        let key = envelope.effective_idempotency_key();
+        let span = info_span!(
+            "kafka.publish",
+            "messaging.system" = "kafka",
+            "messaging.destination" = %self.topic,
+            "messaging.operation" = "publish",
+            "otel.kind" = "producer",
+        );
 
-        // We enqueue and then detach the delivery future to keep the plugin best-effort.
-        let delivery = self
-            .producer
-            .send_result(FutureRecord::to(&self.topic).payload(&payload).key(&key))
-            .map_err(|(e, _msg)| format!("kafka send: {e}"))?;
+        async {
+            let payload =
+                serde_json::to_vec(envelope).map_err(|e| format!("serialize envelope: {e}"))?;
+            let key = envelope.effective_idempotency_key();
 
-        actix_rt::spawn(async move {
-            // A short wait so we at least surface immediate delivery failures.
-            let _ = tokio::time::timeout(Duration::from_secs(2), delivery).await;
-        });
+            // Build native Kafka headers with W3C trace-context injected.
+            #[cfg(feature = "otel")]
+            let headers = {
+                let mut injector = KafkaHeadersInjector::new();
+                inject_current_context(&mut injector);
+                injector.into_inner()
+            };
+            #[cfg(not(feature = "otel"))]
+            let headers = OwnedHeaders::new();
 
-        Ok(())
+            // We enqueue and then detach the delivery future to keep the plugin best-effort.
+            let delivery = self
+                .producer
+                .send_result(
+                    FutureRecord::to(&self.topic)
+                        .payload(&payload)
+                        .key(&key)
+                        .headers(headers),
+                )
+                .map_err(|(e, _msg)| format!("kafka send: {e}"))?;
+
+            actix_rt::spawn(async move {
+                // A short wait so we at least surface immediate delivery failures.
+                let _ = tokio::time::timeout(Duration::from_secs(2), delivery).await;
+            });
+
+            Ok(())
+        }
+        .instrument(span)
+        .await
     }
 
     fn name(&self) -> &str {

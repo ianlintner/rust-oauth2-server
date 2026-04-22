@@ -5,6 +5,10 @@ use lapin::{
     types::FieldTable,
     BasicProperties, Channel, Connection, ConnectionProperties, ExchangeKind,
 };
+use tracing::{info_span, Instrument};
+
+#[cfg(feature = "otel")]
+use crate::propagation::{inject_current_context, RabbitHeadersInjector};
 
 /// RabbitMQ event publisher.
 ///
@@ -58,27 +62,49 @@ impl RabbitEventPublisher {
 #[async_trait]
 impl EventPlugin for RabbitEventPublisher {
     async fn emit(&self, envelope: &EventEnvelope) -> Result<(), String> {
-        let payload =
-            serde_json::to_vec(envelope).map_err(|e| format!("serialize envelope: {e}"))?;
+        let span = info_span!(
+            "rabbitmq.publish",
+            "messaging.system" = "rabbitmq",
+            "messaging.destination" = %self.exchange,
+            "messaging.rabbitmq.routing_key" = %self.routing_key,
+            "messaging.operation" = "publish",
+            "otel.kind" = "producer",
+        );
 
-        // Best-effort publish. We still await server ack for immediate errors.
-        self.channel
-            .basic_publish(
-                &self.exchange,
-                &self.routing_key,
-                BasicPublishOptions::default(),
-                &payload,
-                BasicProperties::default()
-                    .with_content_type("application/json".into())
-                    .with_message_id(envelope.event.id.to_string().into())
-                    .with_correlation_id(envelope.correlation_id.clone().into()),
-            )
-            .await
-            .map_err(|e| format!("rabbit basic_publish: {e}"))?
-            .await
-            .map_err(|e| format!("rabbit publish_confirm: {e}"))?;
+        async {
+            let payload =
+                serde_json::to_vec(envelope).map_err(|e| format!("serialize envelope: {e}"))?;
 
-        Ok(())
+            // Build native AMQP headers with W3C trace-context injected.
+            let mut headers = FieldTable::default();
+            #[cfg(feature = "otel")]
+            {
+                let mut injector = RabbitHeadersInjector::new(&mut headers);
+                inject_current_context(&mut injector);
+            }
+
+            // Best-effort publish. We still await server ack for immediate errors.
+            self.channel
+                .basic_publish(
+                    &self.exchange,
+                    &self.routing_key,
+                    BasicPublishOptions::default(),
+                    &payload,
+                    BasicProperties::default()
+                        .with_content_type("application/json".into())
+                        .with_message_id(envelope.event.id.to_string().into())
+                        .with_correlation_id(envelope.correlation_id.clone().into())
+                        .with_headers(headers),
+                )
+                .await
+                .map_err(|e| format!("rabbit basic_publish: {e}"))?
+                .await
+                .map_err(|e| format!("rabbit publish_confirm: {e}"))?;
+
+            Ok(())
+        }
+        .instrument(span)
+        .await
     }
 
     fn name(&self) -> &str {

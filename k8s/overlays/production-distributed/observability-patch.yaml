@@ -1,0 +1,46 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: oauth2-server
+spec:
+  template:
+    spec: # nosemgrep: yaml.kubernetes.security.run-as-non-root
+      # Kustomize patch; runAsNonRoot is already set in k8s/base/deployment.yaml.
+      containers:
+        - name: oauth2-server
+          env:
+            # OTLP target for the in-cluster OpenTelemetry Collector.
+            # Change the service host if the collector lives in a different
+            # namespace. The collector is responsible for tail sampling and
+            # fan-out (Tempo, Datadog via the `datadog` exporter, etc.).
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: http://otel-collector.default.svc.cluster.local:4317
+            - name: OTEL_EXPORTER_OTLP_PROTOCOL
+              value: grpc
+            # service.name — sourced from the standard workload label so the
+            # value follows renames automatically.
+            - name: OTEL_SERVICE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: "metadata.labels['app.kubernetes.io/name']"
+            # POD_NAMESPACE and IMAGE_SHA must be declared BEFORE
+            # OTEL_RESOURCE_ATTRIBUTES — Kubernetes only interpolates $(VAR)
+            # against env vars defined earlier in the same list.
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            # IMAGE_SHA: CI replaces this placeholder at deploy time (sed or
+            # kustomize edit) with the short SHA of the container image that
+            # was just built, so traces carry service.version=<sha>.
+            - name: IMAGE_SHA
+              value: "sha-REPLACE_AT_DEPLOY"
+            # Extra resource attributes. $(POD_NAMESPACE) and $(IMAGE_SHA)
+            # expand from the env vars defined above. deployment.environment
+            # must match the overlay.
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: "service.namespace=$(POD_NAMESPACE),deployment.environment=prod,service.version=$(IMAGE_SHA)"
+            - name: OTEL_TRACES_SAMPLER
+              value: parentbased_always_on
+            - name: OTEL_PROPAGATORS
+              value: tracecontext,baggage

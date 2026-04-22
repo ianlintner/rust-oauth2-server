@@ -61,6 +61,9 @@ events-redis = ["oauth2-events/events-redis"]
 events-kafka = ["oauth2-events/events-kafka"]
 events-rabbit = ["oauth2-events/events-rabbit"]
 
+# Optional OpenTelemetry export (OTLP). Pass-through to observability + events.
+otel = ["oauth2-observability/otel", "oauth2-events/otel"]
+
 # Optional Redis-backed distributed runtime features.
 redis-cache = ["oauth2-actix/redis-cache", "dep:redis"]
 redis-rate-limit = ["oauth2-ratelimit/redis-backend"]

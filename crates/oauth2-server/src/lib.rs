@@ -8,9 +8,9 @@ use actix_web::dev::{ServiceRequest, ServiceResponse};
 use actix_web::middleware::Condition;
 use actix_web::{cookie::Key, middleware as actix_middleware, web, App, HttpResponse, HttpServer};
 use oauth2_core::models::key_set::{Algorithm as KeyAlgorithm, KeySet, SigningKey};
-use oauth2_openapi::ApiDoc;
 #[cfg(feature = "redis-cache")]
-use redis::aio::ConnectionManager as CacheRedisConnectionManager;
+use oauth2_observability::TracedRedis;
+use oauth2_openapi::ApiDoc;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::RwLock;
@@ -103,9 +103,15 @@ struct OtelRootSpanBuilder;
 
 impl RootSpanBuilder for OtelRootSpanBuilder {
     fn on_request_start(request: &ServiceRequest) -> tracing::Span {
-        // Build the default root span and declare a `span_id` field up-front.
-        // We then populate both trace_id and span_id using the active OpenTelemetry context.
-        let span = tracing_actix_web::root_span!(request, span_id = tracing::field::Empty);
+        // Declare both `trace_id` and `span_id` fields up-front so the
+        // `annotate_span_with_trace_ids` helper can `Span::record` them from
+        // the active OpenTelemetry context. A field must be declared at span
+        // creation time or `record` silently no-ops.
+        let span = tracing_actix_web::root_span!(
+            request,
+            trace_id = tracing::field::Empty,
+            span_id = tracing::field::Empty
+        );
         oauth2_observability::annotate_span_with_trace_ids(&span);
         span
     }
@@ -147,7 +153,7 @@ fn parse_event_types(event_type_strings: &[String]) -> Vec<oauth2_events::EventT
 }
 
 #[cfg(feature = "redis-cache")]
-type CacheRedisManager = Option<CacheRedisConnectionManager>;
+type CacheRedisManager = Option<TracedRedis>;
 #[cfg(not(feature = "redis-cache"))]
 type CacheRedisManager = Option<()>;
 
@@ -165,7 +171,7 @@ async fn build_cache_redis_manager(config: &oauth2_config::Config) -> CacheRedis
             Ok(client) => match redis::aio::ConnectionManager::new(client).await {
                 Ok(conn) => {
                     tracing::info!("Redis L2 cache enabled for client/token actors");
-                    Some(conn)
+                    Some(TracedRedis::from_url(conn, url))
                 }
                 Err(error) => {
                     tracing::warn!(
@@ -246,17 +252,40 @@ fn attach_client_cache(
 }
 
 pub async fn run() -> std::io::Result<()> {
-    // Initialize telemetry and tracing
-    oauth2_observability::init_telemetry("oauth2_server").unwrap_or_else(|e| {
+    // Load configuration first so telemetry can honor the configured service
+    // name / endpoint. Falls back to env vars and legacy HOCON when unset.
+    let config = oauth2_config::Config::default();
+
+    // Initialize telemetry and tracing. `TelemetryConfig.service_name` wins
+    // when set, otherwise fall back to the historical literal. Sampler + batch
+    // processor knobs are converted into the observability crate's runtime
+    // wiring type (`TelemetryInit`) here so `oauth2-observability` does not
+    // need to depend on `oauth2-config`.
+    let service_name = config
+        .telemetry
+        .service_name
+        .as_deref()
+        .unwrap_or("oauth2_server");
+    let telemetry_init = oauth2_observability::TelemetryInit {
+        sampler: match config.telemetry.sampler {
+            oauth2_config::SamplerKind::ParentBasedAlwaysOn => {
+                oauth2_observability::SamplerKind::ParentBasedAlwaysOn
+            }
+            oauth2_config::SamplerKind::TraceIdRatio { ratio } => {
+                oauth2_observability::SamplerKind::TraceIdRatio { ratio }
+            }
+            oauth2_config::SamplerKind::AlwaysOff => oauth2_observability::SamplerKind::AlwaysOff,
+        },
+        batch_max_queue: config.telemetry.batch_max_queue,
+        batch_scheduled_delay_ms: config.telemetry.batch_scheduled_delay_ms,
+    };
+    oauth2_observability::init_telemetry(service_name, &telemetry_init).unwrap_or_else(|e| {
         eprintln!("Failed to initialize telemetry: {}", e);
         // Fall back to basic logging
         env_logger::init_from_env(env_logger::Env::new().default_filter_or("info"));
     });
 
     tracing::info!("Starting OAuth2 Server...");
-
-    // Load configuration
-    let config = oauth2_config::Config::default();
 
     if std::env::var("OAUTH2_DEBUG_CONFIG").ok().as_deref() == Some("1") {
         if let Ok(cfg_json) = serde_json::to_string_pretty(&config.sanitized()) {

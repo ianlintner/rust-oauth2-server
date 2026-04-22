@@ -23,6 +23,67 @@ pub mod mongo {
     pub use oauth2_storage_mongo::MongoStorage;
 }
 
+/// Derive OpenTelemetry semconv-friendly `db.name` and `net.peer.name` values
+/// from a database URL. Best-effort and parameter-less: unrecognized shapes
+/// return `None` so that `ObservedStorage` falls back to empty strings rather
+/// than emitting misleading attributes.
+///
+/// - `postgres://user:pw@host:5432/mydb` → (`"mydb"`, `"host"`)
+/// - `postgresql://host/mydb?sslmode=require` → (`"mydb"`, `"host"`)
+/// - `sqlite::memory:` → (`":memory:"`, `None`) — peer is meaningless in-process
+/// - `sqlite:///var/lib/app.db` → (`"app.db"`, `None`)
+/// - `mongodb://host:27017/admin` → (`"admin"`, `"host"`)
+fn derive_db_span_attrs(database_url: &str) -> (Option<String>, Option<String>) {
+    // sqlite — no network peer, db.name is the file name or ":memory:".
+    if let Some(rest) = database_url
+        .strip_prefix("sqlite://")
+        .or_else(|| database_url.strip_prefix("sqlite:"))
+    {
+        // sqlite::memory: (after stripping "sqlite:" leaves ":memory:")
+        // sqlite://:memory: (after stripping "sqlite://" leaves ":memory:")
+        if rest == ":memory:" || rest.is_empty() {
+            return (Some(":memory:".to_string()), None);
+        }
+        // Strip leading slashes from absolute-path forms like "sqlite:///tmp/foo.db".
+        let path = rest.trim_start_matches('/');
+        // Drop any query string.
+        let path = path.split('?').next().unwrap_or(path);
+        let file = std::path::Path::new(path)
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or(path)
+            .to_string();
+        return (Some(file), None);
+    }
+
+    // postgres / postgresql / mongodb — parse user:pw@host:port/db?query.
+    let (_scheme, rest) = match database_url.split_once("://") {
+        Some((s, r)) => (s, r),
+        None => return (None, None),
+    };
+
+    // Strip userinfo before '@'.
+    let after_auth = rest.rsplit_once('@').map(|(_, r)| r).unwrap_or(rest);
+
+    // Separate host[:port]/path?query.
+    let (hostport, path_and_query) = match after_auth.split_once('/') {
+        Some((hp, pq)) => (hp, pq),
+        None => (after_auth, ""),
+    };
+
+    let host = hostport.split(':').next().unwrap_or("").to_string();
+    let host = if host.is_empty() { None } else { Some(host) };
+
+    let db_name = path_and_query
+        .split('?')
+        .next()
+        .map(|s| s.trim_end_matches('/'))
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string());
+
+    (db_name, host)
+}
+
 /// Create a storage backend based on URL scheme.
 ///
 /// Supported:
@@ -47,7 +108,8 @@ pub async fn create_storage_with_pool_config(
         {
             let storage = mongo::MongoStorage::new(database_url).await?;
             let inner: DynStorage = Arc::new(storage);
-            let observed = ObservedStorage::new(inner, "mongodb".to_string());
+            let (db_name, peer) = derive_db_span_attrs(database_url);
+            let observed = ObservedStorage::new(inner, "mongodb".to_string(), db_name, peer);
             Ok(Arc::new(observed))
         }
 
@@ -81,7 +143,8 @@ pub async fn create_storage_with_pool_config(
         };
 
         let inner: DynStorage = Arc::new(storage);
-        let observed = ObservedStorage::new(inner, db_system.to_string());
+        let (db_name, peer) = derive_db_span_attrs(database_url);
+        let observed = ObservedStorage::new(inner, db_system.to_string(), db_name, peer);
         Ok(Arc::new(observed))
     }
 }
@@ -104,7 +167,8 @@ pub async fn create_storage_with_pool_config(
         {
             let storage = mongo::MongoStorage::new(database_url).await?;
             let inner: DynStorage = Arc::new(storage);
-            let observed = ObservedStorage::new(inner, "mongodb".to_string());
+            let (db_name, peer) = derive_db_span_attrs(database_url);
+            let observed = ObservedStorage::new(inner, "mongodb".to_string(), db_name, peer);
             Ok(Arc::new(observed))
         }
 
@@ -124,5 +188,52 @@ pub async fn create_storage_with_pool_config(
                 "SQL backend requested but the binary was built without SQL support (feature `sqlx` disabled)",
             ),
         ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::derive_db_span_attrs;
+
+    #[test]
+    fn postgres_url_with_userinfo() {
+        let (db, peer) = derive_db_span_attrs("postgres://user:pw@db.internal:5432/oauth2");
+        assert_eq!(db.as_deref(), Some("oauth2"));
+        assert_eq!(peer.as_deref(), Some("db.internal"));
+    }
+
+    #[test]
+    fn postgresql_url_no_userinfo_with_query() {
+        let (db, peer) = derive_db_span_attrs("postgresql://pg/app?sslmode=require");
+        assert_eq!(db.as_deref(), Some("app"));
+        assert_eq!(peer.as_deref(), Some("pg"));
+    }
+
+    #[test]
+    fn sqlite_memory() {
+        let (db, peer) = derive_db_span_attrs("sqlite::memory:");
+        assert_eq!(db.as_deref(), Some(":memory:"));
+        assert!(peer.is_none());
+    }
+
+    #[test]
+    fn sqlite_file() {
+        let (db, peer) = derive_db_span_attrs("sqlite:///var/lib/oauth2.db");
+        assert_eq!(db.as_deref(), Some("oauth2.db"));
+        assert!(peer.is_none());
+    }
+
+    #[test]
+    fn mongodb_url() {
+        let (db, peer) = derive_db_span_attrs("mongodb://mongo.svc:27017/admin");
+        assert_eq!(db.as_deref(), Some("admin"));
+        assert_eq!(peer.as_deref(), Some("mongo.svc"));
+    }
+
+    #[test]
+    fn unknown_scheme_returns_none() {
+        let (db, peer) = derive_db_span_attrs("gibberish");
+        assert!(db.is_none());
+        assert!(peer.is_none());
     }
 }

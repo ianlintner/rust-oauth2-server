@@ -22,7 +22,7 @@ struct CachedClient {
 
 /// Optional Redis connection for L2 caching behind the in-process LRU.
 #[cfg(feature = "redis-cache")]
-type ClientRedisConn = Option<redis::aio::ConnectionManager>;
+type ClientRedisConn = Option<oauth2_observability::TracedRedis>;
 #[cfg(not(feature = "redis-cache"))]
 type ClientRedisConn = ();
 
@@ -56,9 +56,11 @@ impl ClientActor {
         }
     }
 
-    /// Attach a Redis connection manager for L2 caching.
+    /// Attach a Redis connection manager for L2 caching. The handle is
+    /// wrapped in [`oauth2_observability::TracedRedis`] so each Redis command
+    /// emits an OTel-semconv `redis.command` child span.
     #[cfg(feature = "redis-cache")]
-    pub fn with_redis(mut self, conn: redis::aio::ConnectionManager) -> Self {
+    pub fn with_redis(mut self, conn: oauth2_observability::TracedRedis) -> Self {
         self.redis = Some(conn);
         self
     }
@@ -279,8 +281,7 @@ impl Handler<GetClient> for ClientActor {
                 #[cfg(feature = "redis-cache")]
                 if let Some(ref mut conn) = redis_conn.clone() {
                     let redis_key = format!("{}{}", REDIS_CLIENT_PREFIX, requested_client_id);
-                    let redis_result: Result<Option<String>, _> =
-                        redis::cmd("GET").arg(&redis_key).query_async(conn).await;
+                    let redis_result: Result<Option<String>, _> = conn.get(&redis_key).await;
                     if let Ok(Some(json)) = redis_result {
                         if let Ok(client) = serde_json::from_str::<Client>(&json) {
                             tracing::debug!(
@@ -306,13 +307,7 @@ impl Handler<GetClient> for ClientActor {
                 if let Some(ref mut conn) = redis_conn.clone() {
                     let redis_key = format!("{}{}", REDIS_CLIENT_PREFIX, requested_client_id);
                     if let Ok(json) = serde_json::to_string(&client) {
-                        let _: Result<(), _> = redis::cmd("SET")
-                            .arg(&redis_key)
-                            .arg(&json)
-                            .arg("EX")
-                            .arg(cache_ttl_secs)
-                            .query_async(conn)
-                            .await;
+                        let _: Result<(), _> = conn.set_ex(&redis_key, json, cache_ttl_secs).await;
                     }
                 }
 
@@ -379,8 +374,7 @@ impl Handler<ValidateClient> for ClientActor {
                     #[cfg(feature = "redis-cache")]
                     if let Some(ref mut conn) = redis_conn.clone() {
                         let redis_key = format!("{}{}", REDIS_CLIENT_PREFIX, requested_client_id);
-                        let redis_result: Result<Option<String>, _> =
-                            redis::cmd("GET").arg(&redis_key).query_async(conn).await;
+                        let redis_result: Result<Option<String>, _> = conn.get(&redis_key).await;
                         if let Ok(Some(json)) = redis_result {
                             if let Ok(client) = serde_json::from_str::<Client>(&json) {
                                 tracing::debug!(
@@ -410,13 +404,8 @@ impl Handler<ValidateClient> for ClientActor {
                             let redis_key =
                                 format!("{}{}", REDIS_CLIENT_PREFIX, requested_client_id);
                             if let Ok(json) = serde_json::to_string(&fetched) {
-                                let _: Result<(), _> = redis::cmd("SET")
-                                    .arg(&redis_key)
-                                    .arg(&json)
-                                    .arg("EX")
-                                    .arg(cache_ttl_secs)
-                                    .query_async(conn)
-                                    .await;
+                                let _: Result<(), _> =
+                                    conn.set_ex(&redis_key, json, cache_ttl_secs).await;
                             }
                         }
 

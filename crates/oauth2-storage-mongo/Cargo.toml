@@ -13,6 +13,6 @@ oauth2-ports = { path = "../oauth2-ports" }
 async-trait = "0.1"
 
 chrono = { version = "0.4", features = ["serde"] }
-mongodb = "3"
+mongodb = { version = "3", features = ["tracing-unstable"] }
 futures = "0.3"
 serde = { version = "1.0", features = ["derive"] }

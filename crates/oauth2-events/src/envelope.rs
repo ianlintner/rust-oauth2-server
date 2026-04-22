@@ -1,9 +1,11 @@
 use crate::AuthEvent;
 use chrono::{DateTime, Utc};
+#[cfg(feature = "otel")]
 use opentelemetry::propagation::Injector;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tracing::Span;
+#[cfg(feature = "otel")]
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 /// A transport-ready envelope for events.
@@ -92,6 +94,7 @@ impl EventEnvelope {
     }
 }
 
+#[cfg(feature = "otel")]
 fn extract_w3c_trace_context(span: &Span) -> (Option<String>, Option<String>) {
     // We rely on the binary installing the W3C propagator.
     // Even if there is no exporter configured, the span should still carry valid IDs.
@@ -121,6 +124,13 @@ fn extract_w3c_trace_context(span: &Span) -> (Option<String>, Option<String>) {
         .filter(|v| !v.trim().is_empty());
 
     (traceparent, tracestate)
+}
+
+/// Stub used when the `otel` feature is disabled. Envelopes carry no
+/// W3C trace-context headers. Wave 1.5 can populate these once OTEL is on.
+#[cfg(not(feature = "otel"))]
+fn extract_w3c_trace_context(_span: &Span) -> (Option<String>, Option<String>) {
+    (None, None)
 }
 
 #[cfg(test)]

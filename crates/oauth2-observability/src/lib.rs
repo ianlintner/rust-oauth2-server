@@ -5,9 +5,17 @@ pub mod telemetry;
 #[cfg(feature = "actix")]
 pub mod actix;
 
+#[cfg(feature = "redis")]
+pub mod redis;
+
 pub use metrics::{Metrics, STANDARD_LATENCY_BUCKETS, STANDARD_SIZE_BUCKETS};
 pub use storage::ObservedStorage;
-pub use telemetry::{annotate_span_with_trace_ids, init_telemetry, shutdown_telemetry};
+pub use telemetry::{
+    annotate_span_with_trace_ids, init_telemetry, shutdown_telemetry, SamplerKind, TelemetryInit,
+};
+
+#[cfg(feature = "redis")]
+pub use crate::redis::TracedRedis;
 
 /// Encode a Prometheus registry into the text exposition format ("version=0.0.4").
 ///

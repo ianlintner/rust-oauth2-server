@@ -25,6 +25,13 @@ commonLabels:
   environment: production
   topology.oauth2.io/profile: distributed
 
+# OTEL env wiring (collector endpoint, resource attributes via Downward API).
+# Keep this file in sync with k8s/overlays/production/observability-patch.yaml —
+# kustomize's security sandbox forbids relative paths outside the overlay, so
+# the content is intentionally duplicated rather than referenced.
+patchesStrategicMerge:
+  - observability-patch.yaml
+
 images:
   - name: docker.io/ianlintner068/oauth2-server
     newTag: v1.0.0

@@ -26,6 +26,8 @@ pub struct Config {
     pub cache: Option<CacheConfig>,
     #[serde(default)]
     pub resilience: Option<ResilienceConfig>,
+    #[serde(default)]
+    pub telemetry: TelemetryConfig,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -439,6 +441,58 @@ fn default_bulkhead_max_concurrent() -> u32 {
     200
 }
 
+/// OpenTelemetry / tracing configuration.
+///
+/// All fields are optional and default to today's behavior so enabling
+/// this section is a no-op until downstream waves consume the fields.
+/// Fields other than `otlp_endpoint` and `service_name` are reserved for
+/// Wave 2.1 (sampler + batcher wiring) and currently unused.
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
+#[serde(default)]
+pub struct TelemetryConfig {
+    /// OTLP collector endpoint (e.g. `http://otel-collector:4317`).
+    /// When unset, the SDK falls back to `OTEL_EXPORTER_OTLP_ENDPOINT` /
+    /// `OAUTH2_OTLP_ENDPOINT` env vars, preserving existing behavior.
+    pub otlp_endpoint: Option<String>,
+    /// Service name reported to the OTLP collector. Falls back to the
+    /// literal service name passed to `init_telemetry()` when `None`.
+    pub service_name: Option<String>,
+    /// Sampler configuration. Consumed by Wave 2.1.
+    pub sampler: SamplerKind,
+    /// Maximum queue length for the batch span processor. Consumed by Wave 2.1.
+    #[serde(default = "default_batch_max_queue")]
+    pub batch_max_queue: usize,
+    /// Scheduled delay between batch flushes, in milliseconds. Consumed by Wave 2.1.
+    #[serde(default = "default_batch_scheduled_delay_ms")]
+    pub batch_scheduled_delay_ms: u64,
+}
+
+fn default_batch_max_queue() -> usize {
+    2048
+}
+
+fn default_batch_scheduled_delay_ms() -> u64 {
+    5000
+}
+
+/// Sampling strategy for OpenTelemetry traces.
+///
+/// Serialized as a tagged union so config files can write e.g.
+/// `telemetry { sampler { kind = "trace_id_ratio", ratio = 0.1 } }`.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case", tag = "kind")]
+pub enum SamplerKind {
+    ParentBasedAlwaysOn,
+    TraceIdRatio { ratio: f64 },
+    AlwaysOff,
+}
+
+impl Default for SamplerKind {
+    fn default() -> Self {
+        Self::ParentBasedAlwaysOn
+    }
+}
+
 impl Default for Config {
     fn default() -> Self {
         // Try to load from HOCON file first, fall back to environment variables
@@ -475,6 +529,7 @@ impl Config {
         // Post-process to maintain backward compatibility with flat event config
         config.normalize_event_config();
         config.normalize_server_config();
+        config.overlay_telemetry_env();
 
         // Handle OAUTH2_EVENTS_TYPES environment variable if set
         // HOCON doesn't support array substitution from env vars directly
@@ -660,6 +715,7 @@ impl Config {
                     .unwrap_or(1),
             }),
             resilience: Self::resilience_from_env(),
+            telemetry: Self::telemetry_from_env(),
         };
 
         config.normalize_event_config();
@@ -917,6 +973,48 @@ impl Config {
             back_pressure,
             bulkheads: vec![],
         })
+    }
+
+    /// Read `TelemetryConfig` from env vars. Preserves legacy behavior:
+    /// `OAUTH2_OTLP_ENDPOINT` is honored as an alias for
+    /// `OTEL_EXPORTER_OTLP_ENDPOINT`.
+    fn telemetry_from_env() -> TelemetryConfig {
+        let otlp_endpoint = std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT")
+            .ok()
+            .or_else(|| std::env::var("OAUTH2_OTLP_ENDPOINT").ok())
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
+
+        let service_name = std::env::var("OTEL_SERVICE_NAME")
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
+
+        TelemetryConfig {
+            otlp_endpoint,
+            service_name,
+            sampler: SamplerKind::default(),
+            batch_max_queue: default_batch_max_queue(),
+            batch_scheduled_delay_ms: default_batch_scheduled_delay_ms(),
+        }
+    }
+
+    /// Overlay telemetry env vars onto a HOCON-loaded `TelemetryConfig`.
+    /// Env vars win when set; HOCON values win otherwise.
+    fn overlay_telemetry_env(&mut self) {
+        if self.telemetry.otlp_endpoint.is_none() {
+            self.telemetry.otlp_endpoint = std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT")
+                .ok()
+                .or_else(|| std::env::var("OAUTH2_OTLP_ENDPOINT").ok())
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty());
+        }
+        if self.telemetry.service_name.is_none() {
+            self.telemetry.service_name = std::env::var("OTEL_SERVICE_NAME")
+                .ok()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty());
+        }
     }
 }
 

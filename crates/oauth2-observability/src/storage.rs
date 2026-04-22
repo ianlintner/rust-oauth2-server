@@ -11,25 +11,47 @@ use crate::telemetry::annotate_span_with_trace_ids;
 
 /// A thin wrapper around a `DynStorage` that creates a tracing span for each storage call.
 ///
-/// This lets request spans (created by actix middleware) extend naturally through
-/// actors/handlers down into persistence calls.
+/// Spans use OpenTelemetry semantic convention field names (`db.system`,
+/// `db.operation`, `db.name`, `net.peer.name`, `otel.kind`) so that when the
+/// `otel` feature is enabled in `oauth2-observability`, the
+/// `tracing-opentelemetry` bridge exports them as standard DB client spans
+/// that show up correctly in Tempo/Jaeger service graphs.
+///
+/// `db_name` and `net_peer_name` are optional — callers that don't know the
+/// real values (e.g. tests, in-memory SQLite) pass `None` and the fields are
+/// recorded as empty strings.
 pub struct ObservedStorage {
     inner: DynStorage,
     db_system: String,
+    db_name: String,
+    net_peer_name: String,
 }
 
 impl ObservedStorage {
-    pub fn new(inner: DynStorage, db_system: String) -> Self {
-        Self { inner, db_system }
+    pub fn new(
+        inner: DynStorage,
+        db_system: String,
+        db_name: Option<String>,
+        net_peer_name: Option<String>,
+    ) -> Self {
+        Self {
+            inner,
+            db_system,
+            db_name: db_name.unwrap_or_default(),
+            net_peer_name: net_peer_name.unwrap_or_default(),
+        }
     }
 
     fn span(&self, operation: &'static str) -> tracing::Span {
         let span = tracing::info_span!(
-            "db",
+            "db.query",
             trace_id = field::Empty,
             span_id = field::Empty,
-            db_system = %self.db_system,
-            db_operation = operation
+            "db.system" = %self.db_system,
+            "db.operation" = operation,
+            "db.name" = %self.db_name,
+            "net.peer.name" = %self.net_peer_name,
+            "otel.kind" = "client",
         );
         annotate_span_with_trace_ids(&span);
         span
@@ -51,11 +73,14 @@ impl Storage for ObservedStorage {
 
     async fn save_client(&self, client: &Client) -> Result<(), OAuth2Error> {
         let span = tracing::info_span!(
-            "db",
+            "db.query",
             trace_id = field::Empty,
             span_id = field::Empty,
-            db_system = %self.db_system,
-            db_operation = "save_client",
+            "db.system" = %self.db_system,
+            "db.operation" = "save_client",
+            "db.name" = %self.db_name,
+            "net.peer.name" = %self.net_peer_name,
+            "otel.kind" = "client",
             client_id = %client.client_id
         );
         annotate_span_with_trace_ids(&span);
@@ -66,11 +91,14 @@ impl Storage for ObservedStorage {
 
     async fn get_client(&self, client_id: &str) -> Result<Option<Client>, OAuth2Error> {
         let span = tracing::info_span!(
-            "db",
+            "db.query",
             trace_id = field::Empty,
             span_id = field::Empty,
-            db_system = %self.db_system,
-            db_operation = "get_client",
+            "db.system" = %self.db_system,
+            "db.operation" = "get_client",
+            "db.name" = %self.db_name,
+            "net.peer.name" = %self.net_peer_name,
+            "otel.kind" = "client",
             client_id = %client_id
         );
         annotate_span_with_trace_ids(&span);
@@ -81,11 +109,14 @@ impl Storage for ObservedStorage {
 
     async fn update_client(&self, client: &Client) -> Result<(), OAuth2Error> {
         let span = tracing::info_span!(
-            "db",
+            "db.query",
             trace_id = field::Empty,
             span_id = field::Empty,
-            db_system = %self.db_system,
-            db_operation = "update_client",
+            "db.system" = %self.db_system,
+            "db.operation" = "update_client",
+            "db.name" = %self.db_name,
+            "net.peer.name" = %self.net_peer_name,
+            "otel.kind" = "client",
             client_id = %client.client_id
         );
         annotate_span_with_trace_ids(&span);
@@ -96,11 +127,14 @@ impl Storage for ObservedStorage {
 
     async fn delete_client(&self, client_id: &str) -> Result<(), OAuth2Error> {
         let span = tracing::info_span!(
-            "db",
+            "db.query",
             trace_id = field::Empty,
             span_id = field::Empty,
-            db_system = %self.db_system,
-            db_operation = "delete_client",
+            "db.system" = %self.db_system,
+            "db.operation" = "delete_client",
+            "db.name" = %self.db_name,
+            "net.peer.name" = %self.net_peer_name,
+            "otel.kind" = "client",
             client_id = %client_id
         );
         annotate_span_with_trace_ids(&span);
@@ -111,11 +145,14 @@ impl Storage for ObservedStorage {
 
     async fn save_user(&self, user: &User) -> Result<(), OAuth2Error> {
         let span = tracing::info_span!(
-            "db",
+            "db.query",
             trace_id = field::Empty,
             span_id = field::Empty,
-            db_system = %self.db_system,
-            db_operation = "save_user",
+            "db.system" = %self.db_system,
+            "db.operation" = "save_user",
+            "db.name" = %self.db_name,
+            "net.peer.name" = %self.net_peer_name,
+            "otel.kind" = "client",
             user_id = %user.id,
             username = %user.username
         );
@@ -127,11 +164,14 @@ impl Storage for ObservedStorage {
 
     async fn get_user_by_username(&self, username: &str) -> Result<Option<User>, OAuth2Error> {
         let span = tracing::info_span!(
-            "db",
+            "db.query",
             trace_id = field::Empty,
             span_id = field::Empty,
-            db_system = %self.db_system,
-            db_operation = "get_user_by_username",
+            "db.system" = %self.db_system,
+            "db.operation" = "get_user_by_username",
+            "db.name" = %self.db_name,
+            "net.peer.name" = %self.net_peer_name,
+            "otel.kind" = "client",
             username = %username
         );
         annotate_span_with_trace_ids(&span);
@@ -142,11 +182,14 @@ impl Storage for ObservedStorage {
 
     async fn get_user_by_id(&self, user_id: &str) -> Result<Option<User>, OAuth2Error> {
         let span = tracing::info_span!(
-            "db",
+            "db.query",
             trace_id = field::Empty,
             span_id = field::Empty,
-            db_system = %self.db_system,
-            db_operation = "get_user_by_id",
+            "db.system" = %self.db_system,
+            "db.operation" = "get_user_by_id",
+            "db.name" = %self.db_name,
+            "net.peer.name" = %self.net_peer_name,
+            "otel.kind" = "client",
             user_id = %user_id
         );
         annotate_span_with_trace_ids(&span);
@@ -159,11 +202,14 @@ impl Storage for ObservedStorage {
         // Never log full tokens.
         let token_prefix = Self::token_prefix(&token.access_token);
         let span = tracing::info_span!(
-            "db",
+            "db.query",
             trace_id = field::Empty,
             span_id = field::Empty,
-            db_system = %self.db_system,
-            db_operation = "save_token",
+            "db.system" = %self.db_system,
+            "db.operation" = "save_token",
+            "db.name" = %self.db_name,
+            "net.peer.name" = %self.net_peer_name,
+            "otel.kind" = "client",
             token_prefix = %token_prefix,
             client_id = %token.client_id,
             user_id = %token.user_id.as_deref().unwrap_or(""),
@@ -181,11 +227,14 @@ impl Storage for ObservedStorage {
     ) -> Result<Option<Token>, OAuth2Error> {
         let token_prefix = Self::token_prefix(access_token);
         let span = tracing::info_span!(
-            "db",
+            "db.query",
             trace_id = field::Empty,
             span_id = field::Empty,
-            db_system = %self.db_system,
-            db_operation = "get_token_by_access_token",
+            "db.system" = %self.db_system,
+            "db.operation" = "get_token_by_access_token",
+            "db.name" = %self.db_name,
+            "net.peer.name" = %self.net_peer_name,
+            "otel.kind" = "client",
             token_prefix = %token_prefix,
             token_len = access_token.len()
         );
@@ -201,11 +250,14 @@ impl Storage for ObservedStorage {
     ) -> Result<Option<Token>, OAuth2Error> {
         let token_prefix = Self::token_prefix(refresh_token);
         let span = tracing::info_span!(
-            "db",
+            "db.query",
             trace_id = field::Empty,
             span_id = field::Empty,
-            db_system = %self.db_system,
-            db_operation = "get_token_by_refresh_token",
+            "db.system" = %self.db_system,
+            "db.operation" = "get_token_by_refresh_token",
+            "db.name" = %self.db_name,
+            "net.peer.name" = %self.net_peer_name,
+            "otel.kind" = "client",
             token_prefix = %token_prefix,
             token_len = refresh_token.len()
         );
@@ -218,11 +270,14 @@ impl Storage for ObservedStorage {
     async fn revoke_token(&self, token: &str) -> Result<(), OAuth2Error> {
         let token_prefix = Self::token_prefix(token);
         let span = tracing::info_span!(
-            "db",
+            "db.query",
             trace_id = field::Empty,
             span_id = field::Empty,
-            db_system = %self.db_system,
-            db_operation = "revoke_token",
+            "db.system" = %self.db_system,
+            "db.operation" = "revoke_token",
+            "db.name" = %self.db_name,
+            "net.peer.name" = %self.net_peer_name,
+            "otel.kind" = "client",
             token_prefix = %token_prefix,
             token_len = token.len()
         );
@@ -235,11 +290,14 @@ impl Storage for ObservedStorage {
     async fn set_token_family(&self, access_token: &str, family: &str) -> Result<(), OAuth2Error> {
         let token_prefix = Self::token_prefix(access_token);
         let span = tracing::info_span!(
-            "db",
+            "db.query",
             trace_id = field::Empty,
             span_id = field::Empty,
-            db_system = %self.db_system,
-            db_operation = "set_token_family",
+            "db.system" = %self.db_system,
+            "db.operation" = "set_token_family",
+            "db.name" = %self.db_name,
+            "net.peer.name" = %self.net_peer_name,
+            "otel.kind" = "client",
             token_prefix = %token_prefix,
             token_family = %family
         );
@@ -251,11 +309,14 @@ impl Storage for ObservedStorage {
 
     async fn revoke_token_family(&self, family: &str) -> Result<u64, OAuth2Error> {
         let span = tracing::info_span!(
-            "db",
+            "db.query",
             trace_id = field::Empty,
             span_id = field::Empty,
-            db_system = %self.db_system,
-            db_operation = "revoke_token_family",
+            "db.system" = %self.db_system,
+            "db.operation" = "revoke_token_family",
+            "db.name" = %self.db_name,
+            "net.peer.name" = %self.net_peer_name,
+            "otel.kind" = "client",
             token_family = %family
         );
         annotate_span_with_trace_ids(&span);
@@ -266,11 +327,14 @@ impl Storage for ObservedStorage {
 
     async fn revoke_tokens_by_user_id(&self, user_id: &str) -> Result<u64, OAuth2Error> {
         let span = tracing::info_span!(
-            "db",
+            "db.query",
             trace_id = field::Empty,
             span_id = field::Empty,
-            db_system = %self.db_system,
-            db_operation = "revoke_tokens_by_user_id",
+            "db.system" = %self.db_system,
+            "db.operation" = "revoke_tokens_by_user_id",
+            "db.name" = %self.db_name,
+            "net.peer.name" = %self.net_peer_name,
+            "otel.kind" = "client",
             user_id = %user_id
         );
         annotate_span_with_trace_ids(&span);
@@ -284,11 +348,14 @@ impl Storage for ObservedStorage {
         auth_code: &AuthorizationCode,
     ) -> Result<(), OAuth2Error> {
         let span = tracing::info_span!(
-            "db",
+            "db.query",
             trace_id = field::Empty,
             span_id = field::Empty,
-            db_system = %self.db_system,
-            db_operation = "save_authorization_code",
+            "db.system" = %self.db_system,
+            "db.operation" = "save_authorization_code",
+            "db.name" = %self.db_name,
+            "net.peer.name" = %self.net_peer_name,
+            "otel.kind" = "client",
             client_id = %auth_code.client_id,
             user_id = %auth_code.user_id
         );
@@ -304,11 +371,14 @@ impl Storage for ObservedStorage {
     ) -> Result<Option<AuthorizationCode>, OAuth2Error> {
         let code_prefix = code.chars().take(12).collect::<String>();
         let span = tracing::info_span!(
-            "db",
+            "db.query",
             trace_id = field::Empty,
             span_id = field::Empty,
-            db_system = %self.db_system,
-            db_operation = "get_authorization_code",
+            "db.system" = %self.db_system,
+            "db.operation" = "get_authorization_code",
+            "db.name" = %self.db_name,
+            "net.peer.name" = %self.net_peer_name,
+            "otel.kind" = "client",
             code_prefix = %code_prefix,
             code_len = code.len()
         );
@@ -321,11 +391,14 @@ impl Storage for ObservedStorage {
     async fn mark_authorization_code_used(&self, code: &str) -> Result<(), OAuth2Error> {
         let code_prefix = code.chars().take(12).collect::<String>();
         let span = tracing::info_span!(
-            "db",
+            "db.query",
             trace_id = field::Empty,
             span_id = field::Empty,
-            db_system = %self.db_system,
-            db_operation = "mark_authorization_code_used",
+            "db.system" = %self.db_system,
+            "db.operation" = "mark_authorization_code_used",
+            "db.name" = %self.db_name,
+            "net.peer.name" = %self.net_peer_name,
+            "otel.kind" = "client",
             code_prefix = %code_prefix,
             code_len = code.len()
         );
@@ -340,11 +413,14 @@ impl Storage for ObservedStorage {
         device_auth: &DeviceAuthorization,
     ) -> Result<(), OAuth2Error> {
         let span = tracing::info_span!(
-            "db",
+            "db.query",
             trace_id = field::Empty,
             span_id = field::Empty,
-            db_system = %self.db_system,
-            db_operation = "save_device_authorization",
+            "db.system" = %self.db_system,
+            "db.operation" = "save_device_authorization",
+            "db.name" = %self.db_name,
+            "net.peer.name" = %self.net_peer_name,
+            "otel.kind" = "client",
             client_id = %device_auth.client_id,
             user_code = %device_auth.user_code
         );
@@ -360,11 +436,14 @@ impl Storage for ObservedStorage {
     ) -> Result<Option<DeviceAuthorization>, OAuth2Error> {
         let code_prefix = device_code.chars().take(12).collect::<String>();
         let span = tracing::info_span!(
-            "db",
+            "db.query",
             trace_id = field::Empty,
             span_id = field::Empty,
-            db_system = %self.db_system,
-            db_operation = "get_device_authorization_by_device_code",
+            "db.system" = %self.db_system,
+            "db.operation" = "get_device_authorization_by_device_code",
+            "db.name" = %self.db_name,
+            "net.peer.name" = %self.net_peer_name,
+            "otel.kind" = "client",
             code_prefix = %code_prefix,
             code_len = device_code.len()
         );
@@ -383,11 +462,14 @@ impl Storage for ObservedStorage {
         user_code: &str,
     ) -> Result<Option<DeviceAuthorization>, OAuth2Error> {
         let span = tracing::info_span!(
-            "db",
+            "db.query",
             trace_id = field::Empty,
             span_id = field::Empty,
-            db_system = %self.db_system,
-            db_operation = "get_device_authorization_by_user_code",
+            "db.system" = %self.db_system,
+            "db.operation" = "get_device_authorization_by_user_code",
+            "db.name" = %self.db_name,
+            "net.peer.name" = %self.net_peer_name,
+            "otel.kind" = "client",
             user_code = %user_code
         );
         annotate_span_with_trace_ids(&span);
@@ -406,11 +488,14 @@ impl Storage for ObservedStorage {
         user_id: &str,
     ) -> Result<(), OAuth2Error> {
         let span = tracing::info_span!(
-            "db",
+            "db.query",
             trace_id = field::Empty,
             span_id = field::Empty,
-            db_system = %self.db_system,
-            db_operation = "approve_device_authorization",
+            "db.system" = %self.db_system,
+            "db.operation" = "approve_device_authorization",
+            "db.name" = %self.db_name,
+            "net.peer.name" = %self.net_peer_name,
+            "otel.kind" = "client",
             user_code = %user_code,
             user_id = %user_id
         );
@@ -426,11 +511,14 @@ impl Storage for ObservedStorage {
 
     async fn deny_device_authorization(&self, user_code: &str) -> Result<(), OAuth2Error> {
         let span = tracing::info_span!(
-            "db",
+            "db.query",
             trace_id = field::Empty,
             span_id = field::Empty,
-            db_system = %self.db_system,
-            db_operation = "deny_device_authorization",
+            "db.system" = %self.db_system,
+            "db.operation" = "deny_device_authorization",
+            "db.name" = %self.db_name,
+            "net.peer.name" = %self.net_peer_name,
+            "otel.kind" = "client",
             user_code = %user_code
         );
         annotate_span_with_trace_ids(&span);
@@ -442,11 +530,14 @@ impl Storage for ObservedStorage {
     async fn mark_device_authorization_used(&self, device_code: &str) -> Result<(), OAuth2Error> {
         let code_prefix = device_code.chars().take(12).collect::<String>();
         let span = tracing::info_span!(
-            "db",
+            "db.query",
             trace_id = field::Empty,
             span_id = field::Empty,
-            db_system = %self.db_system,
-            db_operation = "mark_device_authorization_used",
+            "db.system" = %self.db_system,
+            "db.operation" = "mark_device_authorization_used",
+            "db.name" = %self.db_name,
+            "net.peer.name" = %self.net_peer_name,
+            "otel.kind" = "client",
             code_prefix = %code_prefix,
             code_len = device_code.len()
         );

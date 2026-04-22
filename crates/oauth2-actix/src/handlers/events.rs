@@ -86,7 +86,7 @@ pub struct RecentEventsStore {
     capacity: usize,
     inner: Arc<Mutex<VecDeque<serde_json::Value>>>,
     #[cfg(feature = "redis-cache")]
-    redis: Option<redis::aio::ConnectionManager>,
+    redis: Option<oauth2_observability::TracedRedis>,
 }
 
 impl RecentEventsStore {
@@ -102,7 +102,7 @@ impl RecentEventsStore {
     }
 
     #[cfg(feature = "redis-cache")]
-    pub fn with_redis(mut self, conn: redis::aio::ConnectionManager) -> Self {
+    pub fn with_redis(mut self, conn: oauth2_observability::TracedRedis) -> Self {
         self.redis = Some(conn);
         self
     }
@@ -110,10 +110,9 @@ impl RecentEventsStore {
     pub async fn push(&self, value: serde_json::Value) {
         #[cfg(feature = "redis-cache")]
         if let Some(mut conn) = self.redis.clone() {
-            use redis::AsyncCommands;
             if let Ok(json) = serde_json::to_string(&value) {
                 let cap = self.capacity as isize - 1;
-                let _: Result<(), _> = conn.lpush(Self::REDIS_KEY, &json).await;
+                let _: Result<(), _> = conn.lpush(Self::REDIS_KEY, json).await;
                 let _: Result<(), _> = conn.ltrim(Self::REDIS_KEY, 0, cap).await;
                 let _: Result<(), _> = conn.expire(Self::REDIS_KEY, 86400).await;
             }
@@ -129,7 +128,6 @@ impl RecentEventsStore {
     pub async fn snapshot(&self) -> Vec<serde_json::Value> {
         #[cfg(feature = "redis-cache")]
         if let Some(mut conn) = self.redis.clone() {
-            use redis::AsyncCommands;
             let raw: Vec<String> = conn
                 .lrange(Self::REDIS_KEY, 0, self.capacity as isize - 1)
                 .await

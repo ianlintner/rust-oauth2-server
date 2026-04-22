@@ -34,7 +34,7 @@ struct CachedToken {
 
 /// Optional Redis connection for L2 caching behind the in-process LRU.
 #[cfg(feature = "redis-cache")]
-type RedisConn = Option<redis::aio::ConnectionManager>;
+type RedisConn = Option<oauth2_observability::TracedRedis>;
 #[cfg(not(feature = "redis-cache"))]
 type RedisConn = ();
 
@@ -116,9 +116,12 @@ impl TokenActor {
         self
     }
 
-    /// Attach a Redis connection manager for L2 caching.
+    /// Attach a Redis connection manager for L2 caching. The connection is
+    /// wrapped in [`oauth2_observability::TracedRedis`] so every Redis command
+    /// issued against it emits an OTel-semconv `redis.command` child span of
+    /// the surrounding HTTP/actor span.
     #[cfg(feature = "redis-cache")]
-    pub fn with_redis(mut self, conn: redis::aio::ConnectionManager) -> Self {
+    pub fn with_redis(mut self, conn: oauth2_observability::TracedRedis) -> Self {
         self.redis = Some(conn);
         self
     }
@@ -402,8 +405,7 @@ impl Handler<ValidateToken> for TokenActor {
                 #[cfg(feature = "redis-cache")]
                 if let Some(ref mut conn) = redis_conn.clone() {
                     let redis_key = format!("{}{}", REDIS_TOKEN_PREFIX, token_normalized);
-                    let redis_result: Result<Option<String>, _> =
-                        redis::cmd("GET").arg(&redis_key).query_async(conn).await;
+                    let redis_result: Result<Option<String>, _> = conn.get(&redis_key).await;
                     if let Ok(Some(json)) = redis_result {
                         if let Ok(token) = serde_json::from_str::<Token>(&json) {
                             tracing::debug!(
@@ -468,13 +470,7 @@ impl Handler<ValidateToken> for TokenActor {
                 if let Some(ref mut conn) = redis_conn.clone() {
                     let redis_key = format!("{}{}", REDIS_TOKEN_PREFIX, token_normalized);
                     if let Ok(json) = serde_json::to_string(&token) {
-                        let _: Result<(), _> = redis::cmd("SET")
-                            .arg(&redis_key)
-                            .arg(&json)
-                            .arg("EX")
-                            .arg(redis_ttl_secs)
-                            .query_async(conn)
-                            .await;
+                        let _: Result<(), _> = conn.set_ex(&redis_key, json, redis_ttl_secs).await;
                     }
                 }
 
@@ -569,8 +565,7 @@ impl Handler<RevokeToken> for TokenActor {
                 // Evict from Redis L2.
                 #[cfg(feature = "redis-cache")]
                 if let Some(ref mut conn) = redis_conn.clone() {
-                    let _: Result<(), _> =
-                        redis::cmd("DEL").arg(&redis_key).query_async(conn).await;
+                    let _: Result<(), _> = conn.del(&redis_key).await;
                 }
 
                 // Get token info before revoking for event + cascade revocation.

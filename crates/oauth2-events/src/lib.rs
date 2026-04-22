@@ -5,6 +5,7 @@ pub mod envelope;
 pub mod event_actor;
 pub mod event_types;
 pub mod plugins;
+pub mod propagation;
 
 pub use actix_bus::*;
 pub use bus::*;

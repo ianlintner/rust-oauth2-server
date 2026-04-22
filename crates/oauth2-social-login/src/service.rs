@@ -12,6 +12,49 @@ use oauth2_core::OAuth2Error;
 use crate::circuit_breaker::CircuitBreaker;
 use crate::models::SocialUserInfo;
 
+/// Outbound HTTP client type. With `otel` enabled this is the middleware-wrapped
+/// client that emits a CLIENT span and injects W3C traceparent/tracestate per
+/// request; without it this is a plain `reqwest::Client`.
+#[cfg(feature = "otel")]
+type HttpClient = reqwest_middleware::ClientWithMiddleware;
+#[cfg(not(feature = "otel"))]
+type HttpClient = reqwest::Client;
+
+fn build_http_client(timeout: Duration) -> HttpClient {
+    let inner = reqwest::Client::builder()
+        .timeout(timeout)
+        .build()
+        .expect("reqwest client");
+
+    #[cfg(feature = "otel")]
+    {
+        // reqwest-tracing 0.5.x only exposes opentelemetry features through
+        // 0.30. It injects headers via `opentelemetry_0_30::global::get_text_map_propagator`,
+        // which is a *different* global static from the workspace's OTEL 0.31
+        // propagator installed by W0.1 `init_telemetry`. Install a
+        // `TraceContextPropagator` on the 0.30 global here (once) so that the
+        // middleware actually serialises the current span's context into
+        // traceparent/tracestate. This bridge can be removed once upstream
+        // reqwest-tracing gains `opentelemetry_0_31` support AND permits
+        // reqwest 0.12.
+        use std::sync::Once;
+        static INIT_0_30_PROPAGATOR: Once = Once::new();
+        INIT_0_30_PROPAGATOR.call_once(|| {
+            opentelemetry_0_30_pkg::global::set_text_map_propagator(
+                opentelemetry_sdk_0_30_pkg::propagation::TraceContextPropagator::new(),
+            );
+        });
+
+        reqwest_middleware::ClientBuilder::new(inner)
+            .with(reqwest_tracing::TracingMiddleware::default())
+            .build()
+    }
+    #[cfg(not(feature = "otel"))]
+    {
+        inner
+    }
+}
+
 // Type alias for a fully configured OAuth2 client with all required endpoints set.
 // This is necessary due to oauth2 5.0's typestate pattern which tracks endpoint
 // configuration at compile time.
@@ -39,8 +82,10 @@ const CB_FAILURE_THRESHOLD: u32 = 5;
 const CB_COOLDOWN: Duration = Duration::from_secs(30);
 
 pub struct SocialLoginService {
-    /// Shared HTTP client with timeout.
-    http: reqwest::Client,
+    /// Shared HTTP client with timeout. When built with `otel`, the client is
+    /// wrapped with `reqwest-tracing`'s middleware for W3C context propagation
+    /// and per-request CLIENT spans.
+    http: HttpClient,
     /// Per-provider circuit breakers.
     pub cb_google: Arc<CircuitBreaker>,
     pub cb_microsoft: Arc<CircuitBreaker>,
@@ -56,10 +101,7 @@ impl Default for SocialLoginService {
 impl SocialLoginService {
     pub fn new() -> Self {
         Self {
-            http: reqwest::Client::builder()
-                .timeout(PROVIDER_TIMEOUT)
-                .build()
-                .expect("reqwest client"),
+            http: build_http_client(PROVIDER_TIMEOUT),
             cb_google: Arc::new(CircuitBreaker::new(CB_FAILURE_THRESHOLD, CB_COOLDOWN)),
             cb_microsoft: Arc::new(CircuitBreaker::new(CB_FAILURE_THRESHOLD, CB_COOLDOWN)),
             cb_github: Arc::new(CircuitBreaker::new(CB_FAILURE_THRESHOLD, CB_COOLDOWN)),
@@ -174,6 +216,13 @@ impl SocialLoginService {
             ))
     }
 
+    #[tracing::instrument(
+        level = "info",
+        name = "social.fetch_user_info",
+        skip_all,
+        fields(provider = "google"),
+        err
+    )]
     pub async fn fetch_google_user_info(
         &self,
         access_token: &str,
@@ -224,6 +273,13 @@ impl SocialLoginService {
         })
     }
 
+    #[tracing::instrument(
+        level = "info",
+        name = "social.fetch_user_info",
+        skip_all,
+        fields(provider = "microsoft"),
+        err
+    )]
     pub async fn fetch_microsoft_user_info(
         &self,
         access_token: &str,
@@ -275,6 +331,13 @@ impl SocialLoginService {
         })
     }
 
+    #[tracing::instrument(
+        level = "info",
+        name = "social.fetch_user_info",
+        skip_all,
+        fields(provider = "github"),
+        err
+    )]
     pub async fn fetch_github_user_info(
         &self,
         access_token: &str,

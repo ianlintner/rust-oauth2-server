@@ -58,4 +58,4 @@ optional = true
 
 [features]
 default = []
-redis-cache = ["redis"]
+redis-cache = ["redis", "oauth2-observability/redis"]
