@@ -4,7 +4,7 @@ set -euo pipefail
 CONFIG_NAME="${1:?Usage: deploy-config.sh <config-name>}"
 CLUSTER_NAME="${CLUSTER_NAME:-oauth2-security}"
 NAMESPACE="${NAMESPACE:-security-scan}"
-IMAGE_REF="${IMAGE_REF:-docker.io/ianlintner068/oauth2-server:test}"
+IMAGE_REF="${IMAGE_REF:-docker.io/example/oauth2-server:test}"
 PORT="${PORT:-}"
 SKIP_IMAGE_BUILD="${SKIP_IMAGE_BUILD:-0}"
 NS_DELETE_TIMEOUT="${NS_DELETE_TIMEOUT:-120}"  # seconds to wait for namespace Terminating → gone

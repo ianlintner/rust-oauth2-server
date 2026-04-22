@@ -15,7 +15,7 @@ set -euo pipefail
 
 CLUSTER_NAME="${CLUSTER_NAME:-oauth2-observability}"
 NAMESPACE="${NAMESPACE:-oauth2-server}"
-IMAGE_REF="${IMAGE_REF:-docker.io/ianlintner068/oauth2-server:test}"
+IMAGE_REF="${IMAGE_REF:-docker.io/example/oauth2-server:test}"
 KUSTOMIZE_DIR="${KUSTOMIZE_DIR:-k8s/overlays/e2e-kind-observability}"
 
 SKIP_IMAGE_BUILD="${SKIP_IMAGE_BUILD:-0}"
@@ -35,7 +35,7 @@ Usage: scripts/kind_up_observability.sh
 Environment overrides:
   CLUSTER_NAME (default: oauth2-observability)
   NAMESPACE    (default: oauth2-server)
-  IMAGE_REF    (default: docker.io/ianlintner068/oauth2-server:test)
+  IMAGE_REF    (default: docker.io/example/oauth2-server:test)
   KUSTOMIZE_DIR (default: k8s/overlays/e2e-kind-observability)
 
   SKIP_IMAGE_BUILD=1    Skip docker build (requires IMAGE_REF to exist locally)

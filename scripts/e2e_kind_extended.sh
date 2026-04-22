@@ -10,14 +10,14 @@ set -euo pipefail
 
 CLUSTER_NAME="${CLUSTER_NAME:-oauth2-test}"
 NAMESPACE="${NAMESPACE:-oauth2-server}"
-IMAGE_REF="${IMAGE_REF:-docker.io/ianlintner068/oauth2-server:test}"
+IMAGE_REF="${IMAGE_REF:-docker.io/example/oauth2-server:test}"
 KUSTOMIZE_DIR="${KUSTOMIZE_DIR:-k8s/overlays/e2e-kind-extended}"
 KEEP_CLUSTER="${KEEP_CLUSTER:-0}"
 KEEP_NAMESPACE="${KEEP_NAMESPACE:-0}"
 SKIP_IMAGE_BUILD="${SKIP_IMAGE_BUILD:-0}"
 PORT="${PORT:-}"
 
-RESOURCE_IMAGE_REF="${RESOURCE_IMAGE_REF:-docker.io/ianlintner068/oauth2-resource-server:test}"
+RESOURCE_IMAGE_REF="${RESOURCE_IMAGE_REF:-docker.io/example/oauth2-resource-server:test}"
 RESOURCE_CONTEXT_DIR="${RESOURCE_CONTEXT_DIR:-examples/resource-server-node}"
 RESOURCE_PORT="${RESOURCE_PORT:-}"
 
@@ -28,7 +28,7 @@ Usage: scripts/e2e_kind_extended.sh [--keep-cluster] [--keep-namespace] [--clust
 Environment overrides:
   CLUSTER_NAME   (default: oauth2-test)
   NAMESPACE      (default: oauth2-server)
-  IMAGE_REF      (default: docker.io/ianlintner068/oauth2-server:test)
+  IMAGE_REF      (default: docker.io/example/oauth2-server:test)
   KUSTOMIZE_DIR  (default: k8s/overlays/e2e-kind-extended)
   KEEP_CLUSTER   (default: 0)
   KEEP_NAMESPACE (default: 0)
@@ -36,7 +36,7 @@ Environment overrides:
   PORT (optional: fixed local port for oauth2-server port-forward)
 
 Resource server overrides:
-  RESOURCE_IMAGE_REF (default: docker.io/ianlintner068/oauth2-resource-server:test)
+  RESOURCE_IMAGE_REF (default: docker.io/example/oauth2-resource-server:test)
   RESOURCE_CONTEXT_DIR (default: examples/resource-server-node)
   RESOURCE_PORT (optional: fixed local port for resource-server port-forward)
 USAGE

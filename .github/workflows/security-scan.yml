@@ -137,7 +137,7 @@ jobs:
         with:
           context: .
           file: Dockerfile.prebuilt
-          tags: docker.io/ianlintner068/oauth2-server:test
+          tags: docker.io/example/oauth2-server:test
           load: true
           cache-from: type=gha
           cache-to: type=gha,mode=max
@@ -173,7 +173,7 @@ jobs:
           SKIP_IMAGE_BUILD=1 \
           CLUSTER_NAME=oauth2-security \
           NAMESPACE=security-scan \
-          IMAGE_REF='docker.io/ianlintner068/oauth2-server:test' \
+          IMAGE_REF='docker.io/example/oauth2-server:test' \
           bash tests/security-scan/scripts/security-scan.sh \
             --matrix "$SCAN_MATRIX" \
             --budget 35m

@@ -29,7 +29,7 @@ on:
       image_ref:
         description: Docker image tag to load into KIND.
         required: false
-        default: docker.io/ianlintner068/oauth2-server:test
+        default: docker.io/example/oauth2-server:test
         type: string
 
 permissions:
