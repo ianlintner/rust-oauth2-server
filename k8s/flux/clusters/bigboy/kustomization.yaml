@@ -1,0 +1,12 @@
+# Root kustomization for the `bigboy` AKS cluster.
+#
+# This path is referenced by an Azure-managed Flux `FluxConfig` (the
+# `microsoft.flux` extension). The FluxConfig generates a `GitRepository`
+# named after the Flux config, and this kustomization is the entry point
+# it reconciles. See `docs/flux.md` for the canonical `az` command that
+# provisions the FluxConfig.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - oauth2-server.yaml

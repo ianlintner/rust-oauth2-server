@@ -1,0 +1,29 @@
+# Flux Kustomization for the oauth2-server production overlay.
+#
+# `sourceRef.name` matches the Azure FluxConfig name — the `microsoft.flux`
+# extension creates a `GitRepository` in `flux-system` with that name when
+# the FluxConfig is provisioned.
+#
+# The reconciled path (`k8s/overlays/production`) renders the base manifests
+# with the observability patch applied, and pins the image tag. Bump the
+# `newTag` in `k8s/overlays/production/kustomization.yaml` on each release.
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: oauth2-server
+  namespace: flux-system
+spec:
+  interval: 1m
+  timeout: 5m
+  sourceRef:
+    kind: GitRepository
+    name: oauth2-server
+  path: ./k8s/overlays/production
+  prune: true
+  wait: true
+  targetNamespace: default
+  healthChecks:
+    - apiVersion: apps/v1
+      kind: Deployment
+      name: oauth2-server
+      namespace: default
