@@ -479,18 +479,15 @@ fn default_batch_scheduled_delay_ms() -> u64 {
 ///
 /// Serialized as a tagged union so config files can write e.g.
 /// `telemetry { sampler { kind = "trace_id_ratio", ratio = 0.1 } }`.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case", tag = "kind")]
 pub enum SamplerKind {
+    #[default]
     ParentBasedAlwaysOn,
-    TraceIdRatio { ratio: f64 },
+    TraceIdRatio {
+        ratio: f64,
+    },
     AlwaysOff,
-}
-
-impl Default for SamplerKind {
-    fn default() -> Self {
-        Self::ParentBasedAlwaysOn
-    }
 }
 
 impl Default for Config {

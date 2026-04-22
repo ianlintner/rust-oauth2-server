@@ -14,17 +14,14 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilte
 /// Duplicated here so `oauth2-observability` does not gain a `oauth2-config`
 /// dependency (which would introduce a workspace cycle). The caller in
 /// `oauth2-server` converts once at startup.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub enum SamplerKind {
+    #[default]
     ParentBasedAlwaysOn,
-    TraceIdRatio { ratio: f64 },
+    TraceIdRatio {
+        ratio: f64,
+    },
     AlwaysOff,
-}
-
-impl Default for SamplerKind {
-    fn default() -> Self {
-        Self::ParentBasedAlwaysOn
-    }
 }
 
 /// Runtime telemetry wiring parameters accepted by [`init_telemetry`].
