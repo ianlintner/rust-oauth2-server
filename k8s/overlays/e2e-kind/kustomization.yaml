@@ -19,7 +19,6 @@ patches:
   # Ingress/HPA are production concerns and can fail/noise on KIND.
   - path: patches/delete-ingress.yaml
   - path: patches/delete-hpa.yaml
-  - path: patches/delete-postgres-pvc.yaml
   - path: patches/secret-e2e-creds.yaml
 
   - target:
@@ -35,10 +34,3 @@ patches:
       kind: Deployment
       name: oauth2-server
     path: patches/deployment-insecure-defaults.yaml
-
-  - target:
-      group: apps
-      version: v1
-      kind: StatefulSet
-      name: postgres
-    path: patches/postgres-ephemeral.json

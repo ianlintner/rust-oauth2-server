@@ -4,12 +4,7 @@ kind: Kustomization
 resources:
   - rbac.yaml
   - configmap.yaml
-  - configmap-migrations.yaml
   - secret.yaml
-  - postgres-pvc.yaml
-  - postgres-statefulset.yaml
-  - postgres-service.yaml
-  - flyway-migration-job.yaml
   - ingress.yaml
   - hpa.yaml
   - deployment.yaml

@@ -26,37 +26,11 @@ spec:
         app.kubernetes.io/managed-by: kustomize
     spec:
       serviceAccountName: oauth2-server
-      initContainers:
-        - name: wait-for-migrations
-          image: bitnami/kubectl:latest
-          command:
-            - sh
-            - -c
-            - |
-              echo "Waiting for database migrations job to complete..."
-              if ! kubectl wait --for=condition=complete --timeout=300s job/flyway-migration -n "${KUBERNETES_NAMESPACE}"; then
-                echo "ERROR: Database migration failed or timed out. Check flyway-migration job logs for details." >&2
-                exit 1
-              fi
-              echo "Migration job completed successfully."
-          env:
-            - name: KUBERNETES_NAMESPACE
-              valueFrom:
-                fieldRef:
-                  fieldPath: metadata.namespace
-          securityContext:
-            allowPrivilegeEscalation: false
-            runAsNonRoot: true
-            runAsUser: 1000
       containers:
         - name: oauth2-server
           image: docker.io/ianlintner068/oauth2-server:latest
           imagePullPolicy: IfNotPresent
-          command: ["/bin/sh", "-c"]
-          args:
-            - |
-              export OAUTH2_DATABASE_URL="postgresql://oauth2_user:${POSTGRES_PASSWORD}@postgres:5432/oauth2"
-              exec /app/rust_oauth2_server
+          command: ["/app/rust_oauth2_server"]
           ports:
             - name: http
               containerPort: 8080
@@ -77,11 +51,6 @@ spec:
                 configMapKeyRef:
                   name: oauth2-server-config
                   key: OAUTH2_SERVER_PORT
-            - name: POSTGRES_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: oauth2-server-secret
-                  key: POSTGRES_PASSWORD
             - name: OAUTH2_JWT_SECRET
               valueFrom:
                 secretKeyRef:
@@ -97,16 +66,6 @@ spec:
                 secretKeyRef:
                   name: oauth2-server-secret
                   key: OAUTH2_SESSION_KEY
-            - name: OAUTH2_DATABASE_MAX_CONNECTIONS
-              valueFrom:
-                configMapKeyRef:
-                  name: oauth2-server-config
-                  key: OAUTH2_DATABASE_MAX_CONNECTIONS
-            - name: OAUTH2_DATABASE_MIN_CONNECTIONS
-              valueFrom:
-                configMapKeyRef:
-                  name: oauth2-server-config
-                  key: OAUTH2_DATABASE_MIN_CONNECTIONS
             - name: RUST_LOG
               valueFrom:
                 configMapKeyRef:
@@ -140,7 +99,7 @@ spec:
           resources:
             requests:
               memory: "256Mi"
-              cpu: "250m"
+              cpu: "25m"
             limits:
               memory: "512Mi"
-              cpu: "500m"
+              cpu: "200m"

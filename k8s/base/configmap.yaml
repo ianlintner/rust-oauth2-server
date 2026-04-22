@@ -5,10 +5,5 @@ metadata:
 data:
   OAUTH2_SERVER_HOST: "0.0.0.0"
   OAUTH2_SERVER_PORT: "8080"
-  # Database URL without password - password will be injected from Secret
-  OAUTH2_DATABASE_URL: "postgresql://oauth2_user@postgres:5432/oauth2"
-  # Connection pool tuning. Benchmark guidance lives in benchmarks/README.md.
-  OAUTH2_DATABASE_MAX_CONNECTIONS: "50"
-  OAUTH2_DATABASE_MIN_CONNECTIONS: "5"
   RUST_LOG: "info"
   RUST_BACKTRACE: "1"

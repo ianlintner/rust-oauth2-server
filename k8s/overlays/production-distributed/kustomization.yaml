@@ -19,7 +19,6 @@ components:
   - ../../components/distributed-ha
   - ../../components/redis
   - ../../components/pgbouncer
-  - ../../components/postgres-tuning
 
 commonLabels:
   environment: production
