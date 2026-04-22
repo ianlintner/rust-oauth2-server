@@ -11,3 +11,9 @@ spec:
           env:
             - name: OAUTH2_ALLOW_INSECURE_DEFAULTS
               value: "1"
+            # KIND e2e: use sqlite in /tmp (writable by non-root UID 1000).
+            # The default sqlite path (`oauth2.db` in cwd) lives under `/app`
+            # which is owned by root in the image, so writes fail for
+            # runAsUser: 1000.
+            - name: OAUTH2_DATABASE_URL
+              value: "sqlite:/tmp/oauth2.db?mode=rwc"
