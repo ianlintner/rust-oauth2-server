@@ -4,8 +4,12 @@ kind: Kustomization
 bases:
   - ../../base
 
-commonLabels:
-  environment: production
+labels:
+  - pairs:
+      environment: production
+      app.kubernetes.io/instance: production
+    includeSelectors: true
+    includeTemplates: true
 
 patchesStrategicMerge:
   - observability-patch.yaml
