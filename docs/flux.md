@@ -104,19 +104,71 @@ After a release completes:
 This keeps prod rollouts as reviewable PRs with full history, at the
 cost of one extra PR per release.
 
-## 5. Optional: image automation
+## 5. Image automation (enabled)
 
-Flux's `ImageRepository` / `ImagePolicy` / `ImageUpdateAutomation` CRs can
-automate step 4 by watching the registry for new semver tags and opening
-commits that bump the overlay automatically. Enabling that requires:
+Flux's `ImageRepository` / `ImagePolicy` / `ImageUpdateAutomation` CRs
+automate step 4 by watching Docker Hub for new semver tags and committing
+overlay tag bumps directly to `main`. The CRs live in
+`k8s/flux/clusters/bigboy/image-automation.yaml` and are reconciled by the
+same root kustomization as `oauth2-server.yaml`.
 
-- A Kubernetes `Secret` with a Git write token (PAT) mounted into
-  `image-automation-controller`.
-- A branch protection exception or a separate `flux-image-updates`
-  branch with auto-merge.
+Moving pieces:
 
-This repo does not enable image automation yet. Start with the manual
-PR flow in §4 and opt in later if the cadence justifies the moving parts.
+- **`GitRepository/oauth2-server-write`** — a second `GitRepository` in
+  `flux-system` that carries HTTPS credentials so the
+  `image-automation-controller` can push commits. The Azure-managed
+  `GitRepository` (provisioned by the `FluxConfig`) is read-only and
+  cannot be reused for writes.
+- **`ImageRepository/oauth2-server`** — polls `docker.io/ianlintner068/oauth2-server`
+  every 5m.
+- **`ImagePolicy/oauth2-server`** — selects the highest semver tag matching
+  `^[0-9]+\.[0-9]+\.[0-9]+$`. Pre-release variants (`-mongo`, `-mongo-only`,
+  `sha-*`) are filtered out so they never get promoted to production.
+- **`ImageUpdateAutomation/oauth2-server`** — scans
+  `k8s/overlays/production/kustomization.yaml` for the Setters marker
+  `# {"$imagepolicy": "flux-system:oauth2-server:tag"}` and commits
+  `chore(flux): bump oauth2-server image to <tag>` to `main` when the
+  policy picks a newer version.
+
+### 5.1 One-time Secret provisioning
+
+The write path needs a Git PAT. Create it out-of-band — the Secret is
+intentionally not committed to this repo:
+
+```bash
+kubectl -n flux-system create secret generic oauth2-server-git-auth \
+  --from-literal=username=x-access-token \
+  --from-literal=password="$GITHUB_TOKEN"
+```
+
+`GITHUB_TOKEN` must be a classic or fine-grained PAT with `repo` (or
+`contents: write`) scope on `ianlintner/rust-oauth2-server`. Rotate by
+replacing the Secret; no controller restart required.
+
+### 5.2 Branch protection
+
+Because the automation pushes directly to `main`, `main` must either:
+
+- allow the PAT identity (`x-access-token`) to bypass branch protection, or
+- have no protection rule requiring PR review.
+
+If you want PR review on automated bumps, change `push.branch` in the
+`ImageUpdateAutomation` CR to a dedicated branch (e.g. `flux-image-updates`)
+and add a GitHub auto-merge workflow.
+
+### 5.3 Opting a new overlay into automation
+
+Add the Setters marker next to the `newTag` line in the overlay's
+`kustomization.yaml`:
+
+```yaml
+images:
+  - name: docker.io/ianlintner068/oauth2-server
+    newTag: 0.7.0 # {"$imagepolicy": "flux-system:oauth2-server:tag"}
+```
+
+The `production-distributed` overlay is not wired yet; add the marker
+there if/when that variant starts tracking releases in lockstep.
 
 ## 6. Rollback
 

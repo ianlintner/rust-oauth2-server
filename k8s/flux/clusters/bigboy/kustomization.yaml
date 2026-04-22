@@ -10,3 +10,4 @@ kind: Kustomization
 
 resources:
   - oauth2-server.yaml
+  - image-automation.yaml

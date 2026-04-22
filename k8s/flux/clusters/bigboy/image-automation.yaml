@@ -1,0 +1,93 @@
+# Flux image automation for oauth2-server.
+#
+# Watches Docker Hub for new semver tags, writes the winning tag back
+# into `k8s/overlays/production/kustomization.yaml` as a commit to `main`,
+# and lets the `oauth2-server` Flux Kustomization reconcile the new tag.
+#
+# The Azure-managed FluxConfig provisions a read-only `GitRepository`
+# (`oauth2-server`) for the kustomize pipeline. Image automation needs
+# write access, so this file declares a second `GitRepository`
+# (`oauth2-server-write`) that carries HTTPS credentials from the
+# `oauth2-server-git-auth` Secret.
+#
+# The `oauth2-server-git-auth` Secret is created out-of-band with:
+#
+#   kubectl -n flux-system create secret generic oauth2-server-git-auth \
+#     --from-literal=username=x-access-token \
+#     --from-literal=password="$GITHUB_TOKEN"
+#
+# The Secret is intentionally NOT committed to this repo. See
+# `docs/flux.md` §5 for the full provisioning walk-through.
+
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: oauth2-server-write
+  namespace: flux-system
+spec:
+  interval: 5m
+  url: https://github.com/ianlintner/rust-oauth2-server.git
+  ref:
+    branch: main
+  secretRef:
+    name: oauth2-server-git-auth
+
+---
+apiVersion: image.toolkit.fluxcd.io/v1beta2
+kind: ImageRepository
+metadata:
+  name: oauth2-server
+  namespace: flux-system
+spec:
+  image: docker.io/ianlintner068/oauth2-server
+  interval: 5m
+
+---
+apiVersion: image.toolkit.fluxcd.io/v1beta2
+kind: ImagePolicy
+metadata:
+  name: oauth2-server
+  namespace: flux-system
+spec:
+  imageRepositoryRef:
+    name: oauth2-server
+  policy:
+    semver:
+      # Match stable semver releases. Pre-release variants (`-mongo`,
+      # `-mongo-only`, `sha-*`) are excluded by the `filterTags` regex
+      # below so they never get promoted to production.
+      range: ">=0.7.0"
+  filterTags:
+    pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
+
+---
+apiVersion: image.toolkit.fluxcd.io/v1beta2
+kind: ImageUpdateAutomation
+metadata:
+  name: oauth2-server
+  namespace: flux-system
+spec:
+  interval: 5m
+  sourceRef:
+    kind: GitRepository
+    name: oauth2-server-write
+  git:
+    checkout:
+      ref:
+        branch: main
+    commit:
+      author:
+        email: flux@ianlintner.dev
+        name: flux-image-automation
+      messageTemplate: |
+        chore(flux): bump oauth2-server image to {{range .Updated.Images}}{{.}}{{end}}
+
+        Automated tag bump from Flux ImageUpdateAutomation. The underlying
+        release was already cut from `main`; this commit only moves the
+        production overlay forward so the cluster picks up the new image.
+    push:
+      branch: main
+  update:
+    path: ./k8s/overlays/production
+    strategy: Setters
