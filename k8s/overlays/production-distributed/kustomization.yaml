@@ -18,7 +18,6 @@ bases:
 components:
   - ../../components/distributed-ha
   - ../../components/redis
-  - ../../components/pgbouncer
 
 commonLabels:
   environment: production
