@@ -671,22 +671,22 @@ N/A not applicable to this deployment posture.
 
 ### 9.2 Phase 6 Chunked Plan
 
-| # | Item | RFC ref | Effort | Priority |
-|---|---|---|---|---|
-| 6.1 | Revoke token family on authorization-code replay | RFC 9700 §2.1.5 | S | High |
-| 6.2 | DPoP proof validation on token / introspection / refresh paths | RFC 9449, RFC 9700 §2.2 | L | High |
-| 6.3 | Wire `aud` claim to RFC 8707 `resource` parameter | RFC 8707, RFC 9068, RFC 9700 §2.3 | M | High |
-| 6.4 | Configurable token TTLs + refresh absolute-max cap | RFC 9700 §2.3, §4.14 | S | High |
-| 6.5 | JWT client-assertion `jti` replay store | RFC 7523 §3, RFC 9700 §2.5 | M | High |
-| 6.6 | Per-client `require_state` policy flag | RFC 9700 §4.7 | S | Medium |
-| 6.7 | Login redirect: 302 → 303 See Other | RFC 9700 §4.11 | XS | Medium |
-| 6.8 | Application-layer TLS enforcement + HSTS on API responses | RFC 9700 §2.6 | S | Medium |
-| 6.9 | Enable rate limiting on `/oauth/token` + `/device/token` by default; separate bucket for `invalid_client` | RFC 9700 §2.5, RFC 8628 §3.5 (slow_down) | M | Medium |
-| 6.10 | mTLS client auth method (`tls_client_auth`, `self_signed_tls_client_auth`) | RFC 8705 | L | Medium |
-| 6.11 | Introspection PII scoping (do not leak `username` cross-client) | RFC 7662 §5 | S | Medium |
-| 6.12 | JAR / `private_key_jwt`: support client `jwks_uri` with TTL cache | RFC 9101, RFC 7523 | M | Medium |
-| 6.13 | RFC 8252 Native Apps: loopback + custom-URI scheme validation (was 5.8) | RFC 8252 | S | Medium |
-| 6.14 | `rfc9700_compliance.rs` conformance suite covering all test vectors | — | S | High |
+| # | Item | RFC ref | Effort | Priority | Status |
+|---|---|---|---|---|---|
+| 6.1 | Revoke token family on authorization-code replay | RFC 9700 §2.1.5 | S | High | ✅ Done |
+| 6.2 | DPoP proof validation on token / introspection / refresh paths | RFC 9449, RFC 9700 §2.2 | L | High | ✅ Done (Wave2) |
+| 6.3 | Wire `aud` claim to RFC 8707 `resource` parameter | RFC 8707, RFC 9068, RFC 9700 §2.3 | M | High | ✅ Done |
+| 6.4 | Configurable token TTLs + refresh absolute-max cap | RFC 9700 §2.3, §4.14 | S | High | ✅ Done |
+| 6.5 | JWT client-assertion `jti` replay store | RFC 7523 §3, RFC 9700 §2.5 | M | High | ✅ Done |
+| 6.6 | Per-client `require_state` policy flag | RFC 9700 §4.7 | S | Medium | ✅ Done |
+| 6.7 | Login redirect: 302 → 303 See Other | RFC 9700 §4.11 | XS | Medium | ✅ Done |
+| 6.8 | Application-layer TLS enforcement + HSTS on API responses | RFC 9700 §2.6 | S | Medium | ✅ Done |
+| 6.9 | Enable rate limiting on `/oauth/token` + `/device/token` by default; separate bucket for `invalid_client` | RFC 9700 §2.5, RFC 8628 §3.5 (slow_down) | M | Medium | ✅ Done |
+| 6.10 | mTLS client auth method (`tls_client_auth`, `self_signed_tls_client_auth`) | RFC 8705 | L | Medium | ✅ Done (Wave2) |
+| 6.11 | Introspection PII scoping (do not leak `username` cross-client) | RFC 7662 §5 | S | Medium | ✅ Done |
+| 6.12 | JAR / `private_key_jwt`: support client `jwks_uri` with TTL cache | RFC 9101, RFC 7523 | M | Medium | ✅ Done (Wave2) |
+| 6.13 | RFC 8252 Native Apps: loopback + custom-URI scheme validation (was 5.8) | RFC 8252 | S | Medium | ✅ Done |
+| 6.14 | `rfc9700_compliance.rs` conformance suite covering all test vectors | — | S | High | ⚠️ Partial (Wave2) |
 
 ### 9.3 RFC 9700 Conformance Test Vectors
 

@@ -204,6 +204,12 @@ impl Handler<RegisterClient> for ClientActor {
                     client.post_logout_redirect_uris =
                         serde_json::to_string(uris).unwrap_or_default();
                 }
+                // RFC 8705 §2.1.2: TLS client certificate subject DN
+                client.tls_client_certificate_subject_dn = msg
+                    .registration
+                    .tls_client_certificate_subject_dn
+                    .clone()
+                    .unwrap_or_default();
 
                 // Generate a registration_access_token for RFC 7591 §3.2
                 client.registration_access_token = generate_secret_of_length(48);

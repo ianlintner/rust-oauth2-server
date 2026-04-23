@@ -90,6 +90,12 @@ pub struct Client {
     #[serde(default)]
     #[cfg_attr(feature = "sqlx", sqlx(default))]
     pub require_state: bool,
+    /// RFC 8705 §2.1.2: Subject DN of the expected TLS client certificate.
+    /// Used when `token_endpoint_auth_method = "tls_client_auth"`.
+    /// Empty string means no DN restriction (any valid cert thumbprint accepted).
+    #[serde(default = "default_empty_string")]
+    #[cfg_attr(feature = "sqlx", sqlx(default))]
+    pub tls_client_certificate_subject_dn: String,
 }
 
 fn default_true() -> bool {
@@ -134,6 +140,7 @@ impl Client {
             post_logout_redirect_uris: String::new(),
             enabled: true,
             require_state: false,
+            tls_client_certificate_subject_dn: String::new(),
         }
     }
 
@@ -276,6 +283,10 @@ pub struct ClientRegistration {
     /// OIDC RP-Initiated Logout §2: registered post-logout redirect URIs.
     #[serde(default)]
     pub post_logout_redirect_uris: Option<Vec<String>>,
+    /// RFC 8705 §2.1.2: Subject DN of the expected TLS client certificate.
+    /// Only relevant when `token_endpoint_auth_method = "tls_client_auth"`.
+    #[serde(default)]
+    pub tls_client_certificate_subject_dn: Option<String>,
 }
 
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
@@ -328,6 +339,8 @@ pub struct ClientRegistrationResponse {
     pub frontchannel_logout_session_required: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub post_logout_redirect_uris: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tls_client_certificate_subject_dn: Option<String>,
     pub client_id_issued_at: i64,
 }
 
@@ -410,6 +423,14 @@ impl ClientRegistrationResponse {
                 } else {
                     Some(uris)
                 }
+            },
+            tls_client_certificate_subject_dn: if client
+                .tls_client_certificate_subject_dn
+                .is_empty()
+            {
+                None
+            } else {
+                Some(client.tls_client_certificate_subject_dn.clone())
             },
             client_id_issued_at: client.created_at.timestamp(),
         }
