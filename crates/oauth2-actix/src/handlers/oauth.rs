@@ -498,6 +498,69 @@ fn process_jar(
     }
 }
 
+/// RFC 9207 §2: Build an error redirect response with `iss` parameter.
+/// Used for errors that occur after redirect_uri validation (RFC 9700 §4.1).
+fn build_authorize_error_redirect(
+    error_code: &str,
+    error_description: &str,
+    redirect_uri: &str,
+    state: Option<&str>,
+    issuer: &str,
+    response_mode: &str,
+) -> Result<HttpResponse, OAuth2Error> {
+    if response_mode == "form_post" {
+        let mut params: Vec<(&str, &str)> = vec![
+            ("error", error_code),
+            ("error_description", error_description),
+            ("iss", issuer),
+        ];
+        if let Some(s) = state {
+            params.push(("state", s));
+        }
+        return Ok(auth_response_security_headers(form_post_response(
+            redirect_uri,
+            &params,
+        )));
+    }
+
+    if response_mode == "fragment" {
+        use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
+        let enc = |s: &str| utf8_percent_encode(s, NON_ALPHANUMERIC).to_string();
+        let mut frag_parts = vec![
+            format!("error={}", enc(error_code)),
+            format!("error_description={}", enc(error_description)),
+            format!("iss={}", enc(issuer)),
+        ];
+        if let Some(s) = state {
+            frag_parts.push(format!("state={}", enc(s)));
+        }
+        let location = format!("{}#{}", redirect_uri, frag_parts.join("&"));
+        return Ok(auth_response_security_headers(
+            HttpResponse::Found()
+                .append_header(("Location", location))
+                .finish(),
+        ));
+    }
+
+    // Default: query mode
+    let mut url = Url::parse(redirect_uri)
+        .map_err(|_| OAuth2Error::invalid_request("Invalid redirect_uri"))?;
+    {
+        let mut qp = url.query_pairs_mut();
+        qp.append_pair("error", error_code);
+        qp.append_pair("error_description", error_description);
+        if let Some(s) = state {
+            qp.append_pair("state", s);
+        }
+        qp.append_pair("iss", issuer);
+    }
+    Ok(auth_response_security_headers(
+        HttpResponse::Found()
+            .append_header(("Location", url.to_string()))
+            .finish(),
+    ))
+}
+
 /// OAuth2 authorize endpoint
 /// Initiates the authorization code flow, with PAR (RFC 9126),
 /// resource indicators (RFC 8707), and form_post response mode support.
@@ -701,6 +764,9 @@ pub async fn authorize(
         .as_deref()
         .or(query.response_mode.as_deref())
         .unwrap_or(default_response_mode);
+    // RFC 9207 §2: After redirect_uri validation, errors must be delivered via redirect.
+    // However, response_mode validation is an exception because we need a valid mode to
+    // know HOW to redirect. Invalid response_mode remains a 400 error.
     if !matches!(response_mode, "query" | "form_post" | "fragment") {
         return Err(OAuth2Error::invalid_request(
             "Unsupported response_mode; supported values: query, form_post, fragment",
@@ -846,7 +912,17 @@ pub async fn authorize(
     let scope = eff_scope.unwrap_or_else(|| "read".to_string());
 
     // Enforce that requested scopes are within the client's allowed scope set.
-    validate_scope_subset(&scope, &client.scope)?;
+    // RFC 9207 §2: After redirect_uri validation, errors must be delivered via redirect.
+    if let Err(e) = validate_scope_subset(&scope, &client.scope) {
+        return build_authorize_error_redirect(
+            &e.error,
+            e.error_description.as_deref().unwrap_or(""),
+            &redirect_uri,
+            eff_state.as_deref(),
+            &oidc_config.issuer,
+            response_mode,
+        );
+    }
 
     // OIDC Core §3.1.2.1: prompt=consent requires the OP to prompt for consent.
     // Since this server auto-approves first-party consent, we return
