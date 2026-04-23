@@ -14,3 +14,5 @@ spec:
               value: "1"
             - name: OAUTH2_ALLOWED_ORIGINS
               value: "http://localhost:3000"
+            - name: OAUTH2_DATABASE_URL
+              value: "sqlite:/tmp/oauth2.db?mode=rwc"

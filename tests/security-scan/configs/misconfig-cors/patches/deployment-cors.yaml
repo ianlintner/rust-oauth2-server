@@ -12,3 +12,5 @@ spec:
               value: "*"
             - name: OAUTH2_ALLOW_INSECURE_DEFAULTS
               value: "1"
+            - name: OAUTH2_DATABASE_URL
+              value: "sqlite:/tmp/oauth2.db?mode=rwc"

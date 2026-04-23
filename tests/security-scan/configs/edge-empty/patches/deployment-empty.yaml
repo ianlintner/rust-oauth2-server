@@ -7,3 +7,6 @@ spec:
     spec:
       containers:
         - name: oauth2-server
+          env:
+            - name: OAUTH2_DATABASE_URL
+              value: "sqlite:/tmp/oauth2.db?mode=rwc"
