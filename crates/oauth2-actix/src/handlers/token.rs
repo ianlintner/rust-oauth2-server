@@ -38,6 +38,7 @@ fn inactive_introspection_response() -> HttpResponse {
         aud: None,
         jti: None,
         iss: None,
+        cnf: None,
     }))
 }
 
@@ -270,6 +271,7 @@ pub async fn introspect(
                     .as_ref()
                     .map(|c| c.iss.clone())
                     .or_else(|| oidc_config.as_ref().map(|c| c.issuer.clone())),
+                cnf: claims.as_ref().and_then(|c| c.cnf.clone()),
             };
 
             // RFC 9701: if the caller explicitly accepts token-introspection+jwt,
