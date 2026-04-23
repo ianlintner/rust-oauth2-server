@@ -641,8 +641,8 @@ N/A not applicable to this deployment posture.
 | 2.1.5 | On code replay: revoke all tokens issued from that code | MUST | ✅ | Token family revocation implemented — bead 6.1 |
 | 2.1.6 | OIDC `nonce` validated in ID Token | SHOULD | ✅ | hybrid flow issues `nonce`-bound id_token |
 | 2.2 | Access tokens sender-constrained (DPoP / mTLS) OR short-lived + aud | SHOULD/MUST | ⚠️ | Bindings stored (`cnf.jkt`, `cnf.x5t#S256`) but proof validation incomplete — **Phase 6.2** |
-| 2.3 | Access token audience restriction | SHOULD | ❌ | `Claims.aud = client_id` unconditional — **Phase 6.3** |
-| 2.3 | Resource Indicators (RFC 8707) for narrowing `aud` | SHOULD | ⚠️ | `resource` param accepted + stored on auth codes, but not yet wired into issued `aud` — **Phase 6.3** |
+| 2.3 | Access token audience restriction | SHOULD | ✅ | `Claims.aud` wired to RFC 8707 `resource` param via `with_audience()` builder — Phase 6.3 complete |
+| 2.3 | Resource Indicators (RFC 8707) for narrowing `aud` | SHOULD | ✅ | `resource` param threaded end-to-end: stored on auth codes, propagated to access token `aud` claim — Phase 6.3 complete |
 | 2.3 | Short access token lifetimes | SHOULD | ✅ | Configurable token TTLs implemented — bead 6.4 |
 | 2.4 | ROPC (`grant_type=password`) removed | MUST NOT | ✅ | `oauth.rs:1349` |
 | 2.4 | `password` absent from `grant_types_supported` | MUST NOT | ✅ | discovery doc |
@@ -708,4 +708,4 @@ These become acceptance criteria for Phase 6 (and live as `tests/rfc9700_complia
 
 ---
 
-_Last updated: 2026-04-23 — Phase 6 (RFC 9700 hardening) in progress. Completed: 6.1, 6.4, 6.5, 6.6, 6.7, 6.8, 6.9, 6.11, 6.13, **6.14 (Wave A: iss-on-error-redirect fix per RFC 9207 §2)**. Remaining: 6.2 (DPoP), 6.3 (aud wiring), 6.10 (mTLS), 6.12 (jwks_uri). Phases 1–4 complete, Phase 5 partial (5.1/5.2/5.3/5.6/5.7/5.8/5.10 done)._
+_Last updated: 2026-04-23 — Phase 6 (RFC 9700 hardening) in progress. Completed: 6.1, **6.3 (RFC 8707 resource→aud wiring)**, 6.4, 6.5, 6.6, 6.7, 6.8, 6.9, 6.11, 6.13, 6.14 (Wave A). Remaining: 6.2 (DPoP), 6.10 (mTLS), 6.12 (jwks_uri). Phases 1–4 complete, Phase 5 partial (5.1/5.2/5.3/5.6/5.7/5.8/5.10 done)._

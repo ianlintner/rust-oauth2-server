@@ -223,20 +223,21 @@ impl Handler<CreateToken> for TokenActor {
                         uuid::Uuid::new_v4().simple()
                     )
                 } else {
-                    // RFC 8707: when a resource indicator is present, use it as `aud`.
-                    let aud = msg
-                        .resource
-                        .clone()
-                        .unwrap_or_else(|| msg.client_id.clone());
+                    // RFC 8707 / RFC 9068: when a resource indicator is present, use it
+                    // as `aud` instead of client_id. Claims::new defaults aud to client_id,
+                    // so we use with_audience() to override when resource is present.
                     let mut access_claims = Claims::new(
                         subject.clone(),
-                        aud.clone(),
+                        msg.client_id.clone(),
                         msg.scope.clone(),
                         access_token_ttl_secs,
                         &issuer,
                     );
-                    // Always preserve client_id claim even when aud is overridden.
-                    access_claims.client_id = Some(msg.client_id.clone());
+                    // RFC 8707 §2: if resource parameter was provided, the access token's
+                    // aud claim MUST be bound to that resource server URI.
+                    if let Some(ref resource) = msg.resource {
+                        access_claims = access_claims.with_audience(vec![resource.clone()]);
+                    }
                     // RFC 9449 / RFC 8705: embed cnf (confirmation) claim if provided.
                     access_claims.cnf = msg.cnf.clone();
                     // RFC 9396: embed authorization_details if provided.

@@ -258,7 +258,10 @@ pub async fn introspect(
                 } else {
                     None
                 },
-                aud: claims.as_ref().map(|c| c.aud.clone()).or(Some(client_id)),
+                aud: claims
+                    .as_ref()
+                    .map(|c| c.aud.clone())
+                    .or_else(|| Some(vec![client_id])),
                 jti: claims
                     .as_ref()
                     .map(|c| c.jti.clone())

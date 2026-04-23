@@ -779,8 +779,74 @@ async fn test_vector_l_client_assertion_jti_replay() {
 
 /// RFC 9700 §2.3 + RFC 8707: token request with `resource` parameter MUST populate `aud` claim.
 #[actix_web::test]
-#[ignore = "Awaits bead 6.3: wire aud claim to RFC 8707 resource parameter"]
 async fn test_vector_m_resource_to_aud_claim() {
-    // TODO(6.3): wire `resource` parameter to `aud` claim in issued JWT
-    todo!("Bead 6.3: populate aud claim from resource parameter");
+    let client = Client::new(
+        "client_m".to_string(),
+        "secret_m".to_string(),
+        vec!["https://app.example/cb".to_string()],
+        vec![
+            "authorization_code".to_string(),
+            "client_credentials".to_string(),
+        ],
+        "read".to_string(),
+        "test".to_string(),
+    );
+
+    let (token_actor, client_actor, auth_actor, jwt_secret, metrics, oidc_config) =
+        setup_rfc9700_context(vec![client], "https://auth.example.com").await;
+    let keyset = Arc::new(RwLock::new(oauth2_core::models::key_set::KeySet::default()));
+
+    // Test 1: client_credentials grant with resource parameter
+    let app = test::init_service(
+        App::new()
+            .app_data(web::Data::new(token_actor.clone()))
+            .app_data(web::Data::new(client_actor.clone()))
+            .app_data(web::Data::new(auth_actor.clone()))
+            .app_data(web::Data::new(jwt_secret.clone()))
+            .app_data(web::Data::new(metrics.clone()))
+            .app_data(web::Data::new(oidc_config.clone()))
+            .app_data(web::Data::new(keyset.clone()))
+            .app_data(web::Data::new(false))
+            .service(web::scope("/oauth").route(
+                "/token",
+                web::post().to(oauth2_actix::handlers::oauth::token),
+            )),
+    )
+    .await;
+
+    let resp = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri("/oauth/token")
+            .set_form([
+                ("grant_type", "client_credentials"),
+                ("client_id", "client_m"),
+                ("client_secret", "secret_m"),
+                ("scope", "read"),
+                ("resource", "https://api.resource.test"),
+            ])
+            .to_request(),
+    )
+    .await;
+
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = test::read_body_json(resp).await;
+    let access_token = body["access_token"]
+        .as_str()
+        .expect("access_token in response");
+
+    // Decode the JWT to verify aud claim
+    use jsonwebtoken::decode_header;
+    let header = decode_header(access_token).expect("valid JWT header");
+    assert_eq!(header.typ, Some("at+JWT".to_string()));
+
+    // Decode without verification (we trust our own token)
+    let claims = oauth2_core::models::token::Claims::decode_unverified(access_token)
+        .expect("decode JWT claims");
+
+    // RFC 8707 §2: aud MUST reflect the resource parameter
+    assert_eq!(claims.aud, vec!["https://api.resource.test".to_string()]);
+    // client_id should still be present as a separate claim
+    assert_eq!(claims.client_id, Some("client_m".to_string()));
+    assert_eq!(claims.iss, "https://auth.example.com");
 }
