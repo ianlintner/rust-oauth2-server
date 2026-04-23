@@ -305,6 +305,26 @@ impl Claims {
         self
     }
 
+    /// Builder method to bind the access token to a DPoP public key via `cnf.jkt`.
+    ///
+    /// Per RFC 9449 §6: when a DPoP proof is presented at the token endpoint,
+    /// the AS MUST include the `cnf` (confirmation) claim in the issued access
+    /// token, containing the JWK Thumbprint of the proof's public key.
+    pub fn with_dpop_jkt(mut self, jkt: String) -> Self {
+        self.cnf = Some(serde_json::json!({ "jkt": jkt }));
+        self
+    }
+
+    /// Builder method to bind the access token to a client certificate via `cnf.x5t#S256`.
+    ///
+    /// Per RFC 8705 §3: when the client authenticates via mTLS, the AS includes
+    /// the SHA-256 thumbprint of the client's certificate in the access token's
+    /// `cnf` claim.
+    pub fn with_mtls_thumbprint(mut self, thumbprint: String) -> Self {
+        self.cnf = Some(serde_json::json!({ "x5t#S256": thumbprint }));
+        self
+    }
+
     pub fn encode(&self, secret: &str) -> Result<String, jsonwebtoken::errors::Error> {
         let header = Header {
             typ: Some("at+JWT".to_string()),
@@ -566,6 +586,10 @@ pub struct IntrospectionResponse {
     /// RFC 7662 §2.2: issuer of the token.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub iss: Option<String>,
+    /// RFC 9449 §7.1 / RFC 8705 §4: confirmation (`cnf`) claim from the token.
+    /// Carries `jkt` (DPoP key thumbprint) or `x5t#S256` (mTLS cert thumbprint).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cnf: Option<serde_json::Value>,
 }
 
 #[cfg(test)]

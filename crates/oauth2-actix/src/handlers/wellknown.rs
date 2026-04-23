@@ -87,6 +87,8 @@ pub async fn openid_configuration(
             "client_secret_post",
             "client_secret_jwt",
             "private_key_jwt",
+            "tls_client_auth",
+            "self_signed_tls_client_auth",
             "none"
         ],
         "claims_supported": [
@@ -112,6 +114,7 @@ pub async fn openid_configuration(
         // RFC 9101: JWT-Secured Authorization Requests (JAR)
         "request_parameter_supported": true,
         "request_uri_parameter_supported": true,
+        "request_object_signing_alg_values_supported": ["RS256", "ES256", "HS256"],
         // RFC 8707: Resource Indicators
         "resource_indicators_supported": true,
         "service_documentation": format!("{}/docs", base),
