@@ -69,16 +69,18 @@ kustomize build "${KUSTOMIZE_DIR}" | _kubectl apply -n "${NAMESPACE}" -f - >&2
 _kubectl delete job flyway-migration -n "${NAMESPACE}" --ignore-not-found >/dev/null 2>&1 || true
 kustomize build "${KUSTOMIZE_DIR}" | _kubectl apply -n "${NAMESPACE}" -f - >&2
 
-# Wait for postgres
-echo "==> Waiting for Postgres" >&2
-_kubectl rollout status statefulset/postgres -n "${NAMESPACE}" --timeout=240s >&2
+# Wait for postgres (only when the config actually includes a postgres StatefulSet)
+if _kubectl get statefulset/postgres -n "${NAMESPACE}" >/dev/null 2>&1; then
+  echo "==> Waiting for Postgres" >&2
+  _kubectl rollout status statefulset/postgres -n "${NAMESPACE}" --timeout=240s >&2
 
-# Wait for migration
-echo "==> Waiting for migrations" >&2
-if ! _kubectl wait --for=condition=complete job/flyway-migration -n "${NAMESPACE}" --timeout=360s >&2; then
-  echo "Migration failed" >&2
-  _kubectl logs -n "${NAMESPACE}" -l job-name=flyway-migration -c flyway --tail=100 >&2 || true
-  exit 1
+  # Wait for migration
+  echo "==> Waiting for migrations" >&2
+  if ! _kubectl wait --for=condition=complete job/flyway-migration -n "${NAMESPACE}" --timeout=360s >&2; then
+    echo "Migration failed" >&2
+    _kubectl logs -n "${NAMESPACE}" -l job-name=flyway-migration -c flyway --tail=100 >&2 || true
+    exit 1
+  fi
 fi
 
 # Restart deployment for clean start
