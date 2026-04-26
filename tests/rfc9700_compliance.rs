@@ -904,14 +904,79 @@ async fn test_vector_o_dpop_jti_replay() {
 
 /// RFC 8705 §2.1: tls_client_auth requires certificate Subject DN match
 #[actix_web::test]
-#[ignore] // Requires reverse proxy TLS header injection setup
 async fn test_vector_p_mtls_subject_dn_validation() {
-    // This test would require:
-    // 1. Client with token_endpoint_auth_method = "tls_client_auth"
-    // 2. X-SSL-Client-S-DN header from reverse proxy
-    // 3. Validation that the header DN matches client.tls_client_certificate_subject_dn
-    // Implementation is in oauth.rs lines 168-186
-    // Test placeholder for documentation purposes
+    use oauth2_actix::handlers::oauth;
+
+    // Build a client with tls_client_auth and a specific Subject DN requirement.
+    let mut client = Client::new(
+        "mtls-client".to_string(),
+        "test-secret".to_string(),
+        vec!["https://example.com/callback".to_string()],
+        vec!["client_credentials".to_string()],
+        "read".to_string(),
+        "mTLS Test Client".to_string(),
+    );
+    client.token_endpoint_auth_method = "tls_client_auth".to_string();
+    client.tls_client_certificate_subject_dn = "CN=test-client".to_string();
+
+    let (token_actor, client_actor, auth_actor, jwt_secret, metrics, oidc_config) =
+        setup_rfc9700_context(vec![client], "https://auth.example.com").await;
+
+    let keyset = Arc::new(RwLock::new(oauth2_core::models::key_set::KeySet::default()));
+    let jwks_cache = Arc::new(RwLock::new(
+        oauth2_actix::handlers::jwks_cache::JwksCache::default(),
+    ));
+
+    let app = test::init_service(
+        App::new()
+            .app_data(web::Data::new(token_actor))
+            .app_data(web::Data::new(client_actor))
+            .app_data(web::Data::new(auth_actor))
+            .app_data(web::Data::new(jwt_secret))
+            .app_data(web::Data::new(metrics))
+            .app_data(web::Data::new(oidc_config))
+            .app_data(web::Data::new(keyset))
+            .app_data(web::Data::new(jwks_cache))
+            .app_data(web::Data::new(false)) // stateless_validation
+            .service(web::scope("/oauth").route("/token", web::post().to(oauth::token))),
+    )
+    .await;
+
+    // Positive case: client_credentials grant with matching Subject DN
+    let form_data =
+        "grant_type=client_credentials&client_id=mtls-client&client_secret=test-secret&scope=read";
+    let req = test::TestRequest::post()
+        .uri("/oauth/token")
+        .insert_header(("content-type", "application/x-www-form-urlencoded"))
+        .insert_header(("X-Client-Cert-Thumbprint", "abc123")) // mTLS cert present
+        .insert_header(("X-SSL-Client-S-DN", "CN=test-client")) // Matching DN
+        .set_payload(form_data)
+        .to_request();
+
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(
+        resp.status(),
+        200,
+        "Expected 200 for valid mTLS with matching Subject DN"
+    );
+
+    // Negative case: mismatched Subject DN (attacker cert)
+    let req = test::TestRequest::post()
+        .uri("/oauth/token")
+        .insert_header(("content-type", "application/x-www-form-urlencoded"))
+        .insert_header(("X-Client-Cert-Thumbprint", "abc123")) // mTLS cert present
+        .insert_header(("X-SSL-Client-S-DN", "CN=attacker")) // Wrong DN
+        .set_payload(form_data)
+        .to_request();
+
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(
+        resp.status(),
+        401,
+        "Expected 401 for mTLS with mismatched Subject DN"
+    );
+    let body: serde_json::Value = test::read_body_json(resp).await;
+    assert_eq!(body["error"], "invalid_client");
 }
 
 // ---------------------------------------------------------------------------
@@ -920,25 +985,357 @@ async fn test_vector_p_mtls_subject_dn_validation() {
 
 /// RFC 9101 §4: JAR implementation verified via oauth.rs lines 713-778
 #[actix_web::test]
-#[ignore] // JAR is fully implemented in authorize handler; end-to-end test requires full flow
 async fn test_vector_q_jar_request_parameter_integration() {
-    // JAR `request` parameter processing is implemented in:
-    // - crates/oauth2-actix/src/handlers/oauth.rs lines 713-778 (authorize handler)
-    // - process_jar() function validates JWT and extracts claims
-    // - resolve_client_jwks() fetches JWKS from jwks_uri via cache
-    // - Supports alg=none (public clients), HS256 (shared secret), RS256 (private_key_jwt)
-    // This placeholder documents the implementation for audit purposes.
+    use jsonwebtoken::{encode, Algorithm, EncodingKey, Header as JwtHeader};
+    use oauth2_actix::handlers::jwks_cache::JwksCache;
+    use oauth2_actix::handlers::oauth;
+    use oauth2_core::models::key_set::KeySet;
+    use serde_json::json;
+
+    // Build a client that uses HS256 for JAR (shared secret).
+    let client = Client::new(
+        "jar-client".to_string(),
+        "jar-secret".to_string(),
+        vec!["https://app.example/cb".to_string()],
+        vec!["authorization_code".to_string()],
+        "read".to_string(),
+        "JAR Test Client".to_string(),
+    );
+
+    let (token_actor, client_actor, auth_actor, jwt_secret, metrics, oidc_config) =
+        setup_rfc9700_context(vec![client], "https://auth.example.com").await;
+
+    let keyset = Arc::new(RwLock::new(KeySet::default()));
+    // JwksCache is Clone + Send + Sync (internally Arc<Mutex<...>>); register the bare
+    // type so the handler's `Option<web::Data<JwksCache>>` extractor matches.
+    let jwks_cache = JwksCache::default();
+    let session_key = Key::generate();
+
+    let app = test::init_service(
+        App::new()
+            .wrap(SessionMiddleware::new(
+                CookieSessionStore::default(),
+                session_key.clone(),
+            ))
+            .app_data(web::Data::new(token_actor))
+            .app_data(web::Data::new(client_actor))
+            .app_data(web::Data::new(auth_actor))
+            .app_data(web::Data::new(jwt_secret))
+            .app_data(web::Data::new(metrics))
+            .app_data(web::Data::new(oidc_config))
+            .app_data(web::Data::new(keyset))
+            .app_data(web::Data::new(jwks_cache))
+            .app_data(web::Data::new(false)) // stateless_validation
+            .route("/test/set-session", web::get().to(test_set_session))
+            .service(
+                web::scope("/oauth")
+                    .route("/authorize", web::get().to(oauth::authorize))
+                    .route("/authorize", web::post().to(oauth::authorize)),
+            ),
+    )
+    .await;
+
+    // Set up session.
+    let resp = test::call_service(
+        &app,
+        test::TestRequest::get()
+            .uri("/test/set-session")
+            .to_request(),
+    )
+    .await;
+    let session_cookie = extract_session_cookie(&resp);
+
+    // Positive case: Build a JAR JWT with state="jar-state-123" in the payload.
+    let verifier = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk";
+    let challenge = s256(verifier);
+    let jar_claims = json!({
+        "iss": "jar-client",
+        "aud": "https://auth.example.com/oauth/authorize",
+        "response_type": "code",
+        "client_id": "jar-client",
+        "redirect_uri": "https://app.example/cb",
+        "state": "jar-state-123",
+        "scope": "read",
+        "code_challenge": challenge,
+        "code_challenge_method": "S256",
+        "exp": (chrono::Utc::now().timestamp() + 300),
+        "iat": chrono::Utc::now().timestamp(),
+    });
+    let jar_jwt = encode(
+        &JwtHeader::new(Algorithm::HS256),
+        &jar_claims,
+        &EncodingKey::from_secret("jar-secret".as_bytes()),
+    )
+    .unwrap();
+
+    // Send /authorize with the JAR request parameter and a DIFFERENT state in query string.
+    // Per RFC 9101 §6.3, callers MAY duplicate JAR-bound params in the query; we duplicate
+    // redirect_uri here because the AS extracts it before JAR overlay (defensive parsing
+    // for early validation) but JAR claims still take precedence per RFC 9101 §5.
+    let req = test::TestRequest::get()
+        .uri(&format!(
+            "/oauth/authorize?client_id=jar-client&redirect_uri=https://app.example/cb&response_type=code&request={}&state=query-state-different",
+            jar_jwt
+        ))
+        .insert_header(("Cookie", session_cookie.as_str()))
+        .to_request();
+
+    let resp = test::call_service(&app, req).await;
+    let status = resp.status();
+    if status != 302 && status != 303 {
+        let body = test::read_body(resp).await;
+        panic!(
+            "Expected 302/303 redirect for valid JAR request, got {}: {}",
+            status,
+            String::from_utf8_lossy(&body)
+        );
+    }
+    let location = resp
+        .headers()
+        .get("location")
+        .and_then(|h| h.to_str().ok())
+        .unwrap()
+        .to_string();
+    eprintln!("vector_q location: {}", location);
+    // The redirect should contain the state from the JAR JWT, NOT the query string.
+    let state_from_redirect = extract_query_param(&location, "state")
+        .unwrap_or_else(|| panic!("location had no state param: {}", location));
+    assert_eq!(
+        state_from_redirect, "jar-state-123",
+        "State should come from JAR JWT payload, not query string"
+    );
+    assert!(
+        !location.contains("query-state-different"),
+        "Query string state should be ignored when JAR is present"
+    );
+
+    // Negative case: tampered signature.
+    let tampered_jwt = format!("{}.tampered", &jar_jwt[..jar_jwt.rfind('.').unwrap()]);
+    let req = test::TestRequest::get()
+        .uri(&format!(
+            "/oauth/authorize?client_id=jar-client&redirect_uri=https://app.example/cb&response_type=code&request={}",
+            tampered_jwt
+        ))
+        .insert_header(("Cookie", session_cookie.as_str()))
+        .to_request();
+
+    let resp = test::call_service(&app, req).await;
+    let status = resp.status();
+    if status == 302 || status == 303 {
+        let location = resp
+            .headers()
+            .get("location")
+            .and_then(|h| h.to_str().ok())
+            .unwrap();
+        assert!(
+            location.contains("error=invalid_request_object"),
+            "Expected invalid_request_object error for tampered JAR signature, got location: {}",
+            location
+        );
+    } else if status == 400 {
+        // JAR processing errors before redirect-eligible state may surface as 400.
+        let body = test::read_body(resp).await;
+        let body_str = String::from_utf8_lossy(&body);
+        assert!(
+            body_str.contains("invalid_request_object") || body_str.contains("invalid_request"),
+            "Expected invalid_request_object/invalid_request error for tampered JAR, got: {}",
+            body_str
+        );
+    } else {
+        panic!(
+            "Expected 302/303 redirect or 400 for tampered JAR, got {}",
+            status
+        );
+    }
 }
 
 /// RFC 9101 §4: JAR with private_key_jwt requires JWKS resolution
 #[actix_web::test]
-#[ignore] // Requires full JWKS setup and RS256 key
 async fn test_vector_r_jar_private_key_jwt_jwks_cache() {
-    // This test would require:
-    // 1. Client with token_endpoint_auth_method = "private_key_jwt"
-    // 2. Client with jwks_uri registered
-    // 3. JwksCache pre-populated or mock HTTP server
-    // 4. Valid RS256-signed JAR JWT
-    // Implementation is in oauth.rs process_jar() lines 458-518
-    // Test placeholder for documentation purposes
+    use base64::{engine::general_purpose, Engine as _};
+    use httpmock::prelude::*;
+    use jsonwebtoken::{encode, Algorithm, EncodingKey, Header as JwtHeader};
+    use oauth2_actix::handlers::jwks_cache::JwksCache;
+    use oauth2_actix::handlers::oauth;
+    use oauth2_core::models::key_set::KeySet;
+    use rsa::pkcs1::EncodeRsaPrivateKey;
+    use rsa::traits::PublicKeyParts;
+    use rsa::{RsaPrivateKey, RsaPublicKey};
+    use serde_json::json;
+
+    // Generate an RSA key pair for signing the JAR.
+    let mut rng = rand_core::OsRng;
+    let private_key = RsaPrivateKey::new(&mut rng, 2048).unwrap();
+    let public_key = RsaPublicKey::from(&private_key);
+
+    // Build a JWKS document with the public key.
+    let n_bytes = public_key.n().to_bytes_be();
+    let e_bytes = public_key.e().to_bytes_be();
+    let n_b64 = general_purpose::URL_SAFE_NO_PAD.encode(&n_bytes);
+    let e_b64 = general_purpose::URL_SAFE_NO_PAD.encode(&e_bytes);
+    let jwks = json!({
+        "keys": [
+            {
+                "kty": "RSA",
+                "kid": "jar-key-1",
+                "use": "sig",
+                "alg": "RS256",
+                "n": n_b64,
+                "e": e_b64,
+            }
+        ]
+    });
+
+    // Start a mock HTTP server serving the JWKS with Cache-Control: max-age=300.
+    let server = MockServer::start();
+    let jwks_mock = server.mock(|when, then| {
+        when.method(GET).path("/jwks");
+        then.status(200)
+            .header("Content-Type", "application/json")
+            .header("Cache-Control", "max-age=300")
+            .json_body(jwks);
+    });
+
+    // Build a client with jwks_uri pointing to the mock server.
+    let mut client = Client::new(
+        "jar-rs256-client".to_string(),
+        "".to_string(), // No client_secret for private_key_jwt
+        vec!["https://app.example/cb".to_string()],
+        vec!["authorization_code".to_string()],
+        "read".to_string(),
+        "JAR RS256 Test Client".to_string(),
+    );
+    client.token_endpoint_auth_method = "private_key_jwt".to_string();
+    client.jwks_uri = format!("{}/jwks", server.base_url());
+
+    let (token_actor, client_actor, auth_actor, jwt_secret, metrics, oidc_config) =
+        setup_rfc9700_context(vec![client], "https://auth.example.com").await;
+
+    let keyset = Arc::new(RwLock::new(KeySet::default()));
+    // JwksCache is Clone + Send + Sync (internally Arc<Mutex<...>>); register the bare
+    // type as Actix data so the handler's `Option<web::Data<JwksCache>>` extractor matches.
+    let jwks_cache = JwksCache::default();
+    let session_key = Key::generate();
+
+    let app = test::init_service(
+        App::new()
+            .wrap(SessionMiddleware::new(
+                CookieSessionStore::default(),
+                session_key.clone(),
+            ))
+            .app_data(web::Data::new(token_actor))
+            .app_data(web::Data::new(client_actor))
+            .app_data(web::Data::new(auth_actor))
+            .app_data(web::Data::new(jwt_secret))
+            .app_data(web::Data::new(metrics))
+            .app_data(web::Data::new(oidc_config))
+            .app_data(web::Data::new(keyset))
+            .app_data(web::Data::new(jwks_cache))
+            .app_data(web::Data::new(false)) // stateless_validation
+            .route("/test/set-session", web::get().to(test_set_session))
+            .service(
+                web::scope("/oauth")
+                    .route("/authorize", web::get().to(oauth::authorize))
+                    .route("/authorize", web::post().to(oauth::authorize)),
+            ),
+    )
+    .await;
+
+    // Set up session.
+    let resp = test::call_service(
+        &app,
+        test::TestRequest::get()
+            .uri("/test/set-session")
+            .to_request(),
+    )
+    .await;
+    let session_cookie = extract_session_cookie(&resp);
+
+    // First JAR request with state="jar-state-1".
+    let verifier = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk";
+    let challenge = s256(verifier);
+    let jar_claims_1 = json!({
+        "iss": "jar-rs256-client",
+        "aud": "https://auth.example.com/oauth/authorize",
+        "response_type": "code",
+        "client_id": "jar-rs256-client",
+        "redirect_uri": "https://app.example/cb",
+        "state": "jar-state-1",
+        "scope": "read",
+        "code_challenge": challenge,
+        "code_challenge_method": "S256",
+        "exp": (chrono::Utc::now().timestamp() + 300),
+        "iat": chrono::Utc::now().timestamp(),
+    });
+    let private_key_pem = private_key
+        .to_pkcs1_pem(rsa::pkcs8::LineEnding::LF)
+        .unwrap();
+    let mut jar_header_1 = JwtHeader::new(Algorithm::RS256);
+    jar_header_1.kid = Some("jar-key-1".to_string());
+    let jar_jwt_1 = encode(
+        &jar_header_1,
+        &jar_claims_1,
+        &EncodingKey::from_rsa_pem(private_key_pem.as_bytes()).unwrap(),
+    )
+    .unwrap();
+
+    let req1 = test::TestRequest::get()
+        .uri(&format!(
+            "/oauth/authorize?client_id=jar-rs256-client&redirect_uri=https://app.example/cb&response_type=code&request={}",
+            jar_jwt_1
+        ))
+        .insert_header(("Cookie", session_cookie.as_str()))
+        .to_request();
+
+    let resp1 = test::call_service(&app, req1).await;
+    let status1 = resp1.status();
+    if status1 != 302 && status1 != 303 {
+        let body = test::read_body(resp1).await;
+        panic!(
+            "Expected 302/303 redirect for first JAR request, got {}: {}",
+            status1,
+            String::from_utf8_lossy(&body)
+        );
+    }
+    // JWKS endpoint should have been called once.
+    jwks_mock.assert_calls(1);
+
+    // Second JAR request with state="jar-state-2" (different state to distinguish).
+    let jar_claims_2 = json!({
+        "iss": "jar-rs256-client",
+        "aud": "https://auth.example.com/oauth/authorize",
+        "response_type": "code",
+        "client_id": "jar-rs256-client",
+        "redirect_uri": "https://app.example/cb",
+        "state": "jar-state-2",
+        "scope": "read",
+        "code_challenge": challenge,
+        "code_challenge_method": "S256",
+        "exp": (chrono::Utc::now().timestamp() + 300),
+        "iat": chrono::Utc::now().timestamp(),
+    });
+    let jar_jwt_2 = encode(
+        &jar_header_1,
+        &jar_claims_2,
+        &EncodingKey::from_rsa_pem(private_key_pem.as_bytes()).unwrap(),
+    )
+    .unwrap();
+
+    let req2 = test::TestRequest::get()
+        .uri(&format!(
+            "/oauth/authorize?client_id=jar-rs256-client&redirect_uri=https://app.example/cb&response_type=code&request={}",
+            jar_jwt_2
+        ))
+        .insert_header(("Cookie", session_cookie.as_str()))
+        .to_request();
+
+    let resp2 = test::call_service(&app, req2).await;
+    let status2 = resp2.status();
+    assert!(
+        status2 == 302 || status2 == 303,
+        "Expected 302/303 redirect for second JAR request, got {}",
+        status2
+    );
+    // JWKS endpoint should still have been called only once (cache hit).
+    jwks_mock.assert_calls(1);
 }

@@ -52,6 +52,48 @@ impl DpopReplayStore {
 /// Acceptance window for DPoP `iat` claim (±300 seconds per RFC 9449 §4.3).
 const DPOP_IAT_SKEW_SECS: i64 = 300;
 
+/// Maximum reasonable Host header length: 253 chars per RFC 1035 + room for `:port`.
+const MAX_HOST_LEN: usize = 270;
+/// Maximum reasonable URL path length for OAuth endpoints.
+const MAX_PATH_LEN: usize = 2048;
+/// Maximum reasonable URL scheme length (`https` is 5).
+const MAX_SCHEME_LEN: usize = 16;
+
+/// Build the request URL used as DPoP `htu` from `connection_info()` parts,
+/// rejecting suspiciously large inputs to prevent uncontrolled-allocation issues
+/// from a hostile reverse proxy or Host header.
+///
+/// Returns `Err(OAuth2Error::invalid_request(...))` if any component exceeds
+/// its bound. The returned string is the concatenation `scheme://host{path}`.
+pub fn build_request_url_bounded(
+    scheme: &str,
+    host: &str,
+    path: &str,
+) -> Result<String, OAuth2Error> {
+    if scheme.len() > MAX_SCHEME_LEN {
+        return Err(OAuth2Error::invalid_request("Request scheme is too long"));
+    }
+    if host.len() > MAX_HOST_LEN {
+        return Err(OAuth2Error::invalid_request(
+            "Request Host header is too long",
+        ));
+    }
+    if path.len() > MAX_PATH_LEN {
+        return Err(OAuth2Error::invalid_request("Request path is too long"));
+    }
+    // Fixed upper bound on the result size: scheme + "://" + host + path,
+    // each of which has been validated above. Using a constant capacity
+    // keeps the allocation size independent of any user-controlled length
+    // (defends against `rust/uncontrolled-allocation-size`).
+    const MAX_URL_LEN: usize = MAX_SCHEME_LEN + 3 + MAX_HOST_LEN + MAX_PATH_LEN;
+    let mut out = String::with_capacity(MAX_URL_LEN);
+    out.push_str(scheme);
+    out.push_str("://");
+    out.push_str(host);
+    out.push_str(path);
+    Ok(out)
+}
+
 #[derive(Debug, Deserialize)]
 struct DpopClaims {
     htm: String,

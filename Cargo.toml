@@ -100,6 +100,7 @@ tracing = "0.1"
 jsonwebtoken = { version = "10.3", features = ["rust_crypto"] }
 rsa = { version = "0.9", features = ["pem"] }
 rand_core = { version = "0.6", features = ["std"] }
+httpmock = "0.8"
 
 # Workspace crates used directly by root integration tests.
 oauth2-ratelimit = { path = "oauth2-ratelimit" }
