@@ -107,6 +107,22 @@ escalation:
   stale_days: 7
   labels: ["maintainer:escalated"]
 
+# ── Fleet Registry ────────────────────────────────────────────────────────────
+# Register this repo with the caretaker admin dashboard. When enabled, the
+# orchestrator POSTs a heartbeat to the central registry after every run so
+# the fleet page at https://caretaker.cat-herding.net shows live status.
+#
+# Requirements:
+#   1. Set CARETAKER_FLEET_SECRET as a GitHub Actions secret in this repo.
+#   2. Ensure your workflow exports CARETAKER_FLEET_SECRET (v0.19.6+ templates
+#      do this automatically; older installs need a one-line workflow edit).
+fleet_registry:
+  enabled: true
+  endpoint: https://caretaker.cat-herding.net/api/fleet/heartbeat
+  secret_env: CARETAKER_FLEET_SECRET
+  timeout_seconds: 5.0
+  include_full_summary: false
+
 llm:
   claude_enabled: auto
   claude_features:
