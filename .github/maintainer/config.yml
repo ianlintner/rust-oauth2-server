@@ -119,7 +119,14 @@ escalation:
 fleet_registry:
   enabled: true
   endpoint: https://caretaker.cat-herding.net/api/fleet/heartbeat
-  secret_env: CARETAKER_FLEET_SECRET
+  oauth2:
+    enabled: true
+    client_id_env: OAUTH2_CLIENT_ID
+    client_secret_env: OAUTH2_CLIENT_SECRET
+    token_url_env: OAUTH2_TOKEN_URL
+    scope_env: OAUTH2_SCOPE
+    default_scope: "fleet:heartbeat"
+    timeout_seconds: 10.0
   timeout_seconds: 5.0
   include_full_summary: false
 
