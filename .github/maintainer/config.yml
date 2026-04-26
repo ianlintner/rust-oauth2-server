@@ -132,8 +132,6 @@ fleet_registry:
 
 llm:
   claude_enabled: auto
-  provider: litellm
-  default_model: "azure_ai/gpt-4o"
   claude_features:
     - ci_log_analysis
     - architectural_review
