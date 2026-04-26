@@ -86,6 +86,30 @@ spec:
                 configMapKeyRef:
                   name: oauth2-server-config
                   key: RUST_BACKTRACE
+            - name: OAUTH2_GOOGLE_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: oauth2-server-secret
+                  key: OAUTH2_GOOGLE_CLIENT_ID
+                  optional: true
+            - name: OAUTH2_GOOGLE_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: oauth2-server-secret
+                  key: OAUTH2_GOOGLE_CLIENT_SECRET
+                  optional: true
+            - name: OAUTH2_GITHUB_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: oauth2-server-secret
+                  key: OAUTH2_GITHUB_CLIENT_ID
+                  optional: true
+            - name: OAUTH2_GITHUB_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: oauth2-server-secret
+                  key: OAUTH2_GITHUB_CLIENT_SECRET
+                  optional: true
           livenessProbe:
             httpGet:
               path: /health
