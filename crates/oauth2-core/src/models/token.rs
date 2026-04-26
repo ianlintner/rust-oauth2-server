@@ -13,13 +13,22 @@ use utoipa::ToSchema;
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Claims {
-    pub sub: String,   // Subject (user ID)
-    pub iss: String,   // Issuer
-    pub aud: String,   // Audience (client ID)
-    pub exp: i64,      // Expiration time
-    pub iat: i64,      // Issued at
+    pub sub: String, // Subject (user ID)
+    pub iss: String, // Issuer
+    /// RFC 9068 §2.2 / RFC 7519 §4.1.3: Audience — resource server(s) for which
+    /// this token is intended. Serializes as a single string when there's one
+    /// audience, or as an array when multiple. Per RFC 8707, when a `resource`
+    /// parameter is provided, the `aud` claim MUST reflect that resource server
+    /// URI instead of the client_id.
+    #[serde(
+        serialize_with = "serialize_audience",
+        deserialize_with = "deserialize_audience"
+    )]
+    pub aud: Vec<String>, // Audience (resource server URI or client ID)
+    pub exp: i64,    // Expiration time
+    pub iat: i64,    // Issued at
     pub scope: String, // Scopes
-    pub jti: String,   // JWT ID
+    pub jti: String, // JWT ID
     #[serde(skip_serializing_if = "Option::is_none")]
     pub client_id: Option<String>,
     /// RFC 9449 (DPoP) / RFC 8705 (mTLS): confirmation claim binding token to a key.
@@ -139,6 +148,127 @@ fn base64_url_encode(data: &[u8]) -> String {
     URL_SAFE_NO_PAD.encode(data)
 }
 
+/// Serialize `aud` as a single string when there's one element, or as an array
+/// when multiple. Per RFC 7519 §4.1.3, both formats are valid.
+fn serialize_audience<S>(aud: &[String], serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    if aud.len() == 1 {
+        serializer.serialize_str(&aud[0])
+    } else {
+        aud.serialize(serializer)
+    }
+}
+
+/// Deserialize `aud` from either a single string or an array of strings.
+fn deserialize_audience<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de::{self, Visitor};
+    use std::fmt;
+
+    struct AudienceVisitor;
+
+    impl<'de> Visitor<'de> for AudienceVisitor {
+        type Value = Vec<String>;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+            formatter.write_str("a string or array of strings")
+        }
+
+        fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            Ok(vec![value.to_string()])
+        }
+
+        fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+        where
+            A: de::SeqAccess<'de>,
+        {
+            let mut vec = Vec::new();
+            while let Some(value) = seq.next_element()? {
+                vec.push(value);
+            }
+            Ok(vec)
+        }
+    }
+
+    deserializer.deserialize_any(AudienceVisitor)
+}
+
+/// Serialize optional `aud` as a single string when there's one element, or as
+/// an array when multiple.
+fn serialize_optional_audience<S>(
+    aud: &Option<Vec<String>>,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    match aud {
+        None => serializer.serialize_none(),
+        Some(vec) if vec.len() == 1 => serializer.serialize_some(&vec[0]),
+        Some(vec) => serializer.serialize_some(vec),
+    }
+}
+
+/// Deserialize optional `aud` from either a single string or an array of strings.
+fn deserialize_optional_audience<'de, D>(deserializer: D) -> Result<Option<Vec<String>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de::{self, Visitor};
+    use std::fmt;
+
+    struct OptionalAudienceVisitor;
+
+    impl<'de> Visitor<'de> for OptionalAudienceVisitor {
+        type Value = Option<Vec<String>>;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+            formatter.write_str("null, a string, or array of strings")
+        }
+
+        fn visit_none<E>(self) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            Ok(None)
+        }
+
+        fn visit_some<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+        where
+            D: serde::Deserializer<'de>,
+        {
+            deserialize_audience(deserializer).map(Some)
+        }
+
+        fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            Ok(Some(vec![value.to_string()]))
+        }
+
+        fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+        where
+            A: de::SeqAccess<'de>,
+        {
+            let mut vec = Vec::new();
+            while let Some(value) = seq.next_element()? {
+                vec.push(value);
+            }
+            Ok(Some(vec))
+        }
+    }
+
+    deserializer.deserialize_option(OptionalAudienceVisitor)
+}
+
 impl Claims {
     pub fn new(
         subject: String,
@@ -153,7 +283,7 @@ impl Claims {
         Self {
             sub: subject,
             iss: issuer.to_string(),
-            aud: client_id.clone(),
+            aud: vec![client_id.clone()],
             exp: exp.timestamp(),
             iat: now.timestamp(),
             scope,
@@ -163,6 +293,36 @@ impl Claims {
             authorization_details: None,
             act: None,
         }
+    }
+
+    /// Builder method to override the audience claim with specific resource server URI(s).
+    ///
+    /// Per RFC 8707 §2: when a `resource` parameter is present in the token request,
+    /// the issued access token MUST carry that resource server URI in the `aud` claim
+    /// instead of the client_id.
+    pub fn with_audience(mut self, audience: Vec<String>) -> Self {
+        self.aud = audience;
+        self
+    }
+
+    /// Builder method to bind the access token to a DPoP public key via `cnf.jkt`.
+    ///
+    /// Per RFC 9449 §6: when a DPoP proof is presented at the token endpoint,
+    /// the AS MUST include the `cnf` (confirmation) claim in the issued access
+    /// token, containing the JWK Thumbprint of the proof's public key.
+    pub fn with_dpop_jkt(mut self, jkt: String) -> Self {
+        self.cnf = Some(serde_json::json!({ "jkt": jkt }));
+        self
+    }
+
+    /// Builder method to bind the access token to a client certificate via `cnf.x5t#S256`.
+    ///
+    /// Per RFC 8705 §3: when the client authenticates via mTLS, the AS includes
+    /// the SHA-256 thumbprint of the client's certificate in the access token's
+    /// `cnf` claim.
+    pub fn with_mtls_thumbprint(mut self, thumbprint: String) -> Self {
+        self.cnf = Some(serde_json::json!({ "x5t#S256": thumbprint }));
+        self
     }
 
     pub fn encode(&self, secret: &str) -> Result<String, jsonwebtoken::errors::Error> {
@@ -411,14 +571,25 @@ pub struct IntrospectionResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sub: Option<String>,
     /// RFC 7662 §2.2: audience the token was issued for.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub aud: Option<String>,
+    /// Per RFC 9068, can be a string or array of strings. Serialized as a single
+    /// string when there's one audience, or as an array when multiple.
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        default,
+        serialize_with = "serialize_optional_audience",
+        deserialize_with = "deserialize_optional_audience"
+    )]
+    pub aud: Option<Vec<String>>,
     /// RFC 7662 §2.2: unique identifier for the token (JWT ID).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub jti: Option<String>,
     /// RFC 7662 §2.2: issuer of the token.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub iss: Option<String>,
+    /// RFC 9449 §7.1 / RFC 8705 §4: confirmation (`cnf`) claim from the token.
+    /// Carries `jkt` (DPoP key thumbprint) or `x5t#S256` (mTLS cert thumbprint).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cnf: Option<serde_json::Value>,
 }
 
 #[cfg(test)]

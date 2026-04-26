@@ -6,6 +6,38 @@
     <title>OAuth2 Server - Login</title>
     <!-- Tailwind CDN Play serves a dynamically-built script; SRI is not applicable. -->
     <script src="https://cdn.tailwindcss.com"></script> <!-- nosemgrep: html.security.audit.missing-integrity -->
+    <script>
+      // Tailwind dark mode via class strategy.
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            fontFamily: {
+              sans: ["Inter", "ui-sans-serif", "system-ui", "sans-serif"],
+            },
+          },
+        },
+      };
+    </script>
+    <script>
+      // FOUC-safe theme initialization. Must run before paint.
+      (function () {
+        try {
+          var stored = localStorage.getItem("oauth2-theme");
+          var prefersDark =
+            window.matchMedia &&
+            window.matchMedia("(prefers-color-scheme: dark)").matches;
+          var isDark = stored ? stored === "dark" : prefersDark;
+          if (isDark) {
+            document.documentElement.classList.add("dark");
+          } else {
+            document.documentElement.classList.remove("dark");
+          }
+        } catch (e) {
+          /* localStorage unavailable; fall back to system default */
+        }
+      })();
+    </script>
     <!-- Google Fonts serves dynamically-generated CSS; SRI is not applicable. -->
     <link
       href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap"
@@ -15,16 +47,82 @@
       body {
         font-family: "Inter", sans-serif;
       }
+      /* Subtle animated mesh-gradient backdrop in light mode. */
+      .auth-bg-light {
+        background-color: #eef2ff;
+        background-image:
+          radial-gradient(at 12% 18%, rgba(99, 102, 241, 0.18) 0px, transparent 50%),
+          radial-gradient(at 88% 22%, rgba(168, 85, 247, 0.16) 0px, transparent 50%),
+          radial-gradient(at 50% 95%, rgba(56, 189, 248, 0.14) 0px, transparent 50%);
+      }
+      .auth-bg-dark {
+        background-color: #0b1020;
+        background-image:
+          radial-gradient(at 14% 20%, rgba(99, 102, 241, 0.28) 0px, transparent 55%),
+          radial-gradient(at 86% 18%, rgba(168, 85, 247, 0.22) 0px, transparent 55%),
+          radial-gradient(at 50% 95%, rgba(14, 165, 233, 0.22) 0px, transparent 55%);
+      }
+      /* Glassy card surface */
+      .auth-card {
+        backdrop-filter: saturate(140%) blur(14px);
+        -webkit-backdrop-filter: saturate(140%) blur(14px);
+      }
+      /* Gradient glow accent on the brand badge */
+      .brand-glow {
+        box-shadow:
+          0 10px 30px -8px rgba(99, 102, 241, 0.55),
+          0 0 0 1px rgba(255, 255, 255, 0.08) inset;
+      }
+      .dark .brand-glow {
+        box-shadow:
+          0 10px 40px -6px rgba(99, 102, 241, 0.7),
+          0 0 0 1px rgba(255, 255, 255, 0.06) inset;
+      }
     </style>
   </head>
   <body
-    class="bg-gradient-to-br from-blue-50 to-indigo-100 min-h-screen flex items-center justify-center p-4"
+    class="auth-bg-light dark:auth-bg-dark min-h-screen flex items-center justify-center p-4 text-slate-900 dark:text-slate-100 transition-colors duration-300"
   >
-    <div class="w-full max-w-md">
+    <!-- Theme Toggle -->
+    <button
+      type="button"
+      id="themeToggle"
+      aria-label="Toggle color theme"
+      title="Toggle theme"
+      class="fixed top-4 right-4 z-20 inline-flex items-center justify-center w-10 h-10 rounded-full border border-slate-200/70 dark:border-slate-700/70 bg-white/80 dark:bg-slate-800/80 text-slate-700 dark:text-slate-200 shadow-sm hover:bg-white dark:hover:bg-slate-700 backdrop-blur transition"
+    >
+      <!-- Sun (shown in dark mode) -->
+      <svg
+        class="hidden dark:block w-5 h-5"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      >
+        <circle cx="12" cy="12" r="4" />
+        <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" />
+      </svg>
+      <!-- Moon (shown in light mode) -->
+      <svg
+        class="block dark:hidden w-5 h-5"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      >
+        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+      </svg>
+    </button>
+
+    <div class="w-full max-w-md relative z-10">
       <!-- Logo and Header -->
       <div class="text-center mb-8">
         <div
-          class="inline-flex items-center justify-center w-16 h-16 bg-indigo-600 rounded-full mb-4"
+          class="inline-flex items-center justify-center w-16 h-16 rounded-2xl mb-4 brand-glow bg-gradient-to-br from-indigo-500 via-violet-500 to-fuchsia-500"
         >
           <svg
             class="w-8 h-8 text-white"
@@ -40,12 +138,18 @@
             ></path>
           </svg>
         </div>
-        <h1 class="text-3xl font-bold text-gray-900 mb-2">Welcome Back</h1>
-        <p class="text-gray-600">Sign in to your account to continue</p>
+        <h1 class="text-3xl font-bold tracking-tight text-slate-900 dark:text-white mb-2">
+          Welcome Back
+        </h1>
+        <p class="text-slate-600 dark:text-slate-400">
+          Sign in to your account to continue
+        </p>
       </div>
 
       <!-- Login Card -->
-      <div class="bg-white rounded-2xl shadow-xl p-8">
+      <div
+        class="auth-card bg-white/85 dark:bg-slate-900/70 ring-1 ring-slate-200/70 dark:ring-slate-700/60 rounded-2xl shadow-xl shadow-indigo-900/5 dark:shadow-black/40 p-8"
+      >
         <!--SERVER_ERROR-->
         <!-- Traditional Login Form -->
         <form
@@ -57,7 +161,7 @@
           <div>
             <label
               for="username"
-              class="block text-sm font-medium text-gray-700 mb-2"
+              class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2"
             >
               Username or Email
             </label>
@@ -65,7 +169,7 @@
               type="text"
               id="username"
               name="username"
-              class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition duration-200"
+              class="w-full px-4 py-3 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800/80 text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition duration-200"
               placeholder="Enter your username"
               required
             />
@@ -74,7 +178,7 @@
           <div>
             <label
               for="password"
-              class="block text-sm font-medium text-gray-700 mb-2"
+              class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2"
             >
               Password
             </label>
@@ -82,7 +186,7 @@
               type="password"
               id="password"
               name="password"
-              class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition duration-200"
+              class="w-full px-4 py-3 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800/80 text-slate-900 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition duration-200"
               placeholder="Enter your password"
               required
             />
@@ -92,13 +196,13 @@
             <label class="flex items-center">
               <input
                 type="checkbox"
-                class="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
+                class="w-4 h-4 text-indigo-600 border-slate-300 dark:border-slate-600 dark:bg-slate-800 rounded focus:ring-indigo-500"
               />
-              <span class="ml-2 text-sm text-gray-600">Remember me</span>
+              <span class="ml-2 text-sm text-slate-600 dark:text-slate-400">Remember me</span>
             </label>
             <a
               href="/auth/forgot-password"
-              class="text-sm text-indigo-600 hover:text-indigo-500"
+              class="text-sm text-indigo-600 hover:text-indigo-500 dark:text-indigo-400 dark:hover:text-indigo-300"
             >
               Forgot password?
             </a>
@@ -106,7 +210,7 @@
 
           <button
             type="submit"
-            class="w-full bg-indigo-600 text-white py-3 px-4 rounded-lg font-medium hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 transition duration-200"
+            class="w-full py-3 px-4 rounded-lg font-medium text-white bg-gradient-to-r from-indigo-600 via-violet-600 to-fuchsia-600 hover:from-indigo-500 hover:via-violet-500 hover:to-fuchsia-500 shadow-lg shadow-indigo-600/20 dark:shadow-indigo-500/10 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:focus:ring-offset-slate-900 transition duration-200"
           >
             Sign In
           </button>
@@ -115,10 +219,13 @@
         <!-- Divider -->
         <div class="relative my-6">
           <div class="absolute inset-0 flex items-center">
-            <div class="w-full border-t border-gray-300"></div>
+            <div class="w-full border-t border-slate-200 dark:border-slate-700"></div>
           </div>
           <div class="relative flex justify-center text-sm">
-            <span class="px-4 bg-white text-gray-500">Or continue with</span>
+            <span
+              class="px-4 bg-white/85 dark:bg-slate-900/70 text-slate-500 dark:text-slate-400"
+              >Or continue with</span
+            >
           </div>
         </div>
 
@@ -127,7 +234,7 @@
           <!-- Google -->
           <a
             href="/auth/login/google"
-            class="w-full flex items-center justify-center px-4 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 transition duration-200 group"
+            class="w-full flex items-center justify-center px-4 py-3 rounded-lg border border-slate-300 dark:border-slate-700 bg-white/70 dark:bg-slate-800/70 hover:bg-white dark:hover:bg-slate-700/80 hover:border-slate-400 dark:hover:border-slate-600 transition duration-200 group"
           >
             <svg class="w-5 h-5 mr-3" viewBox="0 0 24 24">
               <path
@@ -147,13 +254,15 @@
                 d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
               />
             </svg>
-            <span class="text-gray-700 font-medium">Continue with Google</span>
+            <span class="text-slate-700 dark:text-slate-200 font-medium"
+              >Continue with Google</span
+            >
           </a>
 
           <!-- Microsoft -->
           <a
             href="/auth/login/microsoft"
-            class="w-full flex items-center justify-center px-4 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 transition duration-200"
+            class="w-full flex items-center justify-center px-4 py-3 rounded-lg border border-slate-300 dark:border-slate-700 bg-white/70 dark:bg-slate-800/70 hover:bg-white dark:hover:bg-slate-700/80 hover:border-slate-400 dark:hover:border-slate-600 transition duration-200"
           >
             <svg class="w-5 h-5 mr-3" viewBox="0 0 23 23">
               <path fill="#f35325" d="M0 0h11v11H0z" />
@@ -161,7 +270,7 @@
               <path fill="#05a6f0" d="M0 12h11v11H0z" />
               <path fill="#ffba08" d="M12 12h11v11H12z" />
             </svg>
-            <span class="text-gray-700 font-medium"
+            <span class="text-slate-700 dark:text-slate-200 font-medium"
               >Continue with Microsoft</span
             >
           </a>
@@ -169,20 +278,26 @@
           <!-- GitHub -->
           <a
             href="/auth/login/github"
-            class="w-full flex items-center justify-center px-4 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 transition duration-200"
+            class="w-full flex items-center justify-center px-4 py-3 rounded-lg border border-slate-300 dark:border-slate-700 bg-white/70 dark:bg-slate-800/70 hover:bg-white dark:hover:bg-slate-700/80 hover:border-slate-400 dark:hover:border-slate-600 transition duration-200"
           >
-            <svg class="w-5 h-5 mr-3" fill="currentColor" viewBox="0 0 24 24">
+            <svg
+              class="w-5 h-5 mr-3 text-slate-900 dark:text-slate-100"
+              fill="currentColor"
+              viewBox="0 0 24 24"
+            >
               <path
                 d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"
               />
             </svg>
-            <span class="text-gray-700 font-medium">Continue with GitHub</span>
+            <span class="text-slate-700 dark:text-slate-200 font-medium"
+              >Continue with GitHub</span
+            >
           </a>
 
           <!-- Azure AD -->
           <a
             href="/auth/login/azure"
-            class="w-full flex items-center justify-center px-4 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 transition duration-200"
+            class="w-full flex items-center justify-center px-4 py-3 rounded-lg border border-slate-300 dark:border-slate-700 bg-white/70 dark:bg-slate-800/70 hover:bg-white dark:hover:bg-slate-700/80 hover:border-slate-400 dark:hover:border-slate-600 transition duration-200"
           >
             <svg class="w-5 h-5 mr-3" viewBox="0 0 23 23">
               <path fill="#0078d4" d="M0 0h11v11H0z" />
@@ -190,7 +305,7 @@
               <path fill="#0078d4" d="M0 12h11v11H0z" />
               <path fill="#50e6ff" d="M12 12h11v11H12z" />
             </svg>
-            <span class="text-gray-700 font-medium"
+            <span class="text-slate-700 dark:text-slate-200 font-medium"
               >Continue with Azure AD</span
             >
           </a>
@@ -223,11 +338,11 @@
 
         <!-- Sign Up Link -->
         <div class="mt-6 text-center">
-          <p class="text-sm text-gray-600">
+          <p class="text-sm text-slate-600 dark:text-slate-400">
             Don't have an account?
             <a
               href="/auth/register"
-              class="text-indigo-600 hover:text-indigo-500 font-medium"
+              class="text-indigo-600 hover:text-indigo-500 dark:text-indigo-400 dark:hover:text-indigo-300 font-medium"
             >
               Sign up
             </a>
@@ -236,15 +351,27 @@
       </div>
 
       <!-- Footer -->
-      <div class="mt-8 text-center text-sm text-gray-600">
+      <div class="mt-8 text-center text-sm text-slate-600 dark:text-slate-400">
         <p>
           &copy; <span id="currentYear"></span> OAuth2 Server. All rights
           reserved.
         </p>
         <div class="mt-2 space-x-4">
-          <a href="/privacy" class="hover:text-indigo-600">Privacy Policy</a>
-          <a href="/terms" class="hover:text-indigo-600">Terms of Service</a>
-          <a href="/api-docs" class="hover:text-indigo-600">API Docs</a>
+          <a
+            href="/privacy"
+            class="hover:text-indigo-600 dark:hover:text-indigo-400"
+            >Privacy Policy</a
+          >
+          <a
+            href="/terms"
+            class="hover:text-indigo-600 dark:hover:text-indigo-400"
+            >Terms of Service</a
+          >
+          <a
+            href="/api-docs"
+            class="hover:text-indigo-600 dark:hover:text-indigo-400"
+            >API Docs</a
+          >
         </div>
       </div>
     </div>
@@ -253,6 +380,21 @@
       // Set dynamic copyright year
       document.getElementById("currentYear").textContent =
         new Date().getFullYear();
+
+      // Theme toggle: persist user preference and flip the class.
+      (function () {
+        var btn = document.getElementById("themeToggle");
+        if (!btn) return;
+        btn.addEventListener("click", function () {
+          var root = document.documentElement;
+          var isDark = root.classList.toggle("dark");
+          try {
+            localStorage.setItem("oauth2-theme", isDark ? "dark" : "light");
+          } catch (e) {
+            /* ignore */
+          }
+        });
+      })();
     </script>
   </body>
 </html>

@@ -7,6 +7,7 @@ use crate::actors::{
     ClientActor, GetClient, LookupToken, RevokeToken, TokenActorPool, ValidateToken,
     ValidateTokenStateless,
 };
+use crate::handlers::dpop::{build_request_url_bounded, validate_dpop_proof, DpopReplayStore};
 use crate::handlers::oauth::{client_secret_matches, parse_client_basic_auth};
 use crate::handlers::wellknown::OidcConfig;
 use oauth2_config::Config;
@@ -38,6 +39,7 @@ fn inactive_introspection_response() -> HttpResponse {
         aud: None,
         jti: None,
         iss: None,
+        cnf: None,
     }))
 }
 
@@ -129,6 +131,7 @@ pub async fn introspect(
     metrics: web::Data<Metrics>,
     config: Option<web::Data<Config>>,
     oidc_config: Option<web::Data<OidcConfig>>,
+    dpop_replay_store: Option<web::Data<DpopReplayStore>>,
 ) -> Result<HttpResponse, OAuth2Error> {
     let opaque_access_tokens = config
         .as_ref()
@@ -213,6 +216,73 @@ pub async fn introspect(
             let claims = Claims::decode_unverified(&token.access_token)
                 .or_else(|| Claims::decode(&token.access_token, &jwt_secret).ok());
 
+            // RFC 9449 §7.1: DPoP-bound token introspection requires validating
+            // the DPoP proof and matching the JWK thumbprint against the token's cnf.jkt.
+            if let Some(ref claims_inner) = claims {
+                if let Some(ref cnf) = claims_inner.cnf {
+                    if let Some(ref token_jkt) = cnf.get("jkt").and_then(|v| v.as_str()) {
+                        // Token is DPoP-bound; validate the DPoP proof.
+                        if let Some(dpop_header) = req.headers().get("DPoP") {
+                            let dpop_str = dpop_header.to_str().map_err(|_| {
+                                OAuth2Error::invalid_request("DPoP header is not valid UTF-8")
+                            })?;
+                            let method = req.method().as_str();
+                            let conn_info = req.connection_info();
+                            let introspect_url = build_request_url_bounded(
+                                conn_info.scheme(),
+                                conn_info.host(),
+                                req.path(),
+                            )?;
+                            drop(conn_info);
+                            let store_ref = dpop_replay_store.as_ref().map(|d| d.as_ref());
+                            let default_store;
+                            let replay_store = match store_ref {
+                                Some(s) => s,
+                                None => {
+                                    default_store = DpopReplayStore::new();
+                                    &default_store
+                                }
+                            };
+                            match validate_dpop_proof(
+                                dpop_str,
+                                method,
+                                &introspect_url,
+                                replay_store,
+                            ) {
+                                Ok(proof_jkt) => {
+                                    // Verify the proof's JWK thumbprint matches the token's cnf.jkt.
+                                    if proof_jkt != *token_jkt {
+                                        tracing::warn!(
+                                            token_jkt = %token_jkt,
+                                            proof_jkt = %proof_jkt,
+                                            token_prefix = %token_prefix,
+                                            "DPoP proof JWK thumbprint does not match token cnf.jkt"
+                                        );
+                                        return Ok(inactive_introspection_response());
+                                    }
+                                }
+                                Err(_) => {
+                                    // Invalid DPoP proof for a DPoP-bound token → return inactive.
+                                    tracing::warn!(
+                                        token_prefix = %token_prefix,
+                                        "Invalid DPoP proof for DPoP-bound token during introspection"
+                                    );
+                                    return Ok(inactive_introspection_response());
+                                }
+                            }
+                        } else {
+                            // Token is DPoP-bound but no DPoP header provided → return inactive.
+                            tracing::warn!(
+                                token_prefix = %token_prefix,
+                                token_jkt = %token_jkt,
+                                "DPoP-bound token introspected without DPoP header"
+                            );
+                            return Ok(inactive_introspection_response());
+                        }
+                    }
+                }
+            }
+
             let active = token.is_valid();
             let user_id = token.user_id.clone();
             let scope = token.scope.clone();
@@ -258,7 +328,10 @@ pub async fn introspect(
                 } else {
                     None
                 },
-                aud: claims.as_ref().map(|c| c.aud.clone()).or(Some(client_id)),
+                aud: claims
+                    .as_ref()
+                    .map(|c| c.aud.clone())
+                    .or_else(|| Some(vec![client_id])),
                 jti: claims
                     .as_ref()
                     .map(|c| c.jti.clone())
@@ -267,6 +340,7 @@ pub async fn introspect(
                     .as_ref()
                     .map(|c| c.iss.clone())
                     .or_else(|| oidc_config.as_ref().map(|c| c.issuer.clone())),
+                cnf: claims.as_ref().and_then(|c| c.cnf.clone()),
             };
 
             // RFC 9701: if the caller explicitly accepts token-introspection+jwt,

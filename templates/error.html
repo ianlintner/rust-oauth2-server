@@ -6,80 +6,157 @@
     <title>Error - OAuth2 Server</title>
     <!-- Tailwind CDN Play serves a dynamically-built script; SRI is not applicable. -->
     <script src="https://cdn.tailwindcss.com"></script> <!-- nosemgrep: html.security.audit.missing-integrity -->
+    <script>
+        // Tailwind dark mode via class strategy.
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ["Inter", "ui-sans-serif", "system-ui", "sans-serif"],
+                    },
+                },
+            },
+        };
+    </script>
+    <script>
+        // FOUC-safe theme initialization. Must run before paint.
+        (function () {
+            try {
+                var stored = localStorage.getItem("oauth2-theme");
+                var prefersDark =
+                    window.matchMedia &&
+                    window.matchMedia("(prefers-color-scheme: dark)").matches;
+                var isDark = stored ? stored === "dark" : prefersDark;
+                if (isDark) {
+                    document.documentElement.classList.add("dark");
+                } else {
+                    document.documentElement.classList.remove("dark");
+                }
+            } catch (e) {
+                /* localStorage unavailable; fall back to system default */
+            }
+        })();
+    </script>
     <!-- Google Fonts serves dynamically-generated CSS; SRI is not applicable. -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" /> <!-- nosemgrep: html.security.audit.missing-integrity -->
     <style>
         body {
             font-family: 'Inter', sans-serif;
         }
+        .err-bg-light {
+            background-color: #fff1f2;
+            background-image:
+                radial-gradient(at 12% 18%, rgba(244, 63, 94, 0.18) 0px, transparent 50%),
+                radial-gradient(at 88% 22%, rgba(249, 115, 22, 0.16) 0px, transparent 50%),
+                radial-gradient(at 50% 95%, rgba(251, 191, 36, 0.14) 0px, transparent 50%);
+        }
+        .err-bg-dark {
+            background-color: #0b1020;
+            background-image:
+                radial-gradient(at 14% 20%, rgba(244, 63, 94, 0.28) 0px, transparent 55%),
+                radial-gradient(at 86% 18%, rgba(249, 115, 22, 0.22) 0px, transparent 55%),
+                radial-gradient(at 50% 95%, rgba(251, 191, 36, 0.18) 0px, transparent 55%);
+        }
+        .err-card {
+            backdrop-filter: saturate(140%) blur(14px);
+            -webkit-backdrop-filter: saturate(140%) blur(14px);
+        }
+        .err-glow {
+            box-shadow:
+                0 10px 30px -8px rgba(244, 63, 94, 0.45),
+                0 0 0 1px rgba(255, 255, 255, 0.08) inset;
+        }
+        .dark .err-glow {
+            box-shadow:
+                0 10px 40px -6px rgba(244, 63, 94, 0.55),
+                0 0 0 1px rgba(255, 255, 255, 0.06) inset;
+        }
     </style>
 </head>
-<body class="bg-gradient-to-br from-red-50 to-orange-100 min-h-screen flex items-center justify-center p-4">
-    <div class="w-full max-w-lg">
-        <div class="bg-white rounded-2xl shadow-xl p-8 text-center">
+<body class="err-bg-light dark:err-bg-dark min-h-screen flex items-center justify-center p-4 text-slate-900 dark:text-slate-100 transition-colors duration-300">
+    <!-- Theme Toggle -->
+    <button
+        type="button"
+        id="themeToggle"
+        aria-label="Toggle color theme"
+        title="Toggle theme"
+        class="fixed top-4 right-4 z-20 inline-flex items-center justify-center w-10 h-10 rounded-full border border-slate-200/70 dark:border-slate-700/70 bg-white/80 dark:bg-slate-800/80 text-slate-700 dark:text-slate-200 shadow-sm hover:bg-white dark:hover:bg-slate-700 backdrop-blur transition"
+    >
+        <svg class="hidden dark:block w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="4" />
+            <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" />
+        </svg>
+        <svg class="block dark:hidden w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+        </svg>
+    </button>
+
+    <div class="w-full max-w-lg relative z-10">
+        <div class="err-card bg-white/85 dark:bg-slate-900/70 ring-1 ring-slate-200/70 dark:ring-slate-700/60 rounded-2xl shadow-xl shadow-rose-900/5 dark:shadow-black/40 p-8 text-center">
             <!-- Error Icon -->
-            <div class="inline-flex items-center justify-center w-20 h-20 bg-red-100 rounded-full mb-6">
-                <svg class="w-10 h-10 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div class="inline-flex items-center justify-center w-20 h-20 rounded-2xl mb-6 err-glow bg-gradient-to-br from-rose-500 via-orange-500 to-amber-500">
+                <svg class="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
                 </svg>
             </div>
 
             <!-- Error Message -->
-            <h1 class="text-3xl font-bold text-gray-900 mb-3">Oops! Something went wrong</h1>
-            <p class="text-gray-600 mb-2" id="errorMessage">
+            <h1 class="text-3xl font-bold tracking-tight text-slate-900 dark:text-white mb-3">Oops! Something went wrong</h1>
+            <p class="text-slate-600 dark:text-slate-300 mb-2" id="errorMessage">
                 An unexpected error occurred while processing your request.
             </p>
-            <p class="text-sm text-gray-500 mb-6" id="errorCode">
+            <p class="text-sm text-slate-500 dark:text-slate-400 mb-6" id="errorCode">
                 Error Code: UNKNOWN
             </p>
 
             <!-- Error Details (collapsible) -->
-            <details class="text-left bg-gray-50 rounded-lg p-4 mb-6">
-                <summary class="cursor-pointer font-medium text-gray-700 hover:text-gray-900">
+            <details class="text-left bg-slate-50 dark:bg-slate-800/60 ring-1 ring-slate-200 dark:ring-slate-700 rounded-lg p-4 mb-6">
+                <summary class="cursor-pointer font-medium text-slate-700 dark:text-slate-200 hover:text-slate-900 dark:hover:text-white">
                     Technical Details
                 </summary>
-                <pre class="mt-3 text-xs text-gray-600 overflow-x-auto" id="errorDetails">
+                <pre class="mt-3 text-xs text-slate-600 dark:text-slate-300 overflow-x-auto" id="errorDetails">
 No additional details available.
                 </pre>
             </details>
 
             <!-- Actions -->
             <div class="space-y-3">
-                <button 
+                <button
                     onclick="window.history.back()"
-                    class="w-full bg-indigo-600 text-white py-3 px-4 rounded-lg font-medium hover:bg-indigo-700 transition duration-200"
+                    class="w-full py-3 px-4 rounded-lg font-medium text-white bg-gradient-to-r from-indigo-600 via-violet-600 to-fuchsia-600 hover:from-indigo-500 hover:via-violet-500 hover:to-fuchsia-500 shadow-lg shadow-indigo-600/20 dark:shadow-indigo-500/10 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:focus:ring-offset-slate-900 transition duration-200"
                 >
                     Go Back
                 </button>
-                <a 
+                <a
                     href="/"
-                    class="block w-full bg-gray-100 text-gray-700 py-3 px-4 rounded-lg font-medium hover:bg-gray-200 transition duration-200"
+                    class="block w-full py-3 px-4 rounded-lg font-medium bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700 transition duration-200"
                 >
                     Return to Home
                 </a>
-                <a 
+                <a
                     href="/auth/login"
-                    class="block w-full text-indigo-600 py-2 hover:text-indigo-700 transition duration-200"
+                    class="block w-full text-indigo-600 dark:text-indigo-400 py-2 hover:text-indigo-700 dark:hover:text-indigo-300 transition duration-200"
                 >
                     Sign In Again
                 </a>
             </div>
 
             <!-- Support Info -->
-            <div class="mt-8 pt-6 border-t border-gray-200">
-                <p class="text-sm text-gray-600 mb-2">Need help?</p>
+            <div class="mt-8 pt-6 border-t border-slate-200 dark:border-slate-700">
+                <p class="text-sm text-slate-600 dark:text-slate-400 mb-2">Need help?</p>
                 <div class="flex justify-center space-x-4 text-sm">
-                    <a href="/support" class="text-indigo-600 hover:text-indigo-700">Contact Support</a>
-                    <span class="text-gray-300">|</span>
-                    <a href="/docs" class="text-indigo-600 hover:text-indigo-700">Documentation</a>
-                    <span class="text-gray-300">|</span>
-                    <a href="/status" class="text-indigo-600 hover:text-indigo-700">System Status</a>
+                    <a href="/support" class="text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300">Contact Support</a>
+                    <span class="text-slate-300 dark:text-slate-600">|</span>
+                    <a href="/docs" class="text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300">Documentation</a>
+                    <span class="text-slate-300 dark:text-slate-600">|</span>
+                    <a href="/status" class="text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300">System Status</a>
                 </div>
             </div>
         </div>
 
         <!-- Footer -->
-        <div class="mt-6 text-center text-sm text-gray-600">
+        <div class="mt-6 text-center text-sm text-slate-600 dark:text-slate-400">
             <p>© 2024 OAuth2 Server. All rights reserved.</p>
         </div>
     </div>
@@ -94,7 +171,7 @@ No additional details available.
         if (error) {
             document.getElementById('errorMessage').textContent = errorDescription || error;
             document.getElementById('errorCode').textContent = `Error Code: ${errorCode}`;
-            
+
             if (errorDescription) {
                 document.getElementById('errorDetails').textContent = JSON.stringify({
                     error: error,
@@ -104,6 +181,21 @@ No additional details available.
                 }, null, 2);
             }
         }
+
+        // Theme toggle: persist user preference and flip the class.
+        (function () {
+            var btn = document.getElementById("themeToggle");
+            if (!btn) return;
+            btn.addEventListener("click", function () {
+                var root = document.documentElement;
+                var isDark = root.classList.toggle("dark");
+                try {
+                    localStorage.setItem("oauth2-theme", isDark ? "dark" : "light");
+                } catch (e) {
+                    /* ignore */
+                }
+            });
+        })();
     </script>
 </body>
 </html>

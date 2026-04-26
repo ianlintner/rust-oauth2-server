@@ -467,6 +467,7 @@ pub async fn create_client(
         frontchannel_logout_uri: None,
         frontchannel_logout_session_required: None,
         post_logout_redirect_uris: None,
+        tls_client_certificate_subject_dn: None,
     };
 
     db.save_client(&client)

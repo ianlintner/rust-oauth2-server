@@ -431,7 +431,9 @@ async fn rfc7662_introspection_includes_nbf_jti_aud_iss() {
     assert!(body.jti.is_some(), "RFC 7662 §2.2: jti must be present");
     assert!(body.aud.is_some(), "RFC 7662 §2.2: aud must be present");
     assert_eq!(
-        body.aud.as_deref(),
+        body.aud
+            .as_ref()
+            .and_then(|v| v.first().map(|s| s.as_str())),
         Some("client_intro"),
         "aud must equal the client_id"
     );

@@ -16,6 +16,8 @@ use crate::actors::{
     MarkAuthorizationCodeUsed, StorePARRequest, TokenActorPool, ValidateAuthorizationCode,
     ValidateRefreshToken,
 };
+use crate::handlers::dpop::{build_request_url_bounded, validate_dpop_proof, DpopReplayStore};
+use crate::handlers::jwks_cache::JwksCache;
 use crate::handlers::wellknown::OidcConfig;
 use oauth2_core::{IdTokenClaims, OAuth2Error, TokenResponse};
 use oauth2_ports::DynStorage;
@@ -23,6 +25,18 @@ use oauth2_ports::DynStorage;
 const DEVICE_CODE_GRANT_TYPE: &str = "urn:ietf:params:oauth:grant-type:device_code";
 /// RFC 8693: Token Exchange grant type URI.
 const TOKEN_EXCHANGE_GRANT_TYPE: &str = "urn:ietf:params:oauth:grant-type:token-exchange";
+
+/// RFC 9449 §7.1: If the `cnf` claim carries a `jkt` (DPoP key thumbprint), the token
+/// response MUST use `token_type: "DPoP"` instead of `"Bearer"`.
+fn apply_dpop_token_type(
+    mut response: oauth2_core::TokenResponse,
+    cnf_claim: Option<&serde_json::Value>,
+) -> oauth2_core::TokenResponse {
+    if cnf_claim.and_then(|c| c.get("jkt")).is_some() {
+        response.token_type = "DPoP".to_string();
+    }
+    response
+}
 
 /// Parse RFC6749 client authentication via HTTP Basic.
 ///
@@ -114,11 +128,19 @@ pub(crate) fn client_secret_matches(client: &oauth2_core::Client, presented_secr
 /// `token_endpoint_auth_method`:
 ///   - `client_secret_basic` / `client_secret_post`: constant-time secret comparison
 ///   - `client_secret_jwt` / `private_key_jwt`: JWT assertion validation (RFC 7523)
+///   - `tls_client_auth`: mTLS certificate validation with optional Subject DN check
 ///   - `none`: public client (caller should handle separately)
+///
+/// `resolved_jwks` must be pre-fetched by the caller (via [`resolve_client_jwks`])
+/// when the client uses `private_key_jwt`; pass `None` for all other methods.
+/// `mtls_subject_dn` should be the Subject DN from the X-SSL-Client-S-DN header.
 fn authenticate_confidential_client(
     client: &oauth2_core::Client,
     req: &TokenRequest,
     token_endpoint_url: &str,
+    resolved_jwks: Option<&serde_json::Value>,
+    mtls_thumbprint: Option<&str>,
+    mtls_subject_dn: Option<&str>,
 ) -> Result<(), OAuth2Error> {
     match client.token_endpoint_auth_method.as_str() {
         "client_secret_basic" | "client_secret_post" => match req.client_secret.as_deref() {
@@ -144,7 +166,73 @@ fn authenticate_confidential_client(
                 .client_assertion
                 .as_deref()
                 .ok_or_else(|| OAuth2Error::invalid_client("Missing client_assertion"))?;
-            validate_jwt_client_assertion(client, assertion, token_endpoint_url)
+            validate_jwt_client_assertion(client, assertion, token_endpoint_url, resolved_jwks)
+        }
+        "tls_client_auth" => {
+            // RFC 8705 §2.1: client is authenticated by TLS certificate.
+            // The reverse proxy must set X-Client-Cert-Thumbprint with the
+            // SHA-256 thumbprint of the presented certificate.
+            match mtls_thumbprint {
+                Some(_tb) => {
+                    // Thumbprint is present — client is authenticated.
+                    // If client.tls_client_certificate_subject_dn is configured,
+                    // verify it matches the Subject DN from X-SSL-Client-S-DN header.
+                    if !client.tls_client_certificate_subject_dn.is_empty() {
+                        match mtls_subject_dn {
+                            Some(presented_dn)
+                                if presented_dn == client.tls_client_certificate_subject_dn =>
+                            {
+                                tracing::debug!(
+                                    client_id = %client.client_id,
+                                    expected_dn = %client.tls_client_certificate_subject_dn,
+                                    presented_dn = %presented_dn,
+                                    "mTLS Subject DN validated successfully"
+                                );
+                                Ok(())
+                            }
+                            Some(presented_dn) => {
+                                tracing::warn!(
+                                    client_id = %client.client_id,
+                                    expected_dn = %client.tls_client_certificate_subject_dn,
+                                    presented_dn = %presented_dn,
+                                    "mTLS Subject DN mismatch"
+                                );
+                                Err(OAuth2Error::invalid_client(
+                                    "tls_client_auth: client certificate Subject DN does not match",
+                                ))
+                            }
+                            None => {
+                                tracing::warn!(
+                                    client_id = %client.client_id,
+                                    expected_dn = %client.tls_client_certificate_subject_dn,
+                                    "mTLS Subject DN required but X-SSL-Client-S-DN header missing"
+                                );
+                                Err(OAuth2Error::invalid_client(
+                                    "tls_client_auth requires X-SSL-Client-S-DN header when Subject DN is configured",
+                                ))
+                            }
+                        }
+                    } else {
+                        // No Subject DN configured — accept any valid certificate.
+                        Ok(())
+                    }
+                }
+                None => Err(OAuth2Error::invalid_client(
+                    "tls_client_auth requires a TLS client certificate \
+                     (X-Client-Cert-Thumbprint header missing)",
+                )),
+            }
+        }
+        "self_signed_tls_client_auth" => {
+            // RFC 8705 §2.2: client is authenticated by a self-signed certificate.
+            // Accept if the reverse proxy provided the cert thumbprint.
+            match mtls_thumbprint {
+                Some(_) => Ok(()),
+                None => Err(OAuth2Error::invalid_client(
+                    "self_signed_tls_client_auth requires a TLS client certificate \
+                     (X-Client-Cert-Thumbprint header missing)",
+                )),
+            }
         }
         "none" => {
             // Public clients must be gated by callers *before* reaching this
@@ -158,6 +246,43 @@ fn authenticate_confidential_client(
             "Unsupported token_endpoint_auth_method: {other}"
         ))),
     }
+}
+
+/// Resolve the JWKS for a client that uses `private_key_jwt`.
+///
+/// Returns:
+/// - `Ok(Some(jwks))` if the client has an inline `jwks` or a `jwks_uri` that
+///   was successfully fetched/cached.
+/// - `Ok(None)` if the client does not use `private_key_jwt` (no fetch needed).
+/// - `Err(_)` if `jwks_uri` fetch fails or is unavailable without a cache.
+async fn resolve_client_jwks(
+    client: &oauth2_core::Client,
+    cache: Option<&JwksCache>,
+) -> Result<Option<serde_json::Value>, OAuth2Error> {
+    if client.token_endpoint_auth_method != "private_key_jwt" {
+        return Ok(None);
+    }
+    // Prefer inline JWKS (no network needed).
+    let jwks_str = client.jwks.trim();
+    if !jwks_str.is_empty() {
+        let jwks: serde_json::Value = serde_json::from_str(jwks_str)
+            .map_err(|_| OAuth2Error::invalid_client("Client inline JWKS is not valid JSON"))?;
+        return Ok(Some(jwks));
+    }
+    // Fall back to jwks_uri with TTL cache.
+    let uri = client.jwks_uri.trim();
+    if !uri.is_empty() {
+        let c = cache.ok_or_else(|| {
+            OAuth2Error::invalid_client(
+                "jwks_uri is not supported in this context (no JWKS cache available)",
+            )
+        })?;
+        let jwks = c.fetch(uri).await?;
+        return Ok(Some(jwks));
+    }
+    Err(OAuth2Error::invalid_client(
+        "Client must register jwks or jwks_uri for private_key_jwt",
+    ))
 }
 
 fn no_store_headers(mut resp: HttpResponse) -> HttpResponse {
@@ -218,72 +343,6 @@ fn parse_form_no_dupes(body: &web::Bytes) -> Result<HashMap<String, String>, OAu
         map.insert(key, val);
     }
     Ok(map)
-}
-
-/// RFC 9449 §4.2: Build a canonical JWK thumbprint JSON string for the given `kty`.
-/// Member keys are sorted alphabetically per RFC 7638.
-fn build_jwk_canonical(jwk: &serde_json::Value) -> Result<String, OAuth2Error> {
-    let kty = jwk
-        .get("kty")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| OAuth2Error::new("invalid_dpop_proof", Some("JWK missing kty")))?;
-    let obj = match kty {
-        "EC" => {
-            let crv = jwk.get("crv").ok_or_else(|| {
-                OAuth2Error::new("invalid_dpop_proof", Some("EC JWK missing crv"))
-            })?;
-            let x = jwk
-                .get("x")
-                .ok_or_else(|| OAuth2Error::new("invalid_dpop_proof", Some("EC JWK missing x")))?;
-            let y = jwk
-                .get("y")
-                .ok_or_else(|| OAuth2Error::new("invalid_dpop_proof", Some("EC JWK missing y")))?;
-            serde_json::json!({ "crv": crv, "kty": kty, "x": x, "y": y })
-        }
-        "RSA" => {
-            let e = jwk
-                .get("e")
-                .ok_or_else(|| OAuth2Error::new("invalid_dpop_proof", Some("RSA JWK missing e")))?;
-            let n = jwk
-                .get("n")
-                .ok_or_else(|| OAuth2Error::new("invalid_dpop_proof", Some("RSA JWK missing n")))?;
-            serde_json::json!({ "e": e, "kty": kty, "n": n })
-        }
-        "OKP" => {
-            let crv = jwk.get("crv").ok_or_else(|| {
-                OAuth2Error::new("invalid_dpop_proof", Some("OKP JWK missing crv"))
-            })?;
-            let x = jwk
-                .get("x")
-                .ok_or_else(|| OAuth2Error::new("invalid_dpop_proof", Some("OKP JWK missing x")))?;
-            serde_json::json!({ "crv": crv, "kty": kty, "x": x })
-        }
-        _ => {
-            return Err(OAuth2Error::new(
-                "invalid_dpop_proof",
-                Some("Unsupported JWK key type"),
-            ))
-        }
-    };
-    serde_json::to_string(&obj).map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))
-}
-
-/// RFC 9449 §4.2 / RFC 7638: Compute the JWK Thumbprint of the DPoP proof's public key.
-/// Returns a base64url-encoded SHA-256 hash of the canonical JWK member set.
-fn compute_dpop_jkt(dpop_proof: &str) -> Result<String, OAuth2Error> {
-    use sha2::{Digest, Sha256};
-    let header = jsonwebtoken::decode_header(dpop_proof)
-        .map_err(|_| OAuth2Error::invalid_request("DPoP proof JWT header is malformed"))?;
-    let jwk_obj = header
-        .jwk
-        .ok_or_else(|| OAuth2Error::new("invalid_dpop_proof", Some("DPoP proof missing 'jwk'")))?;
-    let jwk_str = serde_json::to_string(&jwk_obj)
-        .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))?;
-    let jwk_val: serde_json::Value = serde_json::from_str(&jwk_str)
-        .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))?;
-    let canonical = build_jwk_canonical(&jwk_val)?;
-    let hash = Sha256::digest(canonical.as_bytes());
-    Ok(general_purpose::URL_SAFE_NO_PAD.encode(hash))
 }
 
 #[derive(Debug, Deserialize)]
@@ -365,6 +424,7 @@ fn process_jar(
     client: &oauth2_core::Client,
     jar_jwt: &str,
     authorization_endpoint_url: &str,
+    resolved_jwks: Option<&serde_json::Value>,
 ) -> Result<serde_json::Value, OAuth2Error> {
     use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
 
@@ -438,14 +498,12 @@ fn process_jar(
         "private_key_jwt" => {
             let header = jsonwebtoken::decode_header(jar_jwt)
                 .map_err(|_| OAuth2Error::invalid_request("JAR JWT header is malformed"))?;
-            let jwks_str = client.jwks.trim();
-            if jwks_str.is_empty() {
-                return Err(OAuth2Error::invalid_request(
-                    "JAR requires client to have an inline jwks registered",
-                ));
-            }
-            let jwks: serde_json::Value = serde_json::from_str(jwks_str)
-                .map_err(|_| OAuth2Error::invalid_request("Client JWKS is not valid JSON"))?;
+            // JWKS must have been pre-resolved by the caller via resolve_client_jwks().
+            let jwks = resolved_jwks.ok_or_else(|| {
+                OAuth2Error::invalid_request(
+                    "JAR requires client to have jwks or jwks_uri registered",
+                )
+            })?;
             let keys = jwks
                 .get("keys")
                 .and_then(|v| v.as_array())
@@ -498,6 +556,69 @@ fn process_jar(
     }
 }
 
+/// RFC 9207 §2: Build an error redirect response with `iss` parameter.
+/// Used for errors that occur after redirect_uri validation (RFC 9700 §4.1).
+fn build_authorize_error_redirect(
+    error_code: &str,
+    error_description: &str,
+    redirect_uri: &str,
+    state: Option<&str>,
+    issuer: &str,
+    response_mode: &str,
+) -> Result<HttpResponse, OAuth2Error> {
+    if response_mode == "form_post" {
+        let mut params: Vec<(&str, &str)> = vec![
+            ("error", error_code),
+            ("error_description", error_description),
+            ("iss", issuer),
+        ];
+        if let Some(s) = state {
+            params.push(("state", s));
+        }
+        return Ok(auth_response_security_headers(form_post_response(
+            redirect_uri,
+            &params,
+        )));
+    }
+
+    if response_mode == "fragment" {
+        use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
+        let enc = |s: &str| utf8_percent_encode(s, NON_ALPHANUMERIC).to_string();
+        let mut frag_parts = vec![
+            format!("error={}", enc(error_code)),
+            format!("error_description={}", enc(error_description)),
+            format!("iss={}", enc(issuer)),
+        ];
+        if let Some(s) = state {
+            frag_parts.push(format!("state={}", enc(s)));
+        }
+        let location = format!("{}#{}", redirect_uri, frag_parts.join("&"));
+        return Ok(auth_response_security_headers(
+            HttpResponse::Found()
+                .append_header(("Location", location))
+                .finish(),
+        ));
+    }
+
+    // Default: query mode
+    let mut url = Url::parse(redirect_uri)
+        .map_err(|_| OAuth2Error::invalid_request("Invalid redirect_uri"))?;
+    {
+        let mut qp = url.query_pairs_mut();
+        qp.append_pair("error", error_code);
+        qp.append_pair("error_description", error_description);
+        if let Some(s) = state {
+            qp.append_pair("state", s);
+        }
+        qp.append_pair("iss", issuer);
+    }
+    Ok(auth_response_security_headers(
+        HttpResponse::Found()
+            .append_header(("Location", url.to_string()))
+            .finish(),
+    ))
+}
+
 /// OAuth2 authorize endpoint
 /// Initiates the authorization code flow, with PAR (RFC 9126),
 /// resource indicators (RFC 8707), and form_post response mode support.
@@ -510,6 +631,7 @@ pub async fn authorize(
     client_actor: web::Data<Addr<ClientActor>>,
     metrics: web::Data<Metrics>,
     oidc_config: web::Data<OidcConfig>,
+    jwks_cache: Option<web::Data<JwksCache>>,
 ) -> Result<HttpResponse, OAuth2Error> {
     // OAuch: reject duplicate parameters (prevents ambiguous parsing).
     ensure_no_duplicate_query_params(&req)?;
@@ -628,10 +750,14 @@ pub async fn authorize(
         is_hybrid,
         jar_response_mode,
     ) = if let Some(ref jar_jwt) = query.request {
+        // Pre-resolve JWKS for private_key_jwt clients (may fetch from jwks_uri).
+        let jar_jwks =
+            resolve_client_jwks(&client, jwks_cache.as_ref().map(|d| d.as_ref())).await?;
         let jar_claims = process_jar(
             &client,
             jar_jwt,
             &format!("{}/oauth/authorize", oidc_config.issuer),
+            jar_jwks.as_ref(),
         )?;
         let jar_str = |k: &str, fallback: Option<String>| -> Option<String> {
             jar_claims
@@ -701,6 +827,9 @@ pub async fn authorize(
         .as_deref()
         .or(query.response_mode.as_deref())
         .unwrap_or(default_response_mode);
+    // RFC 9207 §2: After redirect_uri validation, errors must be delivered via redirect.
+    // However, response_mode validation is an exception because we need a valid mode to
+    // know HOW to redirect. Invalid response_mode remains a 400 error.
     if !matches!(response_mode, "query" | "form_post" | "fragment") {
         return Err(OAuth2Error::invalid_request(
             "Unsupported response_mode; supported values: query, form_post, fragment",
@@ -846,7 +975,17 @@ pub async fn authorize(
     let scope = eff_scope.unwrap_or_else(|| "read".to_string());
 
     // Enforce that requested scopes are within the client's allowed scope set.
-    validate_scope_subset(&scope, &client.scope)?;
+    // RFC 9207 §2: After redirect_uri validation, errors must be delivered via redirect.
+    if let Err(e) = validate_scope_subset(&scope, &client.scope) {
+        return build_authorize_error_redirect(
+            &e.error,
+            e.error_description.as_deref().unwrap_or(""),
+            &redirect_uri,
+            eff_state.as_deref(),
+            &oidc_config.issuer,
+            response_mode,
+        );
+    }
 
     // OIDC Core §3.1.2.1: prompt=consent requires the OP to prompt for consent.
     // Since this server auto-approves first-party consent, we return
@@ -1088,6 +1227,7 @@ fn validate_jwt_client_assertion(
     client: &oauth2_core::Client,
     assertion: &str,
     token_endpoint_url: &str,
+    resolved_jwks: Option<&serde_json::Value>,
 ) -> Result<(), OAuth2Error> {
     use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
 
@@ -1127,21 +1267,12 @@ fn validate_jwt_client_assertion(
                     "private_key_jwt requires RS256 algorithm",
                 ));
             }
-            // The client must have registered an inline JWKS.
-            // jwks_uri resolution is not yet supported — reject early.
-            let jwks_str = client.jwks.trim();
-            if jwks_str.is_empty() {
-                if !client.jwks_uri.trim().is_empty() {
-                    return Err(OAuth2Error::invalid_client(
-                        "private_key_jwt with jwks_uri is not yet supported; register inline jwks",
-                    ));
-                }
-                return Err(OAuth2Error::invalid_client(
-                    "Client must register inline jwks for private_key_jwt",
-                ));
-            }
-            let jwks: serde_json::Value = serde_json::from_str(jwks_str)
-                .map_err(|_| OAuth2Error::invalid_client("Client JWKS is not valid JSON"))?;
+            // JWKS must have been pre-resolved by the caller via resolve_client_jwks().
+            let jwks = resolved_jwks.ok_or_else(|| {
+                OAuth2Error::invalid_client(
+                    "Client must register jwks or jwks_uri for private_key_jwt",
+                )
+            })?;
             let keys = jwks
                 .get("keys")
                 .and_then(|v| v.as_array())
@@ -1244,6 +1375,8 @@ pub async fn token(
     invalid_client_limiter: Option<
         web::Data<crate::middleware::rate_limit::InvalidClientRateLimiter>,
     >,
+    jwks_cache: Option<web::Data<JwksCache>>,
+    dpop_replay_store: Option<web::Data<DpopReplayStore>>,
 ) -> Result<HttpResponse, OAuth2Error> {
     // OAuch: reject duplicate parameters (prevents parser differentials / smuggling).
     ensure_no_duplicate_query_params(&req)?;
@@ -1313,14 +1446,29 @@ pub async fn token(
         authorization_details: form_map.get("authorization_details").cloned(),
     };
 
-    // RFC 9449: DPoP — extract JWK Thumbprint from DPoP proof header if present.
+    // RFC 9449: DPoP — fully validate the DPoP proof and extract JWK Thumbprint.
     let dpop_jkt: Option<String> = if let Some(dpop_header) = req.headers().get("DPoP") {
         let dpop_str = dpop_header
             .to_str()
             .map_err(|_| OAuth2Error::invalid_request("DPoP header is not valid UTF-8"))?;
-        match compute_dpop_jkt(dpop_str) {
+        let method = req.method().as_str();
+        // Build the token endpoint URL for `htu` validation.
+        let conn_info = req.connection_info();
+        let token_url =
+            build_request_url_bounded(conn_info.scheme(), conn_info.host(), req.path())?;
+        drop(conn_info);
+        let store_ref = dpop_replay_store.as_ref().map(|d| d.as_ref());
+        let default_store;
+        let replay_store = match store_ref {
+            Some(s) => s,
+            None => {
+                default_store = DpopReplayStore::new();
+                &default_store
+            }
+        };
+        match validate_dpop_proof(dpop_str, method, &token_url, replay_store) {
             Ok(jkt) => Some(jkt),
-            Err(e) => return Err(OAuth2Error::new("invalid_dpop_proof", Some(&e.to_string()))),
+            Err(e) => return Err(e),
         }
     } else {
         None
@@ -1330,6 +1478,13 @@ pub async fn token(
     let mtls_thumbprint: Option<String> = req
         .headers()
         .get("X-Client-Cert-Thumbprint")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
+
+    // RFC 8705 §2.1: Subject DN from the client certificate (X-SSL-Client-S-DN header).
+    let mtls_subject_dn: Option<String> = req
+        .headers()
+        .get("X-SSL-Client-S-DN")
         .and_then(|v| v.to_str().ok())
         .map(|s| s.to_string());
 
@@ -1374,6 +1529,9 @@ pub async fn token(
                 auth_actor,
                 metrics,
                 oidc_config,
+                jwks_cache.clone(),
+                mtls_thumbprint.as_deref(),
+                mtls_subject_dn.as_deref(),
             )
             .await
         }
@@ -1386,11 +1544,24 @@ pub async fn token(
                 client_actor,
                 metrics,
                 oidc_config,
+                jwks_cache.clone(),
+                mtls_thumbprint.as_deref(),
+                mtls_subject_dn.as_deref(),
             )
             .await
         }
         "refresh_token" => {
-            handle_refresh_token_grant(form, token_actor, client_actor, metrics, oidc_config).await
+            handle_refresh_token_grant(
+                form,
+                token_actor,
+                client_actor,
+                metrics,
+                oidc_config,
+                jwks_cache.clone(),
+                mtls_thumbprint.as_deref(),
+                mtls_subject_dn.as_deref(),
+            )
+            .await
         }
         DEVICE_CODE_GRANT_TYPE | "device_code" => {
             let storage = storage.ok_or_else(|| {
@@ -1406,6 +1577,9 @@ pub async fn token(
                 storage,
                 metrics,
                 oidc_config,
+                jwks_cache.clone(),
+                mtls_thumbprint.as_deref(),
+                mtls_subject_dn.as_deref(),
             )
             .await
         }
@@ -1417,6 +1591,9 @@ pub async fn token(
                 client_actor,
                 metrics,
                 oidc_config,
+                jwks_cache,
+                mtls_thumbprint.as_deref(),
+                mtls_subject_dn.as_deref(),
             )
             .await
         }
@@ -1470,6 +1647,7 @@ pub async fn token(
     result
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn handle_device_code_grant(
     req: TokenRequest,
     token_actor: web::Data<TokenActorPool>,
@@ -1477,6 +1655,9 @@ async fn handle_device_code_grant(
     storage: web::Data<DynStorage>,
     metrics: web::Data<Metrics>,
     oidc_config: web::Data<OidcConfig>,
+    jwks_cache: Option<web::Data<JwksCache>>,
+    mtls_thumbprint: Option<&str>,
+    mtls_subject_dn: Option<&str>,
 ) -> Result<HttpResponse, OAuth2Error> {
     let device_code = req
         .device_code
@@ -1498,7 +1679,16 @@ async fn handle_device_code_grant(
         ));
     }
     let token_endpoint_url = format!("{}/oauth/token", oidc_config.issuer.trim_end_matches('/'));
-    authenticate_confidential_client(&client, &req, &token_endpoint_url)?;
+    let resolved_jwks =
+        resolve_client_jwks(&client, jwks_cache.as_ref().map(|d| d.as_ref())).await?;
+    authenticate_confidential_client(
+        &client,
+        &req,
+        &token_endpoint_url,
+        resolved_jwks.as_ref(),
+        mtls_thumbprint,
+        mtls_subject_dn,
+    )?;
 
     if !client.supports_grant_type(DEVICE_CODE_GRANT_TYPE)
         && !client.supports_grant_type("device_code")
@@ -1607,6 +1797,9 @@ async fn handle_authorization_code_grant(
     auth_actor: web::Data<Addr<AuthActor>>,
     metrics: web::Data<Metrics>,
     oidc_config: web::Data<OidcConfig>,
+    jwks_cache: Option<web::Data<JwksCache>>,
+    mtls_thumbprint: Option<&str>,
+    mtls_subject_dn: Option<&str>,
 ) -> Result<HttpResponse, OAuth2Error> {
     let code = req
         .code
@@ -1701,7 +1894,16 @@ async fn handle_authorization_code_grant(
     } else {
         let token_endpoint_url =
             format!("{}/oauth/token", oidc_config.issuer.trim_end_matches('/'));
-        authenticate_confidential_client(&client, &req, &token_endpoint_url)?;
+        let resolved_jwks =
+            resolve_client_jwks(&client, jwks_cache.as_ref().map(|d| d.as_ref())).await?;
+        authenticate_confidential_client(
+            &client,
+            &req,
+            &token_endpoint_url,
+            resolved_jwks.as_ref(),
+            mtls_thumbprint,
+            mtls_subject_dn,
+        )?;
     }
 
     // Only consume (burn) the authorization code after we've authenticated/authorized the client.
@@ -1751,7 +1953,7 @@ async fn handle_authorization_code_grant(
             include_refresh,
             token_family,
             resource: auth_code.resource.clone(),
-            cnf: cnf_claim,
+            cnf: cnf_claim.clone(),
             authorization_details: eff_auth_details,
             span: tracing::Span::current(),
         })
@@ -1760,7 +1962,8 @@ async fn handle_authorization_code_grant(
 
     metrics.oauth_token_issued_total.inc();
 
-    let mut response = TokenResponse::from(token.clone());
+    let mut response =
+        apply_dpop_token_type(TokenResponse::from(token.clone()), cnf_claim.as_ref());
 
     // Generate OIDC id_token when `openid` scope was requested
     if auth_code.scope.split_whitespace().any(|s| s == "openid") {
@@ -1801,6 +2004,7 @@ async fn handle_authorization_code_grant(
     Ok(no_store_headers(HttpResponse::Ok().json(response)))
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn handle_client_credentials_grant(
     req: TokenRequest,
     cnf_claim: Option<serde_json::Value>,
@@ -1809,6 +2013,9 @@ async fn handle_client_credentials_grant(
     client_actor: web::Data<Addr<ClientActor>>,
     metrics: web::Data<Metrics>,
     oidc_config: web::Data<OidcConfig>,
+    jwks_cache: Option<web::Data<JwksCache>>,
+    mtls_thumbprint: Option<&str>,
+    mtls_subject_dn: Option<&str>,
 ) -> Result<HttpResponse, OAuth2Error> {
     // Validate client exists + grant permissions.
     let client = client_actor
@@ -1834,7 +2041,16 @@ async fn handle_client_credentials_grant(
 
     // Validate client credentials (required for this grant).
     let token_endpoint_url = format!("{}/oauth/token", oidc_config.issuer.trim_end_matches('/'));
-    authenticate_confidential_client(&client, &req, &token_endpoint_url)?;
+    let resolved_jwks =
+        resolve_client_jwks(&client, jwks_cache.as_ref().map(|d| d.as_ref())).await?;
+    authenticate_confidential_client(
+        &client,
+        &req,
+        &token_endpoint_url,
+        resolved_jwks.as_ref(),
+        mtls_thumbprint,
+        mtls_subject_dn,
+    )?;
 
     let scope = req.scope.unwrap_or_else(|| "read".to_string());
 
@@ -1850,7 +2066,7 @@ async fn handle_client_credentials_grant(
             include_refresh: false,
             token_family: None,
             resource: req.resource,
-            cnf: cnf_claim,
+            cnf: cnf_claim.clone(),
             authorization_details: rar_details,
             span: tracing::Span::current(),
         })
@@ -1859,9 +2075,9 @@ async fn handle_client_credentials_grant(
 
     metrics.oauth_token_issued_total.inc();
 
-    Ok(no_store_headers(
-        HttpResponse::Ok().json(TokenResponse::from(token)),
-    ))
+    Ok(no_store_headers(HttpResponse::Ok().json(
+        apply_dpop_token_type(TokenResponse::from(token), cnf_claim.as_ref()),
+    )))
 }
 
 /// RFC 8693: Token Exchange Grant.
@@ -1869,6 +2085,7 @@ async fn handle_client_credentials_grant(
 /// Exchanges an existing security token (subject_token) for a new access token,
 /// optionally narrowing scope, changing audience, or impersonating a different subject.
 /// Supports DPoP-binding via `cnf_claim`.
+#[allow(clippy::too_many_arguments)]
 async fn handle_token_exchange_grant(
     req: TokenRequest,
     cnf_claim: Option<serde_json::Value>,
@@ -1876,6 +2093,9 @@ async fn handle_token_exchange_grant(
     client_actor: web::Data<Addr<ClientActor>>,
     metrics: web::Data<Metrics>,
     oidc_config: web::Data<OidcConfig>,
+    jwks_cache: Option<web::Data<JwksCache>>,
+    mtls_thumbprint: Option<&str>,
+    mtls_subject_dn: Option<&str>,
 ) -> Result<HttpResponse, OAuth2Error> {
     use crate::actors::LookupToken;
 
@@ -1904,7 +2124,16 @@ async fn handle_token_exchange_grant(
         ));
     }
     let token_endpoint_url = format!("{}/oauth/token", oidc_config.issuer.trim_end_matches('/'));
-    authenticate_confidential_client(&client, &req, &token_endpoint_url)?;
+    let resolved_jwks =
+        resolve_client_jwks(&client, jwks_cache.as_ref().map(|d| d.as_ref())).await?;
+    authenticate_confidential_client(
+        &client,
+        &req,
+        &token_endpoint_url,
+        resolved_jwks.as_ref(),
+        mtls_thumbprint,
+        mtls_subject_dn,
+    )?;
 
     // Validate the subject_token: look it up in storage.
     let subject_tok = token_actor
@@ -1945,7 +2174,7 @@ async fn handle_token_exchange_grant(
             include_refresh: false,
             token_family: None,
             resource: req.resource.clone(),
-            cnf: cnf_claim,
+            cnf: cnf_claim.clone(),
             authorization_details: None,
             span: tracing::Span::current(),
         })
@@ -1958,7 +2187,8 @@ async fn handle_token_exchange_grant(
         .requested_token_type
         .clone()
         .unwrap_or_else(|| "urn:ietf:params:oauth:token-type:access_token".to_string());
-    let token_type_str = if act_claim.is_some() {
+    // RFC 9449 §7.1: use "DPoP" token_type when a DPoP-bound token was issued.
+    let token_type_str = if cnf_claim.as_ref().and_then(|c| c.get("jkt")).is_some() {
         "DPoP"
     } else {
         "Bearer"
@@ -1981,12 +2211,16 @@ async fn handle_token_exchange_grant(
 /// Exchanges a valid, non-revoked refresh token for a fresh access + refresh token pair.
 /// Supports optional scope down-scoping: the requested scope must be a subset of the
 /// original scope bound to the refresh token.
+#[allow(clippy::too_many_arguments)]
 async fn handle_refresh_token_grant(
     req: TokenRequest,
     token_actor: web::Data<TokenActorPool>,
     client_actor: web::Data<Addr<ClientActor>>,
     metrics: web::Data<Metrics>,
     oidc_config: web::Data<OidcConfig>,
+    jwks_cache: Option<web::Data<JwksCache>>,
+    mtls_thumbprint: Option<&str>,
+    mtls_subject_dn: Option<&str>,
 ) -> Result<HttpResponse, OAuth2Error> {
     let refresh_token_str = req
         .refresh_token
@@ -2006,7 +2240,16 @@ async fn handle_refresh_token_grant(
     if !client.is_public() {
         let token_endpoint_url =
             format!("{}/oauth/token", oidc_config.issuer.trim_end_matches('/'));
-        authenticate_confidential_client(&client, &req, &token_endpoint_url)?;
+        let resolved_jwks =
+            resolve_client_jwks(&client, jwks_cache.as_ref().map(|d| d.as_ref())).await?;
+        authenticate_confidential_client(
+            &client,
+            &req,
+            &token_endpoint_url,
+            resolved_jwks.as_ref(),
+            mtls_thumbprint,
+            mtls_subject_dn,
+        )?;
     }
 
     // Verify the client is authorized to use the refresh_token grant type.
@@ -2074,6 +2317,11 @@ async fn handle_refresh_token_grant(
         .await
         .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))??;
 
+    // RFC 9449 §5: preserve the DPoP / mTLS `cnf` binding from the original token.
+    // Decode the JWT without signature verification to extract the cnf claim.
+    let old_cnf =
+        oauth2_core::Claims::decode_unverified(&old_token.access_token).and_then(|c| c.cnf);
+
     // Mint new access + refresh token pair.
     //
     // RFC 8707 §2.2: the client MAY include `resource` on refresh. We pass it
@@ -2090,7 +2338,7 @@ async fn handle_refresh_token_grant(
             include_refresh: true,
             token_family: Some(family),
             resource: req.resource.clone(),
-            cnf: None,
+            cnf: old_cnf.clone(),
             authorization_details: None,
             span: tracing::Span::current(),
         })
@@ -2099,9 +2347,9 @@ async fn handle_refresh_token_grant(
 
     metrics.oauth_token_issued_total.inc();
 
-    Ok(no_store_headers(
-        HttpResponse::Ok().json(TokenResponse::from(token)),
-    ))
+    Ok(no_store_headers(HttpResponse::Ok().json(
+        apply_dpop_token_type(TokenResponse::from(token), old_cnf.as_ref()),
+    )))
 }
 
 /// RFC 9126: Pushed Authorization Requests (PAR) endpoint.
@@ -2114,6 +2362,7 @@ pub async fn par(
     body: web::Bytes,
     auth_actor: web::Data<Addr<AuthActor>>,
     client_actor: web::Data<Addr<ClientActor>>,
+    jwks_cache: Option<web::Data<JwksCache>>,
 ) -> Result<HttpResponse, OAuth2Error> {
     // Parse the application/x-www-form-urlencoded body.
     let raw = String::from_utf8(body.to_vec())
@@ -2190,7 +2439,15 @@ pub async fn par(
                 let assertion = params.get("client_assertion").cloned();
                 if let (Some(atype), Some(aval)) = (assertion_type, assertion) {
                     if atype == JWT_BEARER_ASSERTION_TYPE {
-                        validate_jwt_client_assertion(&client, &aval, &token_endpoint_url)?;
+                        let resolved_jwks =
+                            resolve_client_jwks(&client, jwks_cache.as_ref().map(|d| d.as_ref()))
+                                .await?;
+                        validate_jwt_client_assertion(
+                            &client,
+                            &aval,
+                            &token_endpoint_url,
+                            resolved_jwks.as_ref(),
+                        )?;
                     } else {
                         return Err(OAuth2Error::invalid_client(
                             "Unsupported client_assertion_type",

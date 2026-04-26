@@ -1236,6 +1236,19 @@ pub async fn run() -> std::io::Result<()> {
             ));
         }
 
+        // JWKS URI TTL cache — shared across all requests so keys are not
+        // re-fetched on every token request.
+        app = app.app_data(web::Data::new(
+            oauth2_actix::handlers::jwks_cache::JwksCache::new(),
+        ));
+
+        // RFC 9449: DPoP proof replay store — prevents `jti` reuse within the
+        // acceptance window. Shared across all requests so replay detection
+        // works correctly even under concurrent token requests.
+        app = app.app_data(web::Data::new(
+            oauth2_actix::handlers::dpop::DpopReplayStore::new(),
+        ));
+
         app
             // Root route
             .route(

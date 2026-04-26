@@ -193,7 +193,8 @@ impl SqlxStorage {
                 frontchannel_logout_session_required INTEGER NOT NULL DEFAULT 0,
                 post_logout_redirect_uris TEXT NOT NULL DEFAULT '[]',
                 enabled INTEGER NOT NULL DEFAULT 1,
-                require_state INTEGER NOT NULL DEFAULT 0
+                require_state INTEGER NOT NULL DEFAULT 0,
+                tls_client_certificate_subject_dn TEXT NOT NULL DEFAULT ''
             );
             "#,
         )
@@ -205,6 +206,14 @@ impl SqlxStorage {
         let _ = sqlx::query("ALTER TABLE clients ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1")
             .execute(pool)
             .await;
+
+        // Idempotent upgrade for existing databases bootstrapped before the
+        // `tls_client_certificate_subject_dn` column was added.
+        let _ = sqlx::query(
+            "ALTER TABLE clients ADD COLUMN tls_client_certificate_subject_dn TEXT NOT NULL DEFAULT ''",
+        )
+        .execute(pool)
+        .await;
 
         sqlx::query(r#"CREATE INDEX IF NOT EXISTS idx_clients_client_id ON clients(client_id);"#)
             .execute(pool)
@@ -455,8 +464,8 @@ impl Storage for SqlxStorage {
             DatabasePool::Sqlite(pool) => {
                 sqlx::query(
                     r#"
-                    INSERT INTO clients (id, client_id, client_secret, redirect_uris, grant_types, scope, name, created_at, updated_at, token_endpoint_auth_method, registration_access_token, response_types, contacts, logo_uri, client_uri, policy_uri, tos_uri, jwks, jwks_uri, backchannel_logout_uri, backchannel_logout_session_required, frontchannel_logout_uri, frontchannel_logout_session_required, post_logout_redirect_uris, enabled, require_state)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO clients (id, client_id, client_secret, redirect_uris, grant_types, scope, name, created_at, updated_at, token_endpoint_auth_method, registration_access_token, response_types, contacts, logo_uri, client_uri, policy_uri, tos_uri, jwks, jwks_uri, backchannel_logout_uri, backchannel_logout_session_required, frontchannel_logout_uri, frontchannel_logout_session_required, post_logout_redirect_uris, enabled, require_state, tls_client_certificate_subject_dn)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     "#,
                 )
                 .bind(&client.id)
@@ -485,14 +494,15 @@ impl Storage for SqlxStorage {
                 .bind(&client.post_logout_redirect_uris)
                 .bind(client.enabled)
                 .bind(client.require_state)
+                .bind(&client.tls_client_certificate_subject_dn)
                 .execute(pool)
                 .await?;
             }
             DatabasePool::Postgres(pool) => {
                 sqlx::query(
                     r#"
-                    INSERT INTO clients (id, client_id, client_secret, redirect_uris, grant_types, scope, name, created_at, updated_at, token_endpoint_auth_method, registration_access_token, response_types, contacts, logo_uri, client_uri, policy_uri, tos_uri, jwks, jwks_uri, backchannel_logout_uri, backchannel_logout_session_required, frontchannel_logout_uri, frontchannel_logout_session_required, post_logout_redirect_uris, enabled, require_state)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26)
+                    INSERT INTO clients (id, client_id, client_secret, redirect_uris, grant_types, scope, name, created_at, updated_at, token_endpoint_auth_method, registration_access_token, response_types, contacts, logo_uri, client_uri, policy_uri, tos_uri, jwks, jwks_uri, backchannel_logout_uri, backchannel_logout_session_required, frontchannel_logout_uri, frontchannel_logout_session_required, post_logout_redirect_uris, enabled, require_state, tls_client_certificate_subject_dn)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27)
                     "#,
                 )
                 .bind(&client.id)
@@ -521,6 +531,7 @@ impl Storage for SqlxStorage {
                 .bind(&client.post_logout_redirect_uris)
                 .bind(client.enabled)
                 .bind(client.require_state)
+                .bind(&client.tls_client_certificate_subject_dn)
                 .execute(pool)
                 .await?;
             }
@@ -567,6 +578,7 @@ impl Storage for SqlxStorage {
                         frontchannel_logout_uri = ?,
                         frontchannel_logout_session_required = ?,
                         post_logout_redirect_uris = ?,
+                        tls_client_certificate_subject_dn = ?,
                         enabled = ?
                     WHERE client_id = ?
                     "#,
@@ -592,6 +604,7 @@ impl Storage for SqlxStorage {
                 .bind(&client.frontchannel_logout_uri)
                 .bind(client.frontchannel_logout_session_required)
                 .bind(&client.post_logout_redirect_uris)
+                .bind(&client.tls_client_certificate_subject_dn)
                 .bind(client.enabled)
                 .bind(&client.client_id)
                 .execute(pool)
@@ -614,8 +627,9 @@ impl Storage for SqlxStorage {
                         frontchannel_logout_uri = $19,
                         frontchannel_logout_session_required = $20,
                         post_logout_redirect_uris = $21,
-                        enabled = $22
-                    WHERE client_id = $23
+                        tls_client_certificate_subject_dn = $22,
+                        enabled = $23
+                    WHERE client_id = $24
                     "#,
                 )
                 .bind(&client.client_secret)
@@ -639,6 +653,7 @@ impl Storage for SqlxStorage {
                 .bind(&client.frontchannel_logout_uri)
                 .bind(client.frontchannel_logout_session_required)
                 .bind(&client.post_logout_redirect_uris)
+                .bind(&client.tls_client_certificate_subject_dn)
                 .bind(client.enabled)
                 .bind(&client.client_id)
                 .execute(pool)

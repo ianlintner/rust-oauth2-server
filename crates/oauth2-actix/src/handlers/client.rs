@@ -72,12 +72,14 @@ fn validate_grant_types(grant_types: &[String]) -> Result<(), OAuth2Error> {
 }
 
 /// Supported `token_endpoint_auth_method` values.
-const SUPPORTED_AUTH_METHODS: [&str; 5] = [
+const SUPPORTED_AUTH_METHODS: [&str; 7] = [
     "client_secret_basic",
     "client_secret_post",
     "client_secret_jwt",
     "private_key_jwt",
     "none",
+    "tls_client_auth",
+    "self_signed_tls_client_auth",
 ];
 
 fn validate_token_endpoint_auth_method(
@@ -334,6 +336,10 @@ pub async fn update_client_configuration(
         .post_logout_redirect_uris
         .as_ref()
         .map(|v| serde_json::to_string(v).unwrap_or_default())
+        .unwrap_or_default();
+    client.tls_client_certificate_subject_dn = body
+        .tls_client_certificate_subject_dn
+        .clone()
         .unwrap_or_default();
     client.updated_at = chrono::Utc::now();
 
