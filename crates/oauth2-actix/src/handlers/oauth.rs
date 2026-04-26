@@ -16,7 +16,7 @@ use crate::actors::{
     MarkAuthorizationCodeUsed, StorePARRequest, TokenActorPool, ValidateAuthorizationCode,
     ValidateRefreshToken,
 };
-use crate::handlers::dpop::{validate_dpop_proof, DpopReplayStore};
+use crate::handlers::dpop::{build_request_url_bounded, validate_dpop_proof, DpopReplayStore};
 use crate::handlers::jwks_cache::JwksCache;
 use crate::handlers::wellknown::OidcConfig;
 use oauth2_core::{IdTokenClaims, OAuth2Error, TokenResponse};
@@ -128,16 +128,19 @@ pub(crate) fn client_secret_matches(client: &oauth2_core::Client, presented_secr
 /// `token_endpoint_auth_method`:
 ///   - `client_secret_basic` / `client_secret_post`: constant-time secret comparison
 ///   - `client_secret_jwt` / `private_key_jwt`: JWT assertion validation (RFC 7523)
+///   - `tls_client_auth`: mTLS certificate validation with optional Subject DN check
 ///   - `none`: public client (caller should handle separately)
 ///
 /// `resolved_jwks` must be pre-fetched by the caller (via [`resolve_client_jwks`])
 /// when the client uses `private_key_jwt`; pass `None` for all other methods.
+/// `mtls_subject_dn` should be the Subject DN from the X-SSL-Client-S-DN header.
 fn authenticate_confidential_client(
     client: &oauth2_core::Client,
     req: &TokenRequest,
     token_endpoint_url: &str,
     resolved_jwks: Option<&serde_json::Value>,
     mtls_thumbprint: Option<&str>,
+    mtls_subject_dn: Option<&str>,
 ) -> Result<(), OAuth2Error> {
     match client.token_endpoint_auth_method.as_str() {
         "client_secret_basic" | "client_secret_post" => match req.client_secret.as_deref() {
@@ -172,11 +175,47 @@ fn authenticate_confidential_client(
             match mtls_thumbprint {
                 Some(_tb) => {
                     // Thumbprint is present — client is authenticated.
-                    // Subject DN validation would require an additional proxy
-                    // header (e.g., X-Client-Cert-Subject-DN); we accept any
-                    // valid cert here when tls_client_certificate_subject_dn is
-                    // empty, consistent with the proxy-trust model.
-                    Ok(())
+                    // If client.tls_client_certificate_subject_dn is configured,
+                    // verify it matches the Subject DN from X-SSL-Client-S-DN header.
+                    if !client.tls_client_certificate_subject_dn.is_empty() {
+                        match mtls_subject_dn {
+                            Some(presented_dn)
+                                if presented_dn == client.tls_client_certificate_subject_dn =>
+                            {
+                                tracing::debug!(
+                                    client_id = %client.client_id,
+                                    expected_dn = %client.tls_client_certificate_subject_dn,
+                                    presented_dn = %presented_dn,
+                                    "mTLS Subject DN validated successfully"
+                                );
+                                Ok(())
+                            }
+                            Some(presented_dn) => {
+                                tracing::warn!(
+                                    client_id = %client.client_id,
+                                    expected_dn = %client.tls_client_certificate_subject_dn,
+                                    presented_dn = %presented_dn,
+                                    "mTLS Subject DN mismatch"
+                                );
+                                Err(OAuth2Error::invalid_client(
+                                    "tls_client_auth: client certificate Subject DN does not match",
+                                ))
+                            }
+                            None => {
+                                tracing::warn!(
+                                    client_id = %client.client_id,
+                                    expected_dn = %client.tls_client_certificate_subject_dn,
+                                    "mTLS Subject DN required but X-SSL-Client-S-DN header missing"
+                                );
+                                Err(OAuth2Error::invalid_client(
+                                    "tls_client_auth requires X-SSL-Client-S-DN header when Subject DN is configured",
+                                ))
+                            }
+                        }
+                    } else {
+                        // No Subject DN configured — accept any valid certificate.
+                        Ok(())
+                    }
                 }
                 None => Err(OAuth2Error::invalid_client(
                     "tls_client_auth requires a TLS client certificate \
@@ -1415,12 +1454,8 @@ pub async fn token(
         let method = req.method().as_str();
         // Build the token endpoint URL for `htu` validation.
         let conn_info = req.connection_info();
-        let token_url = format!(
-            "{}://{}{}",
-            conn_info.scheme(),
-            conn_info.host(),
-            req.path()
-        );
+        let token_url =
+            build_request_url_bounded(conn_info.scheme(), conn_info.host(), req.path())?;
         drop(conn_info);
         let store_ref = dpop_replay_store.as_ref().map(|d| d.as_ref());
         let default_store;
@@ -1443,6 +1478,13 @@ pub async fn token(
     let mtls_thumbprint: Option<String> = req
         .headers()
         .get("X-Client-Cert-Thumbprint")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
+
+    // RFC 8705 §2.1: Subject DN from the client certificate (X-SSL-Client-S-DN header).
+    let mtls_subject_dn: Option<String> = req
+        .headers()
+        .get("X-SSL-Client-S-DN")
         .and_then(|v| v.to_str().ok())
         .map(|s| s.to_string());
 
@@ -1489,6 +1531,7 @@ pub async fn token(
                 oidc_config,
                 jwks_cache.clone(),
                 mtls_thumbprint.as_deref(),
+                mtls_subject_dn.as_deref(),
             )
             .await
         }
@@ -1503,6 +1546,7 @@ pub async fn token(
                 oidc_config,
                 jwks_cache.clone(),
                 mtls_thumbprint.as_deref(),
+                mtls_subject_dn.as_deref(),
             )
             .await
         }
@@ -1515,6 +1559,7 @@ pub async fn token(
                 oidc_config,
                 jwks_cache.clone(),
                 mtls_thumbprint.as_deref(),
+                mtls_subject_dn.as_deref(),
             )
             .await
         }
@@ -1534,6 +1579,7 @@ pub async fn token(
                 oidc_config,
                 jwks_cache.clone(),
                 mtls_thumbprint.as_deref(),
+                mtls_subject_dn.as_deref(),
             )
             .await
         }
@@ -1547,6 +1593,7 @@ pub async fn token(
                 oidc_config,
                 jwks_cache,
                 mtls_thumbprint.as_deref(),
+                mtls_subject_dn.as_deref(),
             )
             .await
         }
@@ -1610,6 +1657,7 @@ async fn handle_device_code_grant(
     oidc_config: web::Data<OidcConfig>,
     jwks_cache: Option<web::Data<JwksCache>>,
     mtls_thumbprint: Option<&str>,
+    mtls_subject_dn: Option<&str>,
 ) -> Result<HttpResponse, OAuth2Error> {
     let device_code = req
         .device_code
@@ -1639,6 +1687,7 @@ async fn handle_device_code_grant(
         &token_endpoint_url,
         resolved_jwks.as_ref(),
         mtls_thumbprint,
+        mtls_subject_dn,
     )?;
 
     if !client.supports_grant_type(DEVICE_CODE_GRANT_TYPE)
@@ -1750,6 +1799,7 @@ async fn handle_authorization_code_grant(
     oidc_config: web::Data<OidcConfig>,
     jwks_cache: Option<web::Data<JwksCache>>,
     mtls_thumbprint: Option<&str>,
+    mtls_subject_dn: Option<&str>,
 ) -> Result<HttpResponse, OAuth2Error> {
     let code = req
         .code
@@ -1852,6 +1902,7 @@ async fn handle_authorization_code_grant(
             &token_endpoint_url,
             resolved_jwks.as_ref(),
             mtls_thumbprint,
+            mtls_subject_dn,
         )?;
     }
 
@@ -1964,6 +2015,7 @@ async fn handle_client_credentials_grant(
     oidc_config: web::Data<OidcConfig>,
     jwks_cache: Option<web::Data<JwksCache>>,
     mtls_thumbprint: Option<&str>,
+    mtls_subject_dn: Option<&str>,
 ) -> Result<HttpResponse, OAuth2Error> {
     // Validate client exists + grant permissions.
     let client = client_actor
@@ -1997,6 +2049,7 @@ async fn handle_client_credentials_grant(
         &token_endpoint_url,
         resolved_jwks.as_ref(),
         mtls_thumbprint,
+        mtls_subject_dn,
     )?;
 
     let scope = req.scope.unwrap_or_else(|| "read".to_string());
@@ -2042,6 +2095,7 @@ async fn handle_token_exchange_grant(
     oidc_config: web::Data<OidcConfig>,
     jwks_cache: Option<web::Data<JwksCache>>,
     mtls_thumbprint: Option<&str>,
+    mtls_subject_dn: Option<&str>,
 ) -> Result<HttpResponse, OAuth2Error> {
     use crate::actors::LookupToken;
 
@@ -2078,6 +2132,7 @@ async fn handle_token_exchange_grant(
         &token_endpoint_url,
         resolved_jwks.as_ref(),
         mtls_thumbprint,
+        mtls_subject_dn,
     )?;
 
     // Validate the subject_token: look it up in storage.
@@ -2165,6 +2220,7 @@ async fn handle_refresh_token_grant(
     oidc_config: web::Data<OidcConfig>,
     jwks_cache: Option<web::Data<JwksCache>>,
     mtls_thumbprint: Option<&str>,
+    mtls_subject_dn: Option<&str>,
 ) -> Result<HttpResponse, OAuth2Error> {
     let refresh_token_str = req
         .refresh_token
@@ -2192,6 +2248,7 @@ async fn handle_refresh_token_grant(
             &token_endpoint_url,
             resolved_jwks.as_ref(),
             mtls_thumbprint,
+            mtls_subject_dn,
         )?;
     }
 

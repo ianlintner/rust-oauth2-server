@@ -117,7 +117,7 @@ escalation:
 #   2. Ensure your workflow exports CARETAKER_FLEET_SECRET (v0.19.6+ templates
 #      do this automatically; older installs need a one-line workflow edit).
 fleet_registry:
-  enabled: true
+  enabled: false
   endpoint: https://caretaker.cat-herding.net/api/fleet/heartbeat
   oauth2:
     enabled: true
@@ -132,6 +132,8 @@ fleet_registry:
 
 llm:
   claude_enabled: auto
+  provider: litellm
+  default_model: "azure_ai/gpt-4o"
   claude_features:
     - ci_log_analysis
     - architectural_review
