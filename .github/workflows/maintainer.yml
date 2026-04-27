@@ -56,6 +56,9 @@ permissions:
   # ingest token. No GITHUB_TOKEN, no PAT, no LLM secrets.
   id-token: write
   contents: read
+  # Caretaker needs these scopes to triage security alerts and update check runs
+  checks: write
+  security_events: read
 
 jobs:
   stream:
