@@ -17,4 +17,4 @@ patchesStrategicMerge:
 images:
   - name: docker.io/example/oauth2-server
     newName: docker.io/ianlintner068/oauth2-server
-    newTag: 0.7.0-mongo # {"$imagepolicy": "flux-system:oauth2-server:tag"}
+    newTag: 0.8.0-mongo # {"$imagepolicy": "flux-system:oauth2-server:tag"}
