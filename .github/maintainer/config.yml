@@ -114,7 +114,7 @@ escalation:
 #
 # Requirements:
 #   1. Set CARETAKER_FLEET_SECRET as a GitHub Actions secret in this repo.
-#   2. Ensure your workflow exports CARETAKER_FLEET_SECRET (v0.19.6+ templates
+#   2. Ensure your workflow exports CARETAKER_FLEET_SECRET (v0.23.0+ templates
 #      do this automatically; older installs need a one-line workflow edit).
 fleet_registry:
   enabled: false
