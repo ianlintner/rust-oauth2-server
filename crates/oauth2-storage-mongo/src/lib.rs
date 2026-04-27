@@ -181,6 +181,67 @@ impl MongoStorage {
         Ok(())
     }
 
+    /// Heal legacy `users` documents whose `created_at` / `updated_at` were
+    /// written as BSON Date by historical admin update paths. Reading those
+    /// fields through `Collection<User>` fails because chrono's default
+    /// deserializer expects RFC 3339 strings — surfacing as the
+    /// `/auth/callback/github` 500 reported in production. Idempotent: only
+    /// touches documents that still have BSON Date fields.
+    async fn normalize_legacy_user_timestamps(&self) -> Result<(), OAuth2Error> {
+        use futures::TryStreamExt;
+        use mongodb::bson::{Bson, Document};
+
+        // BSON type number 9 = Date. `$type` lets us touch only the rows that
+        // need fixing (cheap on the index-less common case where no rows match).
+        let filter = doc! {
+            "$or": [
+                { "created_at": { "$type": 9 } },
+                { "updated_at": { "$type": 9 } },
+            ]
+        };
+
+        let coll = self.db.collection::<Document>("users");
+        let mut cursor = coll.find(filter).await.map_err(Self::mongo_err_to_oauth)?;
+
+        let mut fixed: u64 = 0;
+        while let Some(doc) = cursor.try_next().await.map_err(Self::mongo_err_to_oauth)? {
+            let id = match doc.get("id").and_then(Bson::as_str) {
+                Some(s) => s.to_string(),
+                None => continue, // pathological doc without id; skip
+            };
+
+            let mut set = Document::new();
+            for field in ["created_at", "updated_at"] {
+                if let Some(Bson::DateTime(bdt)) = doc.get(field) {
+                    // bson 2.x is built without the chrono-0_4 feature in this
+                    // workspace, so go through millis instead of `to_chrono()`.
+                    let ms = bdt.timestamp_millis();
+                    let chrono_dt = chrono::DateTime::<chrono::Utc>::from_timestamp_millis(ms)
+                        .ok_or_else(|| {
+                            OAuth2Error::new("server_error", Some("invalid BSON DateTime millis"))
+                        })?;
+                    set.insert(field, chrono_dt.to_rfc3339());
+                }
+            }
+            if set.is_empty() {
+                continue;
+            }
+
+            coll.update_one(doc! { "id": &id }, doc! { "$set": set })
+                .await
+                .map_err(Self::mongo_err_to_oauth)?;
+            fixed += 1;
+        }
+
+        if fixed > 0 {
+            tracing::info!(
+                fixed,
+                "normalized legacy BSON Date timestamps in users collection"
+            );
+        }
+        Ok(())
+    }
+
     fn duplicate_key_error(err: &mongodb::error::Error) -> bool {
         // Canonical server-side message includes "E11000".
         err.to_string().contains("E11000")
@@ -202,7 +263,9 @@ impl Storage for MongoStorage {
             .run_command(doc! { "ping": 1 })
             .await
             .map_err(Self::mongo_err_to_oauth)?;
-        self.ensure_indexes().await
+        self.ensure_indexes().await?;
+        self.normalize_legacy_user_timestamps().await?;
+        Ok(())
     }
 
     async fn save_client(&self, client: &Client) -> Result<(), OAuth2Error> {
@@ -603,7 +666,10 @@ impl Storage for MongoStorage {
     // --- Admin: user management ---
 
     async fn update_user(&self, user: &User) -> Result<(), OAuth2Error> {
-        let updated_at = mongodb::bson::DateTime::from_millis(user.updated_at.timestamp_millis());
+        // Write `updated_at` as an RFC 3339 string to match how `insert_one`
+        // serializes via chrono's default impl. Mixing BSON Date and BSON String
+        // in the same document breaks `Collection<User>::find_one` deserialization.
+        let updated_at = user.updated_at.to_rfc3339();
         self.users
             .update_one(
                 doc! { "id": &user.id },
@@ -632,7 +698,7 @@ impl Storage for MongoStorage {
     }
 
     async fn set_user_enabled(&self, user_id: &str, enabled: bool) -> Result<(), OAuth2Error> {
-        let now = mongodb::bson::DateTime::now();
+        let now = chrono::Utc::now().to_rfc3339();
         self.users
             .update_one(
                 doc! { "id": user_id },
@@ -644,7 +710,7 @@ impl Storage for MongoStorage {
     }
 
     async fn set_user_role(&self, user_id: &str, role: &str) -> Result<(), OAuth2Error> {
-        let now = mongodb::bson::DateTime::now();
+        let now = chrono::Utc::now().to_rfc3339();
         self.users
             .update_one(
                 doc! { "id": user_id },
@@ -660,7 +726,7 @@ impl Storage for MongoStorage {
         user_id: &str,
         password_hash: &str,
     ) -> Result<(), OAuth2Error> {
-        let now = mongodb::bson::DateTime::now();
+        let now = chrono::Utc::now().to_rfc3339();
         self.users
             .update_one(
                 doc! { "id": user_id },
@@ -755,5 +821,31 @@ mod tests {
             doc.contains_key("refresh_token"),
             "refresh_token should be present when Some"
         );
+    }
+
+    /// Reproduces the bug from `/auth/callback/github` where a `User` document
+    /// previously touched by an admin op had `updated_at` written as a BSON
+    /// Date. Pre-fix, deserializing such a document panicked with
+    /// "invalid type: map, expected an RFC 3339 formatted date and time string".
+    /// The tolerant deserializer in `oauth2_core::User` heals it.
+    #[test]
+    fn user_deserializes_with_bson_date_updated_at() {
+        let mut doc = bson::Document::new();
+        doc.insert("id", "u1");
+        doc.insert("username", "github:42");
+        doc.insert("password_hash", "x");
+        doc.insert("email", "a@b.test");
+        doc.insert("enabled", true);
+        doc.insert("role", "user");
+        // Mixed encoding: created_at as String (insert_one path), updated_at
+        // as BSON Date (admin update path) — exactly the corrupted shape.
+        doc.insert("created_at", "2026-04-27T12:00:00Z");
+        doc.insert("updated_at", bson::DateTime::from_millis(1_714_219_200_000));
+
+        let user: User = bson::from_document(doc).expect(
+            "User must deserialize when updated_at is BSON Date — \
+             this reproduces the GitHub callback 500 from production",
+        );
+        assert_eq!(user.updated_at.timestamp_millis(), 1_714_219_200_000);
     }
 }
