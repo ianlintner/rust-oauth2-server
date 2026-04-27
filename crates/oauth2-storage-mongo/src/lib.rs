@@ -181,38 +181,65 @@ impl MongoStorage {
         Ok(())
     }
 
-    /// Heal legacy `users` documents whose `created_at` / `updated_at` were
-    /// written as BSON Date by historical admin update paths. Reading those
-    /// fields through `Collection<User>` fails because chrono's default
-    /// deserializer expects RFC 3339 strings — surfacing as the
-    /// `/auth/callback/github` 500 reported in production. Idempotent: only
-    /// touches documents that still have BSON Date fields.
-    async fn normalize_legacy_user_timestamps(&self) -> Result<(), OAuth2Error> {
+    /// Heal legacy documents across every collection whose timestamp fields
+    /// were written as BSON Date by historical `$set` paths. Reading those
+    /// fields through chrono's default deserializer fails — surfaced as the
+    /// `/auth/callback/github` 500 in production (PR #288 fixed `User`; this
+    /// extends the same fix to `Token`, `Client`, `AuthorizationCode`,
+    /// `DeviceAuthorization`). Idempotent: filters by `$type: 9` so it only
+    /// touches the rows that still need fixing and is a no-op once healthy.
+    async fn normalize_legacy_timestamps(&self) -> Result<(), OAuth2Error> {
+        // (collection_name, key_field, [datetime_fields_to_check])
+        let targets: [(&str, &str, &[&str]); 5] = [
+            ("users", "id", &["created_at", "updated_at"]),
+            ("clients", "client_id", &["created_at", "updated_at"]),
+            ("tokens", "access_token", &["created_at", "expires_at"]),
+            ("authorization_codes", "code", &["created_at", "expires_at"]),
+            (
+                "device_authorizations",
+                "device_code",
+                &["created_at", "expires_at"],
+            ),
+        ];
+
+        for (coll_name, key_field, fields) in targets {
+            self.normalize_collection_timestamps(coll_name, key_field, fields)
+                .await?;
+        }
+        Ok(())
+    }
+
+    /// Per-collection helper for `normalize_legacy_timestamps`.
+    async fn normalize_collection_timestamps(
+        &self,
+        coll_name: &str,
+        key_field: &str,
+        datetime_fields: &[&str],
+    ) -> Result<(), OAuth2Error> {
         use futures::TryStreamExt;
         use mongodb::bson::{Bson, Document};
 
         // BSON type number 9 = Date. `$type` lets us touch only the rows that
-        // need fixing (cheap on the index-less common case where no rows match).
-        let filter = doc! {
-            "$or": [
-                { "created_at": { "$type": 9 } },
-                { "updated_at": { "$type": 9 } },
-            ]
-        };
+        // need fixing (cheap on the common case where no rows match).
+        let or_clauses: Vec<Document> = datetime_fields
+            .iter()
+            .map(|f| doc! { *f: { "$type": 9 } })
+            .collect();
+        let filter = doc! { "$or": or_clauses };
 
-        let coll = self.db.collection::<Document>("users");
+        let coll = self.db.collection::<Document>(coll_name);
         let mut cursor = coll.find(filter).await.map_err(Self::mongo_err_to_oauth)?;
 
         let mut fixed: u64 = 0;
-        while let Some(doc) = cursor.try_next().await.map_err(Self::mongo_err_to_oauth)? {
-            let id = match doc.get("id").and_then(Bson::as_str) {
+        while let Some(d) = cursor.try_next().await.map_err(Self::mongo_err_to_oauth)? {
+            let key = match d.get(key_field).and_then(Bson::as_str) {
                 Some(s) => s.to_string(),
-                None => continue, // pathological doc without id; skip
+                None => continue, // pathological doc without key; skip
             };
 
             let mut set = Document::new();
-            for field in ["created_at", "updated_at"] {
-                if let Some(Bson::DateTime(bdt)) = doc.get(field) {
+            for field in datetime_fields {
+                if let Some(Bson::DateTime(bdt)) = d.get(*field) {
                     // bson 2.x is built without the chrono-0_4 feature in this
                     // workspace, so go through millis instead of `to_chrono()`.
                     let ms = bdt.timestamp_millis();
@@ -220,14 +247,14 @@ impl MongoStorage {
                         .ok_or_else(|| {
                             OAuth2Error::new("server_error", Some("invalid BSON DateTime millis"))
                         })?;
-                    set.insert(field, chrono_dt.to_rfc3339());
+                    set.insert(*field, chrono_dt.to_rfc3339());
                 }
             }
             if set.is_empty() {
                 continue;
             }
 
-            coll.update_one(doc! { "id": &id }, doc! { "$set": set })
+            coll.update_one(doc! { key_field: &key }, doc! { "$set": set })
                 .await
                 .map_err(Self::mongo_err_to_oauth)?;
             fixed += 1;
@@ -235,8 +262,9 @@ impl MongoStorage {
 
         if fixed > 0 {
             tracing::info!(
+                collection = coll_name,
                 fixed,
-                "normalized legacy BSON Date timestamps in users collection"
+                "normalized legacy BSON Date timestamps"
             );
         }
         Ok(())
@@ -264,7 +292,7 @@ impl Storage for MongoStorage {
             .await
             .map_err(Self::mongo_err_to_oauth)?;
         self.ensure_indexes().await?;
-        self.normalize_legacy_user_timestamps().await?;
+        self.normalize_legacy_timestamps().await?;
         Ok(())
     }
 
@@ -643,12 +671,13 @@ impl Storage for MongoStorage {
     }
 
     async fn expire_device_authorization(&self, device_code: &str) -> Result<(), OAuth2Error> {
-        let past = chrono::Utc::now() - chrono::Duration::seconds(1);
-        let past_bson = mongodb::bson::DateTime::from_millis(past.timestamp_millis());
+        // Write `expires_at` as RFC 3339 string to match the encoding produced
+        // by `insert_one`, preventing the mixed-encoding deserialization bug.
+        let past = (chrono::Utc::now() - chrono::Duration::seconds(1)).to_rfc3339();
         self.device_authorizations
             .update_one(
                 doc! { "device_code": device_code },
-                doc! { "$set": { "expires_at": past_bson } },
+                doc! { "$set": { "expires_at": past } },
             )
             .await
             .map(|_| ())
@@ -740,7 +769,7 @@ impl Storage for MongoStorage {
     // --- Admin: client management extensions ---
 
     async fn set_client_enabled(&self, client_id: &str, enabled: bool) -> Result<(), OAuth2Error> {
-        let now = mongodb::bson::DateTime::now();
+        let now = chrono::Utc::now().to_rfc3339();
         self.clients
             .update_one(
                 doc! { "client_id": client_id },
@@ -756,7 +785,7 @@ impl Storage for MongoStorage {
         client_id: &str,
         client_secret: &str,
     ) -> Result<(), OAuth2Error> {
-        let now = mongodb::bson::DateTime::now();
+        let now = chrono::Utc::now().to_rfc3339();
         self.clients
             .update_one(
                 doc! { "client_id": client_id },
@@ -847,5 +876,91 @@ mod tests {
              this reproduces the GitHub callback 500 from production",
         );
         assert_eq!(user.updated_at.timestamp_millis(), 1_714_219_200_000);
+    }
+
+    /// Same encoding-mismatch class as the User bug, applied to `Token`. A
+    /// token whose `expires_at` was overwritten as BSON Date (e.g. by the old
+    /// `expire_device_authorization` path) would 500 every introspect /
+    /// refresh / revoke call until this fix.
+    #[test]
+    fn token_deserializes_with_bson_date_expires_at() {
+        let mut doc = bson::Document::new();
+        doc.insert("id", "t1");
+        doc.insert("access_token", "at");
+        doc.insert("token_type", "Bearer");
+        doc.insert("expires_in", 3600i32);
+        doc.insert("scope", "read");
+        doc.insert("client_id", "c1");
+        doc.insert("user_id", bson::Bson::Null);
+        doc.insert("created_at", "2026-04-27T12:00:00Z");
+        doc.insert("expires_at", bson::DateTime::from_millis(1_714_219_200_000));
+        doc.insert("revoked", false);
+
+        let token: Token =
+            bson::from_document(doc).expect("Token must accept BSON Date expires_at");
+        assert_eq!(token.expires_at.timestamp_millis(), 1_714_219_200_000);
+    }
+
+    /// `Client` had the same latent bug via `set_client_enabled` and
+    /// `set_client_secret`, both of which wrote `updated_at` as `bson::DateTime`.
+    #[test]
+    fn client_deserializes_with_bson_date_updated_at() {
+        let mut doc = bson::Document::new();
+        doc.insert("id", "x");
+        doc.insert("client_id", "c1");
+        doc.insert("client_secret", "s");
+        doc.insert("redirect_uris", "[]");
+        doc.insert("grant_types", "[]");
+        doc.insert("scope", "read");
+        doc.insert("name", "n");
+        doc.insert("created_at", "2026-04-27T12:00:00Z");
+        doc.insert("updated_at", bson::DateTime::from_millis(1_714_219_200_000));
+
+        let client: Client =
+            bson::from_document(doc).expect("Client must accept BSON Date updated_at");
+        assert_eq!(client.updated_at.timestamp_millis(), 1_714_219_200_000);
+    }
+
+    /// `DeviceAuthorization` had the same latent bug via
+    /// `expire_device_authorization`, which wrote `expires_at` as `bson::DateTime`.
+    #[test]
+    fn device_auth_deserializes_with_bson_date_expires_at() {
+        let mut doc = bson::Document::new();
+        doc.insert("id", "d1");
+        doc.insert("device_code", "dev");
+        doc.insert("user_code", "ABCD-EFGH");
+        doc.insert("client_id", "c1");
+        doc.insert("scope", "read");
+        doc.insert("created_at", "2026-04-27T12:00:00Z");
+        doc.insert("expires_at", bson::DateTime::from_millis(1_714_219_200_000));
+        doc.insert("interval_seconds", 5i32);
+        doc.insert("approved", false);
+        doc.insert("denied", false);
+        doc.insert("used", false);
+        doc.insert("user_id", bson::Bson::Null);
+
+        let dev: DeviceAuthorization =
+            bson::from_document(doc).expect("DeviceAuthorization must accept BSON Date");
+        assert_eq!(dev.expires_at.timestamp_millis(), 1_714_219_200_000);
+    }
+
+    /// `AuthorizationCode` has the same `created_at` / `expires_at` shape and
+    /// would surface the same 500 if any future path wrote a BSON Date there.
+    #[test]
+    fn authorization_code_deserializes_with_bson_date_expires_at() {
+        let mut doc = bson::Document::new();
+        doc.insert("id", "ac1");
+        doc.insert("code", "code");
+        doc.insert("client_id", "c1");
+        doc.insert("user_id", "u1");
+        doc.insert("redirect_uri", "https://x/cb");
+        doc.insert("scope", "read");
+        doc.insert("created_at", "2026-04-27T12:00:00Z");
+        doc.insert("expires_at", bson::DateTime::from_millis(1_714_219_200_000));
+        doc.insert("used", false);
+
+        let ac: AuthorizationCode =
+            bson::from_document(doc).expect("AuthorizationCode must accept BSON Date");
+        assert_eq!(ac.expires_at.timestamp_millis(), 1_714_219_200_000);
     }
 }

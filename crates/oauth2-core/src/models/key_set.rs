@@ -48,8 +48,10 @@ pub struct SigningKey {
     /// Whether this key is the current signing key for its algorithm.
     pub is_current: bool,
     /// When this key was created.
+    #[serde(deserialize_with = "crate::chrono_serde::deserialize")]
     pub created_at: DateTime<Utc>,
     /// When this key expires (set during rotation for old keys).
+    #[serde(default, deserialize_with = "crate::chrono_serde::deserialize_opt")]
     pub expires_at: Option<DateTime<Utc>>,
 }
 

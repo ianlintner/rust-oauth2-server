@@ -27,7 +27,9 @@ pub struct Client {
     pub grant_types: String,   // JSON array stored as string
     pub scope: String,
     pub name: String,
+    #[serde(deserialize_with = "crate::chrono_serde::deserialize")]
     pub created_at: DateTime<Utc>,
+    #[serde(deserialize_with = "crate::chrono_serde::deserialize")]
     pub updated_at: DateTime<Utc>,
     /// RFC 7591 §2: client authentication method for the token endpoint.
     /// Supported: `"client_secret_basic"` (default), `"client_secret_post"`,

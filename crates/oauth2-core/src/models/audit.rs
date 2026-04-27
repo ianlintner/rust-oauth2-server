@@ -24,6 +24,7 @@ pub struct AuditLogEntry {
     pub user_agent: String,
     /// JSON blob with extra details (before/after, reason, etc).
     pub metadata: String,
+    #[serde(deserialize_with = "crate::chrono_serde::deserialize")]
     pub created_at: DateTime<Utc>,
 }
 

@@ -13,7 +13,9 @@ pub struct AuthorizationCode {
     pub user_id: String,
     pub redirect_uri: String,
     pub scope: String,
+    #[serde(deserialize_with = "crate::chrono_serde::deserialize")]
     pub created_at: DateTime<Utc>,
+    #[serde(deserialize_with = "crate::chrono_serde::deserialize")]
     pub expires_at: DateTime<Utc>,
     pub used: bool,
     #[serde(skip_serializing_if = "Option::is_none")]

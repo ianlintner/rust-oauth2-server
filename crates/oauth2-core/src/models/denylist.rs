@@ -23,7 +23,9 @@ pub struct DenylistEntry {
     pub value: String,
     pub reason: String,
     pub created_by: String,
+    #[serde(deserialize_with = "crate::chrono_serde::deserialize")]
     pub created_at: DateTime<Utc>,
+    #[serde(default, deserialize_with = "crate::chrono_serde::deserialize_opt")]
     pub expires_at: Option<DateTime<Utc>>,
 }
 

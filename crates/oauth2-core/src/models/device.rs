@@ -10,7 +10,9 @@ pub struct DeviceAuthorization {
     pub user_code: String,
     pub client_id: String,
     pub scope: String,
+    #[serde(deserialize_with = "crate::chrono_serde::deserialize")]
     pub created_at: DateTime<Utc>,
+    #[serde(deserialize_with = "crate::chrono_serde::deserialize")]
     pub expires_at: DateTime<Utc>,
     pub interval_seconds: i32,
     pub approved: bool,

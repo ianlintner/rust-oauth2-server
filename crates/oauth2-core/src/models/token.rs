@@ -465,7 +465,9 @@ pub struct Token {
     pub scope: String,
     pub client_id: String,
     pub user_id: Option<String>,
+    #[serde(deserialize_with = "crate::chrono_serde::deserialize")]
     pub created_at: DateTime<Utc>,
+    #[serde(deserialize_with = "crate::chrono_serde::deserialize")]
     pub expires_at: DateTime<Utc>,
     pub revoked: bool,
     /// Lineage UUID shared by all tokens issued from the same authorization grant.
