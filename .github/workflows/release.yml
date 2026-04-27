@@ -98,7 +98,23 @@ jobs:
 
           git add Cargo.toml Cargo.lock
           git commit -m "chore(release): bump version to ${{ steps.ver.outputs.version }}"
-          git push origin "${{ github.event.repository.default_branch }}"
+
+          # Retry the push to tolerate concurrent activity on the default
+          # branch (e.g. Flux ImageUpdateAutomation pushes a kustomization
+          # bump every ~5 min).
+          branch="${{ github.event.repository.default_branch }}"
+          for attempt in 1 2 3; do
+            if git push origin "$branch"; then
+              break
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              echo "Failed to push release commit after 3 attempts." >&2
+              exit 1
+            fi
+            echo "Push rejected; rebasing onto origin/$branch and retrying (attempt $((attempt + 1))/3)..." >&2
+            git fetch origin "$branch"
+            git rebase "origin/$branch"
+          done
 
       - name: Capture release commit SHA
         id: commit

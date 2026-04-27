@@ -361,6 +361,20 @@ jobs:
             exit 1
           fi
 
+          # Refuse to publish an image whose tag disagrees with the workspace
+          # Cargo.toml. The canonical release flow (release.yml) bumps
+          # Cargo.toml in the same commit it tags, so a mismatch means the
+          # tag was created outside that flow (e.g. manual gh release create)
+          # and would produce an image labeled X.Y.Z whose binary reports a
+          # different CARGO_PKG_VERSION.
+          cargo_version=$(grep -m1 -E '^version[[:space:]]*=' Cargo.toml | sed -E 's/.*"([^"]+)".*/\1/')
+          if [[ "$cargo_version" != "$version" ]]; then
+            echo "Tag '$ref_name' (-> $version) does not match workspace Cargo.toml version ($cargo_version)." >&2
+            echo "Refusing to publish a versioned image whose binary CARGO_PKG_VERSION would disagree with the image tag." >&2
+            echo "If this is a real release, cut it via the release.yml workflow so Cargo.toml is bumped atomically." >&2
+            exit 1
+          fi
+
           echo "IMAGE_VERSION=$version" >> "$GITHUB_ENV"
 
       - name: Extract metadata (GHCR)
