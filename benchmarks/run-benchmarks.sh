@@ -152,7 +152,10 @@ run_rust_migrations() {
     return 1
   fi
 
-  for sql_file in "$migration_dir"/V*.sql; do
+  local sql_files
+  mapfile -t sql_files < <(printf '%s\n' "$migration_dir"/V*.sql | sort -V)
+
+  for sql_file in "${sql_files[@]}"; do
     if [[ ! -f "$sql_file" ]]; then
       continue
     fi
