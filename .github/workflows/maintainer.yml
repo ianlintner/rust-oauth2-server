@@ -78,7 +78,7 @@ jobs:
           # no orchestrator, no LLM dependencies. The version is pinned
           # to the latest published release so the runner does not run
           # ahead of the backend.
-          pip install --quiet "caretaker"
+          pip install --quiet "caretaker-github"
 
       - name: Stream a backend-executed run
         run: |
