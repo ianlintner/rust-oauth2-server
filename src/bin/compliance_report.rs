@@ -183,12 +183,9 @@ fn parse_source_file(path: &Path) -> Vec<Annotation> {
 
 fn extract_fn_name(line: &str) -> Option<String> {
     // Strip leading "async fn " or "fn " and read identifier up to '('.
-    let after_keyword = if let Some(rest) = line.strip_prefix("async fn ") {
-        rest
-    } else if let Some(rest) = line.strip_prefix("fn ") {
-        rest
-    } else {
-        return None;
+    let after_keyword = match line.strip_prefix("async fn ") {
+        Some(rest) => rest,
+        None => line.strip_prefix("fn ")?,
     };
     let name: String = after_keyword
         .chars()
