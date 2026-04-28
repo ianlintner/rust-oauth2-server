@@ -43,6 +43,9 @@ oauth2-storage-factory = { path = "crates/oauth2-storage-factory", default-featu
 serde_json = "1.0"
 utoipa = "5.4"
 
+# Used by `src/bin/compliance_report.rs`.
+serde = { version = "1.0", features = ["derive"] }
+
 # Runtime used only by the thin delegating binary (`src/main.rs`).
 actix-rt = "2.9"
 

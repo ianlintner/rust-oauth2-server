@@ -52,6 +52,36 @@ jobs:
       - name: Run tests
         run: cargo test --verbose --all-features --locked
 
+      - name: Compliance test results capture
+        # Re-run only the RFC-tagged compliance tests with stable libtest
+        # pretty output captured to a file. The compliance_report tool then
+        # folds these results into the matrix as real pass/fail/ignored.
+        # The full `Run tests` step above already validated the suite, so
+        # this re-run is fast (compilation cached) and tolerant of failures
+        # (compliance_report itself does not fail the job).
+        run: |
+          mkdir -p target
+          cargo test --no-fail-fast --all-features --locked \
+            --test 'compliance_*' --test 'rfc_compliance' \
+            --test 'rfc8252_native_apps' --test 'rfc9700_*' \
+            --test 'phase2_rfc_compliance' \
+            -- --test-threads=1 \
+            > target/compliance-tests.txt 2>&1 || true
+
+      - name: Generate compliance report (with results)
+        run: cargo run --bin compliance_report -- --results target/compliance-tests.txt
+
+      - name: Upload compliance artifacts
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: rfc-compliance-report
+          path: |
+            docs/compliance/RFC_COMPLIANCE.md
+            target/compliance-report.json
+            target/compliance-junit.xml
+            target/compliance-tests.txt
+          if-no-files-found: error
+
   build-binaries:
     name: Build release binaries
     runs-on: ubuntu-latest
@@ -451,6 +481,7 @@ jobs:
   docs:
     name: Build and Deploy Documentation
     runs-on: ubuntu-latest
+    needs: [checks]
     if: github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
     timeout-minutes: 20
     permissions:
@@ -472,6 +503,30 @@ jobs:
 
       - name: Build Rust Docs
         run: cargo doc --no-deps --all-features
+
+      - name: Download compliance artifact (with real test results)
+        # The `checks` job runs the compliance suite and uploads a fresh
+        # docs/compliance/RFC_COMPLIANCE.md (status filled in from libtest
+        # output). Pull it down here so the published docs always reflect
+        # current pass/fail status. Falls back to the committed file if the
+        # artifact is unavailable for any reason.
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
+        continue-on-error: true
+        with:
+          name: rfc-compliance-report
+          path: target/compliance-artifact
+
+      - name: Apply compliance report to docs tree
+        # If the artifact arrived, copy the fresh Markdown into docs/compliance/
+        # before mkdocs build runs.
+        run: |
+          if [ -f target/compliance-artifact/docs/compliance/RFC_COMPLIANCE.md ]; then
+            cp target/compliance-artifact/docs/compliance/RFC_COMPLIANCE.md \
+               docs/compliance/RFC_COMPLIANCE.md
+            echo "Applied freshly generated compliance matrix from checks job"
+          else
+            echo "No compliance artifact found; using committed RFC_COMPLIANCE.md"
+          fi
 
       - name: Setup Python
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6

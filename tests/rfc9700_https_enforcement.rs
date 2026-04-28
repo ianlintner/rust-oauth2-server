@@ -9,6 +9,12 @@ async fn probe() -> HttpResponse {
 
 /// When `enforce = false` the middleware is a no-op and plain-HTTP requests
 /// reach the inner handler. This is the dev default and must stay that way.
+///
+/// @rfc 9700
+/// @section 2.6
+/// @requirement HTTPS-enforcement middleware must be a no-op when explicitly disabled.
+/// @level MAY
+/// @url https://datatracker.ietf.org/doc/html/rfc9700#section-2.6
 #[actix_web::test]
 async fn disabled_by_default_passes_plain_http_through() {
     let app = test::init_service(
@@ -29,6 +35,12 @@ async fn disabled_by_default_passes_plain_http_through() {
 
 /// With enforcement on, a plain-HTTP request is rewritten to the matching
 /// `https://` URL and returned as HTTP 308 Permanent Redirect.
+///
+/// @rfc 9700
+/// @section 2.6
+/// @requirement Plain-HTTP requests must be redirected (308) to the corresponding HTTPS URL when enforcement is on.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc9700#section-2.6
 #[actix_web::test]
 async fn enforced_plain_http_is_redirected_308_to_https() {
     let app = test::init_service(
@@ -74,6 +86,12 @@ async fn enforced_plain_http_is_redirected_308_to_https() {
 /// With `trust_proxy_headers = true`, the middleware honors
 /// `X-Forwarded-Proto: https` set by a TLS-terminating reverse proxy and
 /// lets the request through even though the local scheme is plain.
+///
+/// @rfc 9700
+/// @section 2.6
+/// @requirement HTTPS-enforcement must accept TLS-terminated upstream traffic via trusted X-Forwarded-Proto.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc9700#section-2.6
 #[actix_web::test]
 async fn trusted_forwarded_proto_https_passes_through() {
     let app = test::init_service(
@@ -103,6 +121,12 @@ async fn trusted_forwarded_proto_https_passes_through() {
 /// When `trust_proxy_headers = false`, even `X-Forwarded-Proto: https` is
 /// ignored — prevents a spoofed header from bypassing the redirect when the
 /// server is not actually behind a trusted proxy.
+///
+/// @rfc 9700
+/// @section 2.6
+/// @requirement Untrusted X-Forwarded-Proto must not bypass HTTPS enforcement (anti-spoof).
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc9700#section-2.6
 #[actix_web::test]
 async fn untrusted_forwarded_proto_header_is_ignored() {
     let app = test::init_service(

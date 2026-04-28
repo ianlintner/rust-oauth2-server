@@ -67,3 +67,6 @@ __pycache__/
 # Local screenshots + playwright traces (not committed)
 .playwright-mcp/
 admin-*.png
+
+# Claude Code agent worktrees (local only)
+.claude/worktrees/

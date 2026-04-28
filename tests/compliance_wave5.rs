@@ -237,6 +237,12 @@ macro_rules! discovery_app {
 
 /// OIDC Multiple Response Types §2: `response_mode=fragment` must deliver the
 /// authorization code in the URL fragment rather than the query string.
+///
+/// @rfc oidc-mrt-1.0
+/// @section 2
+/// @requirement `response_mode=fragment` must encode authorization response in URL fragment.
+/// @level MUST
+/// @url https://openid.net/specs/oauth-v2-multiple-response-types-1_0.html#ResponseModes
 #[actix_web::test]
 async fn wave5_response_mode_fragment_delivers_code_in_fragment() {
     let client = Client::new(
@@ -305,6 +311,12 @@ async fn wave5_response_mode_fragment_delivers_code_in_fragment() {
 }
 
 /// An unsupported response_mode must be rejected with an invalid_request error.
+///
+/// @rfc oidc-mrt-1.0
+/// @section 2
+/// @requirement An unsupported `response_mode` value must produce `invalid_request`.
+/// @level MUST
+/// @url https://openid.net/specs/oauth-v2-multiple-response-types-1_0.html#ResponseModes
 #[actix_web::test]
 async fn wave5_unsupported_response_mode_is_rejected() {
     let client = Client::new(
@@ -348,6 +360,12 @@ async fn wave5_unsupported_response_mode_is_rejected() {
 
 /// OIDC Core §3.3: A `code id_token` hybrid request must return both an
 /// authorization code and an id_token in the fragment.
+///
+/// @rfc oidc-core-1.0
+/// @section 3.3
+/// @requirement Hybrid `code id_token` flow must return both `code` and `id_token` in the response fragment.
+/// @level MUST
+/// @url https://openid.net/specs/openid-connect-core-1_0.html#HybridFlowAuth
 #[actix_web::test]
 async fn wave5_hybrid_code_id_token_delivers_both_in_fragment() {
     let client = Client::new(
@@ -413,6 +431,12 @@ async fn wave5_hybrid_code_id_token_delivers_both_in_fragment() {
 
 /// OIDC Core §3.3: When scope does NOT include "openid", a `code id_token`
 /// request must NOT include an id_token in the response (no openid scope → no id_token).
+///
+/// @rfc oidc-core-1.0
+/// @section 3.3
+/// @requirement Hybrid `code id_token` without `openid` scope must not return an id_token.
+/// @level MUST
+/// @url https://openid.net/specs/openid-connect-core-1_0.html#HybridFlowAuth
 #[actix_web::test]
 async fn wave5_hybrid_no_openid_scope_omits_id_token() {
     let client = Client::new(
@@ -478,6 +502,12 @@ async fn wave5_hybrid_no_openid_scope_omits_id_token() {
 
 /// RFC 9101 §4: A public client (token_endpoint_auth_method=none) may send an
 /// unsigned (alg=none) JAR.  The JWT payload claims override the query parameters.
+///
+/// @rfc 9101
+/// @section 4
+/// @requirement A public client may submit an unsigned (alg=none) JAR via the `request` parameter.
+/// @level MAY
+/// @url https://datatracker.ietf.org/doc/html/rfc9101#section-4
 #[actix_web::test]
 async fn wave5_jar_public_client_unsigned_succeeds() {
     let mut client = Client::new(
@@ -545,6 +575,12 @@ async fn wave5_jar_public_client_unsigned_succeeds() {
 /// RFC 9101 §4: A confidential client may sign the JAR with HS256 using its
 /// client_secret.  The payload claims must include `iss` (= client_id), `exp`,
 /// and `aud` (= authorization endpoint URL).
+///
+/// @rfc 9101
+/// @section 4
+/// @requirement A confidential client may submit a JAR signed with HS256 derived from client_secret.
+/// @level MAY
+/// @url https://datatracker.ietf.org/doc/html/rfc9101#section-4
 #[actix_web::test]
 async fn wave5_jar_confidential_client_hs256_succeeds() {
     let client_secret = "secret_jar_hs256";
@@ -615,6 +651,12 @@ async fn wave5_jar_confidential_client_hs256_succeeds() {
 }
 
 /// RFC 9101 §4: A JAR with a tampered / wrong signature must be rejected.
+///
+/// @rfc 9101
+/// @section 4
+/// @requirement JAR with an invalid / tampered signature must be rejected.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc9101#section-4
 #[actix_web::test]
 async fn wave5_jar_tampered_hs256_is_rejected() {
     let client = Client::new(
@@ -684,6 +726,12 @@ fn make_jar_with_header_and_sig(header_json: &str, claims: Value, signature: &st
 /// `alg: "HS256"` (or any non-`none` algorithm).  Before the fix, the server
 /// would blindly base64-decode the payload without inspecting the header or
 /// signature — a signature-bypass primitive.
+///
+/// @rfc 9101
+/// @section 4
+/// @requirement A public-client JAR with a non-`none` `alg` header must be rejected (no signature-bypass).
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc9101#section-4
 #[actix_web::test]
 async fn wave2_c1_public_client_jar_rejects_non_none_alg_header() {
     let mut client = Client::new(
@@ -739,6 +787,12 @@ async fn wave2_c1_public_client_jar_rejects_non_none_alg_header() {
 
 /// C1: A public client JAR whose header says `alg: "none"` but carries a
 /// non-empty signature must also be rejected (RFC 7515 §6).
+///
+/// @rfc 7515
+/// @section 6
+/// @requirement A JWS with `alg: none` and a non-empty signature must be rejected.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc7515#section-6
 #[actix_web::test]
 async fn wave2_c1_public_client_jar_rejects_nonempty_signature_with_alg_none() {
     let mut client = Client::new(
@@ -803,6 +857,12 @@ async fn wave2_c1_public_client_jar_rejects_nonempty_signature_with_alg_none() {
 /// §4.3) is disabled per OAuth 2.0 Security BCP.  Token endpoint must reject
 /// `grant_type=password` with `unsupported_grant_type` regardless of client
 /// authentication state.
+///
+/// @rfc 9700
+/// @section 2.4
+/// @requirement Resource Owner Password Credentials grant must be disabled (`unsupported_grant_type`).
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc9700#section-2.4
 #[actix_web::test]
 async fn wave2_c3_password_grant_is_rejected() {
     use std::sync::Arc;
@@ -862,6 +922,12 @@ async fn wave2_c3_password_grant_is_rejected() {
 // ---------------------------------------------------------------------------
 
 /// Discovery must advertise `code id_token` as a supported response type.
+///
+/// @rfc oidc-discovery-1.0
+/// @section 3
+/// @requirement Discovery `response_types_supported` must include `code id_token` for hybrid flow.
+/// @level MUST
+/// @url https://openid.net/specs/openid-connect-discovery-1_0.html#ProviderMetadata
 #[actix_web::test]
 async fn wave5_discovery_response_types_includes_code_id_token() {
     let app = discovery_app!(oidc_config());
@@ -887,6 +953,12 @@ async fn wave5_discovery_response_types_includes_code_id_token() {
 }
 
 /// Discovery must advertise `fragment` as a supported response mode.
+///
+/// @rfc oidc-discovery-1.0
+/// @section 3
+/// @requirement Discovery `response_modes_supported` must include `fragment`.
+/// @level MUST
+/// @url https://openid.net/specs/openid-connect-discovery-1_0.html#ProviderMetadata
 #[actix_web::test]
 async fn wave5_discovery_response_modes_includes_fragment() {
     let app = discovery_app!(oidc_config());
@@ -915,6 +987,12 @@ async fn wave5_discovery_response_modes_includes_fragment() {
 }
 
 /// Discovery must advertise `request_parameter_supported: true` (RFC 9101).
+///
+/// @rfc 9101
+/// @section 9
+/// @requirement Discovery must advertise `request_parameter_supported: true`.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc9101#section-9
 #[actix_web::test]
 async fn wave5_discovery_request_parameter_supported_is_true() {
     let app = discovery_app!(oidc_config());

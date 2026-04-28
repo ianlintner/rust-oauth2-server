@@ -2,6 +2,28 @@
 //!
 //! Compliance tests that map directly to RFC 6749 sections.
 //! See docs/compliance/RFC_COMPLIANCE.md for the full matrix.
+//!
+//! # Compliance metadata format
+//!
+//! Each `#[actix_web::test]` in this file is annotated with a structured
+//! block of doc-comment tags consumed by `cargo run --bin compliance_report`
+//! to produce the published compliance matrix. Format:
+//!
+//! ```text
+//! /// RFC 6749 §3.1.2: <human-readable prose explaining what is checked>
+//! ///
+//! /// @rfc 6749
+//! /// @section 3.1.2
+//! /// @requirement <one-line normative requirement under test>
+//! /// @level MUST              # RFC 2119 keyword: MUST | SHOULD | MAY
+//! /// @url https://datatracker.ietf.org/doc/html/rfc6749#section-3.1.2
+//! ```
+//!
+//! Tags must appear on contiguous `///` lines immediately preceding the
+//! `#[actix_web::test]` (or `#[test]`) attribute. The extractor pairs them
+//! with the test's runtime status (passed / failed / ignored) from
+//! `cargo test --message-format=json` to produce Markdown, JSON, and JUnit
+//! XML reports.
 
 use actix::{Actor, Addr};
 use actix_session::{storage::CookieSessionStore, Session, SessionMiddleware};
@@ -215,6 +237,12 @@ macro_rules! plain_app {
 
 /// RFC 6749 §3.1.2: The redirect URI provided at the authorization endpoint
 /// must exactly match the one registered for the client.
+///
+/// @rfc 6749
+/// @section 3.1.2
+/// @requirement Redirect URI in the authorization request must exactly match a registered redirect URI.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc6749#section-3.1.2
 #[actix_web::test]
 async fn rfc6749_s3_1_2_redirect_uri_must_match() {
     let client = Client::new(
@@ -255,6 +283,12 @@ async fn rfc6749_s3_1_2_redirect_uri_must_match() {
 // ---------------------------------------------------------------------------
 
 /// RFC 6749 §4.1.1: `response_type` is a required parameter.
+///
+/// @rfc 6749
+/// @section 4.1.1
+/// @requirement The authorization request MUST include the `response_type` parameter.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.1
 #[actix_web::test]
 async fn rfc6749_s4_1_1_authorize_requires_response_type() {
     let client = Client::new(
@@ -286,6 +320,12 @@ async fn rfc6749_s4_1_1_authorize_requires_response_type() {
 }
 
 /// RFC 6749 §4.1.1: Unsupported `response_type` values must be rejected.
+///
+/// @rfc 6749
+/// @section 4.1.1
+/// @requirement Authorization requests with an unsupported `response_type` MUST be rejected with `unsupported_response_type` (or equivalent error).
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.1
 #[actix_web::test]
 async fn rfc6749_s4_1_1_authorize_rejects_unknown_response_type() {
     let client = Client::new(
@@ -322,6 +362,12 @@ async fn rfc6749_s4_1_1_authorize_rejects_unknown_response_type() {
 }
 
 /// RFC 6749 §4.1.1: `client_id` is a required parameter.
+///
+/// @rfc 6749
+/// @section 4.1.1
+/// @requirement The authorization request MUST include the `client_id` parameter.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.1
 #[actix_web::test]
 async fn rfc6749_s4_1_1_authorize_requires_client_id() {
     let client = Client::new(
@@ -358,6 +404,12 @@ async fn rfc6749_s4_1_1_authorize_requires_client_id() {
 }
 
 /// RFC 6749 §4.1.1: An unknown `client_id` must be rejected.
+///
+/// @rfc 6749
+/// @section 4.1.1
+/// @requirement Authorization requests bearing an unknown `client_id` MUST be rejected.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.1
 #[actix_web::test]
 async fn rfc6749_s4_1_1_authorize_rejects_unknown_client() {
     let client = Client::new(
@@ -401,6 +453,12 @@ async fn rfc6749_s4_1_1_authorize_rejects_unknown_client() {
 
 /// RFC 6749 §4.1.2: Successful authorization returns a 302 redirect containing
 /// the `code` query parameter.
+///
+/// @rfc 6749
+/// @section 4.1.2
+/// @requirement A successful authorization response MUST be delivered as a redirect to the client's redirect URI with a `code` query parameter.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.2
 #[actix_web::test]
 async fn rfc6749_s4_1_2_authorize_redirects_with_code() {
     let client = Client::new(
@@ -454,6 +512,12 @@ async fn rfc6749_s4_1_2_authorize_redirects_with_code() {
 
 /// RFC 6749 §4.1.2: The `state` parameter, when present, must be included
 /// verbatim in the redirect response.
+///
+/// @rfc 6749
+/// @section 4.1.2
+/// @requirement If the client includes a `state` parameter, the authorization server MUST include the exact value received in the response.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.2
 #[actix_web::test]
 async fn rfc6749_s4_1_2_state_is_echoed_in_redirect() {
     let client = Client::new(
@@ -510,6 +574,12 @@ async fn rfc6749_s4_1_2_state_is_echoed_in_redirect() {
 // ---------------------------------------------------------------------------
 
 /// RFC 6749 §4.1.3: `grant_type` is a required parameter.
+///
+/// @rfc 6749
+/// @section 4.1.3
+/// @requirement Token requests MUST include the `grant_type` parameter.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.3
 #[actix_web::test]
 async fn rfc6749_s4_1_3_token_requires_grant_type() {
     let client = Client::new(
@@ -549,6 +619,12 @@ async fn rfc6749_s4_1_3_token_requires_grant_type() {
 }
 
 /// RFC 6749 §4.1.3: Unsupported `grant_type` values must be rejected.
+///
+/// @rfc 6749
+/// @section 4.1.3
+/// @requirement Token requests with an unsupported `grant_type` MUST be rejected with `unsupported_grant_type`.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc6749#section-5.2
 #[actix_web::test]
 async fn rfc6749_s4_1_3_token_rejects_unsupported_grant_type() {
     let client = Client::new(
@@ -592,6 +668,12 @@ async fn rfc6749_s4_1_3_token_rejects_unsupported_grant_type() {
 
 /// RFC 6749 §4.1.3: A client must not be able to exchange a code that was
 /// issued to a different client.
+///
+/// @rfc 6749
+/// @section 4.1.3
+/// @requirement The authorization server MUST ensure that an authorization code is bound to the client identifier it was issued to.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.3
 #[actix_web::test]
 async fn rfc6749_s4_1_3_token_rejects_wrong_client_for_code() {
     let client_a = Client::new(
@@ -713,6 +795,12 @@ async fn rfc6749_s4_1_3_token_rejects_wrong_client_for_code() {
 // ---------------------------------------------------------------------------
 
 /// RFC 6749 §4.4.2: Successful client credentials grant returns an access token.
+///
+/// @rfc 6749
+/// @section 4.4.2
+/// @requirement A successful client credentials grant MUST return an access token in the token response body.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc6749#section-4.4.2
 #[actix_web::test]
 async fn rfc6749_s4_4_2_client_credentials_returns_access_token() {
     let client = Client::new(
@@ -753,6 +841,12 @@ async fn rfc6749_s4_4_2_client_credentials_returns_access_token() {
 }
 
 /// RFC 6749 §4.4.3: Invalid client credentials → `invalid_client` (401).
+///
+/// @rfc 6749
+/// @section 4.4.3
+/// @requirement Invalid client authentication on the token endpoint MUST be rejected with `invalid_client`.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc6749#section-5.2
 #[actix_web::test]
 async fn rfc6749_s4_4_3_client_credentials_rejects_invalid_client() {
     let client = Client::new(
@@ -795,6 +889,12 @@ async fn rfc6749_s4_4_3_client_credentials_rejects_invalid_client() {
 
 /// RFC 6749 §2.3.1: Client credentials may be sent in an HTTP Basic
 /// Authorization header.
+///
+/// @rfc 6749
+/// @section 2.3.1
+/// @requirement The authorization server MUST support HTTP Basic authentication for clients with a client password.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc6749#section-2.3.1
 #[actix_web::test]
 async fn rfc6749_s2_3_client_auth_via_basic_header() {
     let client = Client::new(
@@ -832,6 +932,12 @@ async fn rfc6749_s2_3_client_auth_via_basic_header() {
 
 /// RFC 6749 §2.3.1: Client credentials may also be sent as request body
 /// parameters (`client_id` + `client_secret`).
+///
+/// @rfc 6749
+/// @section 2.3.1
+/// @requirement Client credentials MAY be included in the request body using `client_id` and `client_secret` parameters.
+/// @level MAY
+/// @url https://datatracker.ietf.org/doc/html/rfc6749#section-2.3.1
 #[actix_web::test]
 async fn rfc6749_s2_3_client_auth_via_post_params() {
     let client = Client::new(
@@ -874,6 +980,12 @@ async fn rfc6749_s2_3_client_auth_via_post_params() {
 
 /// RFC 6749 §5.1: Successful token response must include `token_type` (bearer)
 /// and a non-empty `access_token`.
+///
+/// @rfc 6749
+/// @section 5.1
+/// @requirement Successful token responses MUST include the `access_token` and `token_type` fields.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc6749#section-5.1
 #[actix_web::test]
 async fn rfc6749_s5_1_token_response_has_required_fields() {
     let client = Client::new(
@@ -924,6 +1036,12 @@ async fn rfc6749_s5_1_token_response_has_required_fields() {
 
 /// RFC 6749 §5.2: Token response must include `Cache-Control: no-store` and
 /// `Pragma: no-cache` to prevent caching of sensitive tokens.
+///
+/// @rfc 6749
+/// @section 5.1
+/// @requirement Token endpoint responses MUST include `Cache-Control: no-store` and `Pragma: no-cache` to prevent caching of sensitive credentials.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc6749#section-5.1
 #[actix_web::test]
 async fn rfc6749_s5_2_token_response_no_cache_headers() {
     let client = Client::new(
@@ -980,6 +1098,12 @@ async fn rfc6749_s5_2_token_response_no_cache_headers() {
 
 /// RFC 6749 §5.2: Error responses must be JSON objects with at minimum
 /// an `error` string field.
+///
+/// @rfc 6749
+/// @section 5.2
+/// @requirement Error responses from the token endpoint MUST be JSON objects containing an `error` field.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc6749#section-5.2
 #[actix_web::test]
 async fn rfc6749_s5_2_error_response_format() {
     let client = Client::new(
@@ -1026,6 +1150,12 @@ async fn rfc6749_s5_2_error_response_format() {
 
 /// RFC 6749 §10.3: An authorization code must only be usable once.
 /// A second exchange with the same code must fail.
+///
+/// @rfc 6749
+/// @section 10.5
+/// @requirement Authorization codes MUST be single-use; a second redemption of the same code MUST be rejected.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc6749#section-10.5
 #[actix_web::test]
 async fn rfc6749_s10_3_authorization_code_single_use() {
     let client = Client::new(

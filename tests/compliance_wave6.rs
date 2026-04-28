@@ -201,6 +201,12 @@ macro_rules! logout_app {
 // ---------------------------------------------------------------------------
 
 /// OIDC Session Management 1.0: check_session_iframe must be advertised.
+///
+/// @rfc oidc-session-1.0
+/// @section 4
+/// @requirement Discovery must advertise `check_session_iframe` for OIDC Session Management.
+/// @level MUST
+/// @url https://openid.net/specs/openid-connect-session-1_0.html#OPMetadata
 #[actix_web::test]
 async fn wave6_discovery_includes_session_management_fields() {
     let oidc = oidc_config();
@@ -250,6 +256,12 @@ async fn wave6_discovery_includes_session_management_fields() {
 
 /// OIDC Session Management 1.0 §3: check_session_iframe must return HTML
 /// with a postMessage handler.
+///
+/// @rfc oidc-session-1.0
+/// @section 3
+/// @requirement check_session_iframe must return HTML with a postMessage handler.
+/// @level MUST
+/// @url https://openid.net/specs/openid-connect-session-1_0.html#OPiframe
 #[actix_web::test]
 async fn wave6_check_session_iframe_returns_html() {
     let oidc = oidc_config();
@@ -295,6 +307,12 @@ async fn wave6_check_session_iframe_returns_html() {
 
 /// OIDC Front-Channel Logout 1.0 §3: When a client has frontchannel_logout_uri
 /// registered, the logout endpoint must render an HTML page with iframes.
+///
+/// @rfc oidc-frontchannel-1.0
+/// @section 3
+/// @requirement Logout endpoint must render front-channel logout iframes for clients with `frontchannel_logout_uri`.
+/// @level MUST
+/// @url https://openid.net/specs/openid-connect-frontchannel-1_0.html#RPLogout
 #[actix_web::test]
 async fn wave6_logout_renders_frontchannel_iframes() {
     let client = frontchannel_client();
@@ -340,6 +358,12 @@ async fn wave6_logout_renders_frontchannel_iframes() {
 
 /// OIDC RP-Initiated Logout: post_logout_redirect_uri must be checked against
 /// post_logout_redirect_uris (not just redirect_uris).
+///
+/// @rfc oidc-rpinit-1.0
+/// @section 3
+/// @requirement Logout must accept post_logout_redirect_uri only when registered in post_logout_redirect_uris.
+/// @level MUST
+/// @url https://openid.net/specs/openid-connect-rpinitiated-1_0.html#RPLogout
 #[actix_web::test]
 async fn wave6_logout_accepts_registered_post_logout_redirect_uri() {
     let client = backchannel_client();
@@ -374,6 +398,12 @@ async fn wave6_logout_accepts_registered_post_logout_redirect_uri() {
 }
 
 /// OIDC RP-Initiated Logout: unregistered post_logout_redirect_uri must be rejected.
+///
+/// @rfc oidc-rpinit-1.0
+/// @section 3
+/// @requirement Logout must reject unregistered post_logout_redirect_uri values.
+/// @level MUST
+/// @url https://openid.net/specs/openid-connect-rpinitiated-1_0.html#RPLogout
 #[actix_web::test]
 async fn wave6_logout_rejects_unregistered_post_logout_redirect_uri() {
     let client = backchannel_client();
@@ -414,6 +444,12 @@ async fn wave6_logout_rejects_unregistered_post_logout_redirect_uri() {
 // ---------------------------------------------------------------------------
 
 /// OIDC Core §3.1.2.1: prompt=consent should proceed normally (auto-approve).
+///
+/// @rfc oidc-core-1.0
+/// @section 3.1.2.1
+/// @requirement `prompt=consent` must proceed to authorization (auto-approve in test harness).
+/// @level MUST
+/// @url https://openid.net/specs/openid-connect-core-1_0.html#AuthRequest
 #[actix_web::test]
 async fn wave6_prompt_consent_proceeds_after_auto_approve() {
     let mut client = Client::new(
@@ -475,6 +511,12 @@ async fn wave6_prompt_consent_proceeds_after_auto_approve() {
 
 /// OIDC Core §3.1.2.1: prompt=select_account forces re-authentication
 /// (single-account server treats it as prompt=login).
+///
+/// @rfc oidc-core-1.0
+/// @section 3.1.2.1
+/// @requirement `prompt=select_account` must force account selection / re-authentication.
+/// @level MUST
+/// @url https://openid.net/specs/openid-connect-core-1_0.html#AuthRequest
 #[actix_web::test]
 async fn wave6_prompt_select_account_forces_reauth() {
     let client = Client::new(
@@ -534,6 +576,12 @@ async fn wave6_prompt_select_account_forces_reauth() {
 
 /// OIDC Back-Channel Logout 1.0 §2.1: Dynamic client registration must
 /// accept backchannel_logout_uri and backchannel_logout_session_required.
+///
+/// @rfc oidc-backchannel-1.0
+/// @section 2.1
+/// @requirement Dynamic client registration must accept `backchannel_logout_uri` and `backchannel_logout_session_required`.
+/// @level MUST
+/// @url https://openid.net/specs/openid-connect-backchannel-1_0.html#ClientMetadata
 #[actix_web::test]
 async fn wave6_client_registration_includes_logout_fields() {
     let storage = oauth2_storage_factory::create_storage("sqlite::memory:")
@@ -593,6 +641,12 @@ async fn wave6_client_registration_includes_logout_fields() {
 }
 
 /// OIDC RP-Initiated Logout: simple logout without id_token_hint or redirect returns 200.
+///
+/// @rfc oidc-rpinit-1.0
+/// @section 3
+/// @requirement Logout endpoint must accept a simple GET (no id_token_hint, no redirect) and return 200.
+/// @level SHOULD
+/// @url https://openid.net/specs/openid-connect-rpinitiated-1_0.html#RPLogout
 #[actix_web::test]
 async fn wave6_simple_logout_returns_ok() {
     let client = Client::new(

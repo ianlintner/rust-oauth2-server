@@ -161,6 +161,12 @@ macro_rules! device_app {
 /// RFC 8628 §3.1: A valid device authorization request MUST return a JSON
 /// body containing `device_code`, `user_code`, `verification_uri`, and
 /// `expires_in`.
+///
+/// @rfc 8628
+/// @section 3.1
+/// @requirement Device authorization response must include device_code, user_code, verification_uri, expires_in.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc8628#section-3.1
 #[actix_web::test]
 async fn rfc8628_s3_1_response_contains_required_fields() {
     let (token_actor, client_actor, auth_actor, storage, jwt_secret, metrics, oidc_config) =
@@ -219,6 +225,12 @@ async fn rfc8628_s3_1_response_contains_required_fields() {
 }
 
 /// RFC 8628 §3.1: A missing or unknown `client_id` MUST return an error.
+///
+/// @rfc 8628
+/// @section 3.1
+/// @requirement Device authorization endpoint must reject missing or unknown client_id.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc8628#section-3.1
 #[actix_web::test]
 async fn rfc8628_s3_1_missing_client_id_returns_error() {
     let (token_actor, client_actor, auth_actor, storage, jwt_secret, metrics, oidc_config) =
@@ -251,6 +263,12 @@ async fn rfc8628_s3_1_missing_client_id_returns_error() {
 
 /// RFC 8628 §3.1: A client that is not authorized to use the device_code
 /// grant type MUST receive an `unauthorized_client` error.
+///
+/// @rfc 8628
+/// @section 3.1
+/// @requirement A client without device_code grant must receive `unauthorized_client`.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc8628#section-3.1
 #[actix_web::test]
 async fn rfc8628_s3_1_unauthorized_client_is_rejected() {
     let non_device_client = Client::new(
@@ -300,6 +318,12 @@ async fn rfc8628_s3_1_unauthorized_client_is_rejected() {
 
 /// RFC 8628 §3.3: A user who approves a valid `user_code` MUST receive a
 /// successful (2xx) response from the verification endpoint.
+///
+/// @rfc 8628
+/// @section 3.3
+/// @requirement Approving a valid user_code at the verification endpoint must return a 2xx response.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc8628#section-3.3
 #[actix_web::test]
 async fn rfc8628_s3_3_approve_returns_success() {
     let (token_actor, client_actor, auth_actor, storage, jwt_secret, metrics, oidc_config) =
@@ -361,6 +385,12 @@ async fn rfc8628_s3_3_approve_returns_success() {
 
 /// RFC 8628 §3.3: A user who denies a valid `user_code` MUST receive a
 /// successful (2xx) response from the verification endpoint.
+///
+/// @rfc 8628
+/// @section 3.3
+/// @requirement Denying a valid user_code at the verification endpoint must return a 2xx response.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc8628#section-3.3
 #[actix_web::test]
 async fn rfc8628_s3_3_deny_returns_success() {
     let (token_actor, client_actor, auth_actor, storage, jwt_secret, metrics, oidc_config) =
@@ -422,6 +452,12 @@ async fn rfc8628_s3_3_deny_returns_success() {
 
 /// RFC 8628 §3.4: Polling before the user approves MUST return a 400 with
 /// `error=authorization_pending`.
+///
+/// @rfc 8628
+/// @section 3.4
+/// @requirement Token polling before approval must return 400 with error=authorization_pending.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc8628#section-3.4
 #[actix_web::test]
 async fn rfc8628_s3_4_pending_returns_authorization_pending() {
     let (token_actor, client_actor, auth_actor, storage, jwt_secret, metrics, oidc_config) =
@@ -478,6 +514,12 @@ async fn rfc8628_s3_4_pending_returns_authorization_pending() {
 
 /// RFC 8628 §3.4: After the user approves, polling MUST return 200 with a
 /// valid access token.
+///
+/// @rfc 8628
+/// @section 3.4
+/// @requirement After user approval, token polling must return 200 with an access token.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc8628#section-3.4
 #[actix_web::test]
 async fn rfc8628_s3_4_approved_returns_access_token() {
     let (token_actor, client_actor, auth_actor, storage, jwt_secret, metrics, oidc_config) =
@@ -557,6 +599,12 @@ async fn rfc8628_s3_4_approved_returns_access_token() {
 
 /// RFC 8628 §3.4: An unknown or invalid `device_code` MUST return a 4xx
 /// error (not a 200 or 5xx).
+///
+/// @rfc 8628
+/// @section 3.4
+/// @requirement Unknown or invalid device_code at the token endpoint must return a 4xx error.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc8628#section-3.4
 #[actix_web::test]
 async fn rfc8628_s3_4_unknown_device_code_returns_error() {
     let (token_actor, client_actor, auth_actor, storage, jwt_secret, metrics, oidc_config) =
@@ -596,6 +644,12 @@ async fn rfc8628_s3_4_unknown_device_code_returns_error() {
 /// `/device_authorization` using `client_secret_basic` — the handler must
 /// accept credentials from the `Authorization` header when the form body
 /// omits `client_id`/`client_secret`.
+///
+/// @rfc 8628
+/// @section 3.1
+/// @requirement Device authorization endpoint must accept client_secret_basic credentials.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc8628#section-3.1
 #[actix_web::test]
 async fn rfc8628_s3_1_accepts_client_secret_basic() {
     use base64::{engine::general_purpose::STANDARD, Engine};

@@ -241,6 +241,12 @@ macro_rules! do_oidc_flow {
 
 /// OIDC Core §3.1: Including `openid` in the scope of an authorization code
 /// grant MUST result in an `id_token` field in the token response.
+///
+/// @rfc oidc-core-1.0
+/// @section 3.1
+/// @requirement Authorization-code flow with `openid` scope must include an id_token in the token response.
+/// @level MUST
+/// @url https://openid.net/specs/openid-connect-core-1_0.html#TokenResponse
 #[actix_web::test]
 async fn oidc_core_s3_1_openid_scope_triggers_id_token() {
     let client = Client::new(
@@ -273,6 +279,12 @@ async fn oidc_core_s3_1_openid_scope_triggers_id_token() {
 
 /// OIDC Core §3.1: The `id_token` MUST be a compact-serialised JWT with
 /// exactly three dot-separated components (header.payload.signature).
+///
+/// @rfc oidc-core-1.0
+/// @section 3.1
+/// @requirement id_token must be a compact-serialised JWT (header.payload.signature).
+/// @level MUST
+/// @url https://openid.net/specs/openid-connect-core-1_0.html#IDToken
 #[actix_web::test]
 async fn oidc_core_s3_1_id_token_is_valid_jwt() {
     let client = Client::new(
@@ -307,6 +319,12 @@ async fn oidc_core_s3_1_id_token_is_valid_jwt() {
 
 /// OIDC Core §2: The `sub` (subject) claim MUST be present in the id_token
 /// and MUST identify the authenticated end-user.
+///
+/// @rfc oidc-core-1.0
+/// @section 2
+/// @requirement id_token must contain a `sub` claim identifying the end-user.
+/// @level MUST
+/// @url https://openid.net/specs/openid-connect-core-1_0.html#IDToken
 #[actix_web::test]
 async fn oidc_core_s3_1_id_token_sub_claim_present() {
     let client = Client::new(
@@ -340,6 +358,12 @@ async fn oidc_core_s3_1_id_token_sub_claim_present() {
 
 /// OIDC Core §2: The `iss` (issuer) claim MUST be present and MUST exactly
 /// match the issuer value from the server configuration.
+///
+/// @rfc oidc-core-1.0
+/// @section 2
+/// @requirement id_token `iss` claim must match the configured issuer value exactly.
+/// @level MUST
+/// @url https://openid.net/specs/openid-connect-core-1_0.html#IDToken
 #[actix_web::test]
 async fn oidc_core_s3_1_id_token_iss_matches_config() {
     let client = Client::new(
@@ -375,6 +399,12 @@ async fn oidc_core_s3_1_id_token_iss_matches_config() {
 
 /// OIDC Core §2: The `aud` (audience) claim MUST contain the `client_id` of
 /// the relying party that requested the id_token.
+///
+/// @rfc oidc-core-1.0
+/// @section 2
+/// @requirement id_token `aud` claim must contain the requesting RP's client_id.
+/// @level MUST
+/// @url https://openid.net/specs/openid-connect-core-1_0.html#IDToken
 #[actix_web::test]
 async fn oidc_core_s3_1_id_token_aud_matches_client() {
     let client = Client::new(
@@ -415,6 +445,12 @@ async fn oidc_core_s3_1_id_token_aud_matches_client() {
 
 /// OIDC Core §2: The `iat` (issued-at) and `exp` (expiration) claims MUST be
 /// present as integer NumericDate values, with `exp` strictly after `iat`.
+///
+/// @rfc oidc-core-1.0
+/// @section 2
+/// @requirement id_token must have `iat` and `exp` NumericDate claims with `exp` > `iat`.
+/// @level MUST
+/// @url https://openid.net/specs/openid-connect-core-1_0.html#IDToken
 #[actix_web::test]
 async fn oidc_core_s3_1_id_token_has_iat_and_exp() {
     let client = Client::new(
@@ -451,6 +487,12 @@ async fn oidc_core_s3_1_id_token_has_iat_and_exp() {
 
 /// OIDC Core §3.1.2.1: When a `nonce` is provided in the authorization
 /// request, it MUST be present verbatim in the id_token claims.
+///
+/// @rfc oidc-core-1.0
+/// @section 3.1.2.1
+/// @requirement A nonce in the authorization request must be echoed verbatim in the id_token.
+/// @level MUST
+/// @url https://openid.net/specs/openid-connect-core-1_0.html#AuthRequest
 #[actix_web::test]
 async fn oidc_core_s3_1_2_1_nonce_echoed_in_id_token() {
     let client = Client::new(
@@ -491,6 +533,12 @@ async fn oidc_core_s3_1_2_1_nonce_echoed_in_id_token() {
 
 /// OIDC Core §3.1: When `openid` is absent from the scope, the token
 /// response MUST NOT include an `id_token` field.
+///
+/// @rfc oidc-core-1.0
+/// @section 3.1
+/// @requirement Token response without `openid` scope must not include an id_token.
+/// @level MUST
+/// @url https://openid.net/specs/openid-connect-core-1_0.html#TokenResponse
 #[actix_web::test]
 async fn oidc_core_s3_1_no_id_token_without_openid_scope() {
     let client = Client::new(
@@ -527,6 +575,12 @@ async fn oidc_core_s3_1_no_id_token_without_openid_scope() {
 
 /// OIDC Core §5.3: A valid Bearer access token MUST return a JSON body
 /// containing the `sub` claim that identifies the authenticated end-user.
+///
+/// @rfc oidc-core-1.0
+/// @section 5.3
+/// @requirement UserInfo response with a valid token must include the `sub` claim.
+/// @level MUST
+/// @url https://openid.net/specs/openid-connect-core-1_0.html#UserInfo
 #[actix_web::test]
 async fn oidc_core_userinfo_s5_3_sub_claim_present() {
     let client = Client::new(
@@ -568,6 +622,12 @@ async fn oidc_core_userinfo_s5_3_sub_claim_present() {
 
 /// OIDC Core §5.3: The UserInfo endpoint MUST return HTTP 401 with a
 /// `WWW-Authenticate: Bearer` header when no access token is provided.
+///
+/// @rfc oidc-core-1.0
+/// @section 5.3
+/// @requirement UserInfo endpoint must return 401 with WWW-Authenticate: Bearer when token is missing.
+/// @level MUST
+/// @url https://openid.net/specs/openid-connect-core-1_0.html#UserInfo
 #[actix_web::test]
 async fn oidc_core_userinfo_s5_3_missing_token_returns_401() {
     let client = Client::new(

@@ -26,6 +26,12 @@ fn client_registered_for(redirect: &str) -> Client {
 
 /// §7.3 — registered `127.0.0.1:3000`, request arrives on a different
 /// ephemeral port. Must be accepted.
+///
+/// @rfc 8252
+/// @section 7.3
+/// @requirement IPv4 loopback (127.0.0.1) redirect URIs must accept any port at request time.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc8252#section-7.3
 #[test]
 fn rfc8252_ipv4_loopback_any_port_accepted() {
     let c = client_registered_for("http://127.0.0.1:3000/cb");
@@ -34,6 +40,12 @@ fn rfc8252_ipv4_loopback_any_port_accepted() {
 }
 
 /// §7.3 — same for IPv6 literal.
+///
+/// @rfc 8252
+/// @section 7.3
+/// @requirement IPv6 loopback ([::1]) redirect URIs must accept any port at request time.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc8252#section-7.3
 #[test]
 fn rfc8252_ipv6_loopback_any_port_accepted() {
     let c = client_registered_for("http://[::1]:3000/cb");
@@ -45,6 +57,12 @@ fn rfc8252_ipv6_loopback_any_port_accepted() {
 /// requests `http://localhost:4000/cb` is rejected; the same client
 /// requesting the literal registered URI is still accepted via the
 /// exact-match fast path.
+///
+/// @rfc 8252
+/// @section 8.3
+/// @requirement `localhost` hostname must NOT receive the loopback port-wildcard exception.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc8252#section-8.3
 #[test]
 fn rfc8252_localhost_hostname_does_not_wildcard_port() {
     let c = client_registered_for("http://localhost:3000/cb");
@@ -60,6 +78,12 @@ fn rfc8252_localhost_hostname_does_not_wildcard_port() {
 
 /// IPv4-registered clients MUST NOT be able to redirect to `[::1]` and
 /// vice versa. Each loopback family is treated as a distinct host.
+///
+/// @rfc 8252
+/// @section 7.3
+/// @requirement IPv4 and IPv6 loopback hosts must be treated as distinct (no cross-family wildcarding).
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc8252#section-7.3
 #[test]
 fn rfc8252_loopback_families_do_not_cross() {
     let v4 = client_registered_for("http://127.0.0.1:3000/cb");
@@ -71,6 +95,12 @@ fn rfc8252_loopback_families_do_not_cross() {
 /// The loopback exception is scoped to loopback hosts only. A client
 /// registered for `http://example.com/cb` MUST NOT benefit from any
 /// port-wildcard leniency.
+///
+/// @rfc 8252
+/// @section 7.3
+/// @requirement Non-loopback hosts must require exact redirect URI match (no port wildcard).
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc8252#section-7.3
 #[test]
 fn rfc8252_non_loopback_host_requires_exact_match() {
     let c = client_registered_for("http://example.com:3000/cb");
@@ -79,6 +109,12 @@ fn rfc8252_non_loopback_host_requires_exact_match() {
 }
 
 /// Path must still match; only the port is wildcarded under §7.3.
+///
+/// @rfc 8252
+/// @section 7.3
+/// @requirement Loopback exception must still require path equality; only the port is wildcarded.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc8252#section-7.3
 #[test]
 fn rfc8252_loopback_exception_still_requires_path_match() {
     let c = client_registered_for("http://127.0.0.1:3000/cb");
@@ -88,6 +124,12 @@ fn rfc8252_loopback_exception_still_requires_path_match() {
 
 /// Scheme must match; only the port is wildcarded under §7.3. An HTTP
 /// registration does not authorize an HTTPS request to a loopback port.
+///
+/// @rfc 8252
+/// @section 7.3
+/// @requirement Loopback exception must still require scheme equality (http vs https are distinct).
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc8252#section-7.3
 #[test]
 fn rfc8252_loopback_exception_still_requires_scheme_match() {
     let c = client_registered_for("http://127.0.0.1:3000/cb");
@@ -97,6 +139,12 @@ fn rfc8252_loopback_exception_still_requires_scheme_match() {
 /// Exact-match fallback still honors custom URI schemes — RFC 8252 §7.1.
 /// No wildcarding is applied; claimed-scheme redirects must match byte
 /// for byte.
+///
+/// @rfc 8252
+/// @section 7.1
+/// @requirement Claimed/custom URI schemes must match registered redirect URI byte-for-byte.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc8252#section-7.1
 #[test]
 fn rfc8252_custom_scheme_exact_match_only() {
     let c = client_registered_for("com.example.app://oauth/callback");

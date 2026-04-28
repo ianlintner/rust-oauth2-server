@@ -75,3 +75,5 @@ nav:
       - Extending: development/extending.md
       - Testing: development/testing.md
       - Contributing: development/contributing.md
+  - Compliance:
+      - RFC matrix: compliance/RFC_COMPLIANCE.md

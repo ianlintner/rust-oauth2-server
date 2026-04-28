@@ -66,6 +66,12 @@ fn bad_credentials_body() -> &'static str {
 }
 
 /// After exhausting the invalid_client bucket the token endpoint returns 429.
+///
+/// @rfc 9700
+/// @section 2.5
+/// @requirement Token endpoint must rate-limit repeated `invalid_client` failures and return 429 when the budget is exhausted.
+/// @level SHOULD
+/// @url https://datatracker.ietf.org/doc/html/rfc9700#section-2.5
 #[actix_web::test]
 async fn invalid_client_rate_limit_returns_429_after_budget_exhausted() {
     let (token_pool, client_actor, auth_actor, jwt_secret, metrics, oidc_config) =
@@ -124,6 +130,12 @@ async fn invalid_client_rate_limit_returns_429_after_budget_exhausted() {
 
 /// Without an invalid_client limiter in app_data the handler still returns
 /// 401 invalid_client (Option is None → no rate limiting applied).
+///
+/// @rfc 9700
+/// @section 2.5
+/// @requirement Without a configured rate limiter, the token endpoint must still respond 401 `invalid_client` to bad credentials.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc9700#section-2.5
 #[actix_web::test]
 async fn invalid_client_no_limiter_returns_401() {
     let (token_pool, client_actor, auth_actor, jwt_secret, metrics, oidc_config) =
@@ -158,6 +170,12 @@ async fn invalid_client_no_limiter_returns_401() {
 
 /// Different client_ids have independent buckets — exhausting one does not
 /// affect another. Verifies the key is client_id, not a shared IP.
+///
+/// @rfc 9700
+/// @section 2.5
+/// @requirement Rate-limit buckets must be keyed per client_id so one client's exhaustion does not affect others.
+/// @level SHOULD
+/// @url https://datatracker.ietf.org/doc/html/rfc9700#section-2.5
 #[actix_web::test]
 async fn invalid_client_buckets_are_isolated_per_client_id() {
     let storage = oauth2_storage_factory::create_storage("sqlite::memory:")
@@ -260,6 +278,12 @@ async fn invalid_client_buckets_are_isolated_per_client_id() {
 }
 
 /// Successful token requests do NOT consume the invalid_client bucket.
+///
+/// @rfc 9700
+/// @section 2.5
+/// @requirement Successful token issuance must not consume the `invalid_client` rate-limit bucket.
+/// @level SHOULD
+/// @url https://datatracker.ietf.org/doc/html/rfc9700#section-2.5
 #[actix_web::test]
 async fn valid_requests_do_not_deplete_invalid_client_bucket() {
     let storage = oauth2_storage_factory::create_storage("sqlite::memory:")

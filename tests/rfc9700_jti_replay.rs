@@ -16,6 +16,13 @@ use oauth2_actix::handlers::wellknown::OidcConfig;
 use oauth2_core::{Client, TokenResponse};
 use oauth2_observability::Metrics;
 
+/// RFC 9700 §2.5 / RFC 7523 §3: replaying a client_secret_jwt assertion (same `jti`) must be rejected.
+///
+/// @rfc 9700
+/// @section 2.5
+/// @requirement Replayed JWT client-assertion (same client_id + jti within exp window) must be rejected with `invalid_client`.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc9700#section-2.5
 #[actix_web::test]
 async fn rfc9700_client_secret_jwt_replay_is_rejected() {
     const ISSUER: &str = "https://auth.example.com";
@@ -158,6 +165,12 @@ async fn rfc9700_client_secret_jwt_replay_is_rejected() {
 /// A fresh `jti` (even from the same client) must succeed — the guard
 /// only rejects exact `(client_id, jti)` replays, not all subsequent
 /// assertions from a client.
+///
+/// @rfc 9700
+/// @section 2.5
+/// @requirement A new (client_id, jti) pair from the same client must still be accepted.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc9700#section-2.5
 #[actix_web::test]
 async fn rfc9700_fresh_jti_from_same_client_is_accepted() {
     const ISSUER: &str = "https://auth.example.com";

@@ -122,6 +122,12 @@ macro_rules! app {
 
 /// RFC 6750 §2.1: Bearer token in the `Authorization` header must be accepted
 /// and return the resource owner's claims.
+///
+/// @rfc 6750
+/// @section 2.1
+/// @requirement Bearer token in the Authorization header must be accepted by protected resources.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc6750#section-2.1
 #[actix_web::test]
 async fn rfc6750_s2_1_bearer_in_authorization_header_returns_200() {
     let client = Client::new(
@@ -149,6 +155,12 @@ async fn rfc6750_s2_1_bearer_in_authorization_header_returns_200() {
 }
 
 /// RFC 6750 §2.1: The userinfo response must include the `sub` claim.
+///
+/// @rfc 6750
+/// @section 2.1
+/// @requirement A valid Bearer token must enable retrieval of the resource owner's `sub` claim.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc6750#section-2.1
 #[actix_web::test]
 async fn rfc6750_s2_1_userinfo_response_contains_sub() {
     let client = Client::new(
@@ -182,6 +194,12 @@ async fn rfc6750_s2_1_userinfo_response_contains_sub() {
 
 /// RFC 6750 §3.1: A request without an `Authorization` header must return
 /// 401 Unauthorized with a `WWW-Authenticate: Bearer` header.
+///
+/// @rfc 6750
+/// @section 3.1
+/// @requirement Missing Bearer credentials must return 401 with WWW-Authenticate: Bearer.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc6750#section-3.1
 #[actix_web::test]
 async fn rfc6750_s3_1_missing_token_returns_401() {
     let client = Client::new(
@@ -212,6 +230,12 @@ async fn rfc6750_s3_1_missing_token_returns_401() {
 
 /// RFC 6750 §3.1: A request presenting an invalid / garbage Bearer token must
 /// return 401 with a `WWW-Authenticate: Bearer error="invalid_token"` header.
+///
+/// @rfc 6750
+/// @section 3.1
+/// @requirement Invalid Bearer token must return 401 with WWW-Authenticate including error=invalid_token.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc6750#section-3.1
 #[actix_web::test]
 async fn rfc6750_s3_1_invalid_token_returns_401_with_www_authenticate() {
     let client = Client::new(
@@ -245,6 +269,12 @@ async fn rfc6750_s3_1_invalid_token_returns_401_with_www_authenticate() {
 
 /// RFC 6750 §3.1: The error body for an invalid token must include an `error`
 /// field set to `invalid_token`.
+///
+/// @rfc 6750
+/// @section 3.1
+/// @requirement Invalid token error body must contain `error: invalid_token`.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc6750#section-3.1
 #[actix_web::test]
 async fn rfc6750_s3_1_error_body_has_invalid_token_code() {
     let client = Client::new(
@@ -275,6 +305,12 @@ async fn rfc6750_s3_1_error_body_has_invalid_token_code() {
 /// RFC 6750 §2.3: A client credentials token (no user context) must not grant
 /// access to the userinfo endpoint — the resource server returns 401 because
 /// the token represents a client, not a resource owner.
+///
+/// @rfc 6750
+/// @section 2
+/// @requirement A token without a resource-owner subject must not be accepted by the userinfo endpoint.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc6750#section-2
 #[actix_web::test]
 async fn rfc6750_s2_client_credentials_token_cannot_access_userinfo() {
     let client = Client::new(

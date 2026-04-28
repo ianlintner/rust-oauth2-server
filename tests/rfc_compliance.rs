@@ -126,6 +126,12 @@ async fn setup_rfc_context(
 // ---------------------------------------------------------------------------
 
 /// RFC 9207 §2: the `iss` parameter MUST be included in the authorization response.
+///
+/// @rfc 9207
+/// @section 2
+/// @requirement Authorization response must include the `iss` parameter naming the AS.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc9207#section-2
 #[actix_web::test]
 async fn rfc9207_iss_included_in_authorization_response() {
     const ISSUER: &str = "https://auth.example.com";
@@ -209,6 +215,12 @@ async fn rfc9207_iss_included_in_authorization_response() {
 // ---------------------------------------------------------------------------
 
 /// RFC 9068 §2.1: access tokens MUST carry `typ: "at+JWT"` in the JOSE header.
+///
+/// @rfc 9068
+/// @section 2.1
+/// @requirement JWT access tokens must use JOSE header `typ: "at+JWT"`.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc9068#section-2.1
 #[actix_web::test]
 async fn rfc9068_access_token_has_typ_at_jwt() {
     let client = Client::new(
@@ -270,6 +282,12 @@ async fn rfc9068_access_token_has_typ_at_jwt() {
 }
 
 /// RFC 9068 §2.2: `iss` claim in the JWT must equal the configured issuer URL.
+///
+/// @rfc 9068
+/// @section 2.2
+/// @requirement Access-token JWT `iss` claim must equal the configured AS issuer URL.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc9068#section-2.2
 #[actix_web::test]
 async fn rfc9068_jwt_iss_matches_configured_issuer() {
     const ISSUER: &str = "https://my-auth-server.example";
@@ -343,6 +361,12 @@ async fn rfc9068_jwt_iss_matches_configured_issuer() {
 // ---------------------------------------------------------------------------
 
 /// RFC 7662 §2.2: active introspection MUST include `nbf`, `jti`, `aud`, `iss`.
+///
+/// @rfc 7662
+/// @section 2.2
+/// @requirement Active introspection response must include `nbf`, `jti`, `aud`, and `iss` claims.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc7662#section-2.2
 #[actix_web::test]
 async fn rfc7662_introspection_includes_nbf_jti_aud_iss() {
     const ISSUER: &str = "https://auth.example.com";
@@ -445,6 +469,12 @@ async fn rfc7662_introspection_includes_nbf_jti_aud_iss() {
 }
 
 /// RFC 7662 §2.2: `nbf` must be <= `iat` for tokens valid from issuance.
+///
+/// @rfc 7662
+/// @section 2.2
+/// @requirement Introspection response must satisfy `nbf <= iat` for tokens valid from issuance.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc7662#section-2.2
 #[actix_web::test]
 async fn rfc7662_introspection_nbf_le_iat() {
     let client = Client::new(
@@ -546,6 +576,12 @@ fn make_public_client(id: &str, redirect: &str) -> Client {
 }
 
 /// Public clients can exchange an authorization code using only PKCE (no secret).
+///
+/// @rfc 6749
+/// @section 4.1.3
+/// @requirement Public clients (`token_endpoint_auth_method=none`) must exchange auth codes via PKCE without a secret.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.3
 #[actix_web::test]
 async fn public_client_exchanges_code_without_secret() {
     let client = make_public_client("client_public", "https://native.example/cb");
@@ -641,6 +677,12 @@ async fn public_client_exchanges_code_without_secret() {
 }
 
 /// Presenting a client_secret for a public client must be rejected with `invalid_client`.
+///
+/// @rfc 6749
+/// @section 4.1.3
+/// @requirement Public clients presenting a client_secret must be rejected (`invalid_client`).
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.3
 #[actix_web::test]
 async fn public_client_must_not_present_secret() {
     let client = make_public_client("client_pub_secret", "https://native.example/cb");
@@ -740,6 +782,12 @@ async fn public_client_must_not_present_secret() {
 // ---------------------------------------------------------------------------
 
 /// RFC 8414 §3: metadata MUST also be served at `/.well-known/oauth-authorization-server`.
+///
+/// @rfc 8414
+/// @section 3
+/// @requirement AS metadata must be served at `/.well-known/oauth-authorization-server`.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc8414#section-3
 #[actix_web::test]
 async fn rfc8414_oauth_authorization_server_well_known_returns_metadata() {
     let (token_actor, client_actor, auth_actor, jwt_secret, metrics, oidc_config) =
@@ -799,6 +847,12 @@ async fn rfc8414_oauth_authorization_server_well_known_returns_metadata() {
 }
 
 /// Both well-known paths must return identical responses (RFC 8414 §3).
+///
+/// @rfc 8414
+/// @section 3
+/// @requirement Both `/.well-known/oauth-authorization-server` and `/.well-known/openid-configuration` must serve identical metadata.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc8414#section-3
 #[actix_web::test]
 async fn rfc8414_both_well_known_paths_return_same_response() {
     let (token_actor, client_actor, auth_actor, jwt_secret, metrics, oidc_config) =
@@ -862,6 +916,12 @@ async fn rfc8414_both_well_known_paths_return_same_response() {
 // ---------------------------------------------------------------------------
 
 /// Registering a public client with `token_endpoint_auth_method=none` must succeed.
+///
+/// @rfc 7591
+/// @section 2
+/// @requirement Dynamic registration must accept `token_endpoint_auth_method=none` for public clients.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc7591#section-2
 #[actix_web::test]
 async fn public_client_registration_with_none_auth_method_succeeds() {
     let storage = oauth2_storage_factory::create_storage("sqlite::memory:")
@@ -902,6 +962,12 @@ async fn public_client_registration_with_none_auth_method_succeeds() {
 }
 
 /// Registering a public client with `client_credentials` grant must be rejected.
+///
+/// @rfc 7591
+/// @section 2
+/// @requirement Dynamic registration must reject public clients requesting the `client_credentials` grant.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc7591#section-2
 #[actix_web::test]
 async fn public_client_registration_with_client_credentials_is_rejected() {
     let storage = oauth2_storage_factory::create_storage("sqlite::memory:")
@@ -946,6 +1012,12 @@ async fn public_client_registration_with_client_credentials_is_rejected() {
 // ---------------------------------------------------------------------------
 
 /// OIDC Core §5.4: UserInfo MUST return email claim when `email` scope is present.
+///
+/// @rfc oidc-core-1.0
+/// @section 5.4
+/// @requirement UserInfo must return the `email` claim when the access token has the `email` scope.
+/// @level MUST
+/// @url https://openid.net/specs/openid-connect-core-1_0.html#StandardClaims
 #[actix_web::test]
 async fn userinfo_returns_real_email_when_email_scope_requested() {
     let client = Client::new(
@@ -1064,6 +1136,12 @@ async fn userinfo_returns_real_email_when_email_scope_requested() {
 }
 
 /// OIDC Core §5.4: UserInfo with `profile` scope returns preferred_username.
+///
+/// @rfc oidc-core-1.0
+/// @section 5.4
+/// @requirement UserInfo must return profile claims (e.g. preferred_username) when `profile` scope is granted.
+/// @level MUST
+/// @url https://openid.net/specs/openid-connect-core-1_0.html#StandardClaims
 #[actix_web::test]
 async fn userinfo_returns_real_claims_for_auth_code_flow() {
     let client = Client::new(
@@ -1236,6 +1314,12 @@ async fn userinfo_returns_real_claims_for_auth_code_flow() {
 // ---------------------------------------------------------------------------
 
 /// OIDC Core §3.1.2.1: `prompt=none` without session → login_required error redirect.
+///
+/// @rfc oidc-core-1.0
+/// @section 3.1.2.1
+/// @requirement `prompt=none` without an active session must return a `login_required` error redirect.
+/// @level MUST
+/// @url https://openid.net/specs/openid-connect-core-1_0.html#AuthRequest
 #[actix_web::test]
 async fn prompt_none_without_session_returns_login_required() {
     let client = Client::new(
@@ -1313,6 +1397,12 @@ async fn prompt_none_without_session_returns_login_required() {
 }
 
 /// OIDC Core §3.1.2.1: `prompt=login` forces re-authentication even with active session.
+///
+/// @rfc oidc-core-1.0
+/// @section 3.1.2.1
+/// @requirement `prompt=login` must force re-authentication even when an active session exists.
+/// @level MUST
+/// @url https://openid.net/specs/openid-connect-core-1_0.html#AuthRequest
 #[actix_web::test]
 async fn prompt_login_forces_reauthentication() {
     let client = Client::new(
@@ -1390,6 +1480,12 @@ async fn prompt_login_forces_reauthentication() {
 }
 
 /// OIDC Core §3.1.2.1: `max_age=0` forces re-authentication (auth_time missing).
+///
+/// @rfc oidc-core-1.0
+/// @section 3.1.2.1
+/// @requirement `max_age=0` must force re-authentication when auth_time is unavailable or stale.
+/// @level MUST
+/// @url https://openid.net/specs/openid-connect-core-1_0.html#AuthRequest
 #[actix_web::test]
 async fn max_age_zero_forces_reauthentication() {
     let client = Client::new(
@@ -1472,6 +1568,12 @@ async fn max_age_zero_forces_reauthentication() {
 // ---------------------------------------------------------------------------
 
 /// OIDC RP-Initiated Logout: id_token_hint with invalid aud returns error.
+///
+/// @rfc oidc-rpinit-1.0
+/// @section 3
+/// @requirement Logout endpoint must reject `id_token_hint` whose `aud` does not match a registered client.
+/// @level MUST
+/// @url https://openid.net/specs/openid-connect-rpinitiated-1_0.html#RPLogout
 #[actix_web::test]
 async fn logout_with_invalid_aud_id_token_hint_returns_error() {
     let storage = oauth2_storage_factory::create_storage("sqlite::memory:")
@@ -1537,6 +1639,12 @@ async fn logout_with_invalid_aud_id_token_hint_returns_error() {
 }
 
 /// Token revocation cascades to the entire token family (RFC 7009 + Security BCP).
+///
+/// @rfc 7009
+/// @section 2
+/// @requirement Revoking a token must cascade-revoke the entire token family (security BCP).
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc7009#section-2
 #[actix_web::test]
 async fn revoke_cascades_to_entire_token_family() {
     let client = Client::new(
@@ -1696,6 +1804,12 @@ async fn revoke_cascades_to_entire_token_family() {
 // ---------------------------------------------------------------------------
 
 /// Discovery doc MUST include `authorization_response_iss_parameter_supported: true` (RFC 9207).
+///
+/// @rfc 9207
+/// @section 3
+/// @requirement Discovery must advertise `authorization_response_iss_parameter_supported: true`.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc9207#section-3
 #[actix_web::test]
 async fn discovery_includes_iss_parameter_supported() {
     let (token_actor, client_actor, auth_actor, jwt_secret, metrics, oidc_config) =

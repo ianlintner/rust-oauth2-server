@@ -98,6 +98,12 @@ async fn setup_context(
 
 /// RFC 9126 §2.2: A public client (no secret) POSTing valid params to /oauth/par
 /// must receive 201 Created with `request_uri` and `expires_in: 60`.
+///
+/// @rfc 9126
+/// @section 2.2
+/// @requirement PAR endpoint must return 201 with `request_uri` and `expires_in` for valid public-client requests.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc9126#section-2.2
 #[actix_web::test]
 async fn rfc9126_par_public_client_returns_request_uri() {
     // Build a public client (token_endpoint_auth_method = "none").
@@ -152,6 +158,12 @@ async fn rfc9126_par_public_client_returns_request_uri() {
 }
 
 /// RFC 9126 §2.1: PAR request without `response_type` must be rejected.
+///
+/// @rfc 9126
+/// @section 2.1
+/// @requirement PAR endpoint must reject requests missing the `response_type` parameter.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc9126#section-2.1
 #[actix_web::test]
 async fn rfc9126_par_missing_response_type_is_rejected() {
     let mut client = Client::new(
@@ -193,6 +205,12 @@ async fn rfc9126_par_missing_response_type_is_rejected() {
 }
 
 /// RFC 9126 §2.1: PAR request with duplicate parameters must be rejected.
+///
+/// @rfc 9126
+/// @section 2.1
+/// @requirement PAR endpoint must reject requests containing duplicate parameters.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc9126#section-2.1
 #[actix_web::test]
 async fn rfc9126_par_duplicate_param_is_rejected() {
     let mut client = Client::new(
@@ -235,6 +253,12 @@ async fn rfc9126_par_duplicate_param_is_rejected() {
 }
 
 /// RFC 9126 §2.1: Confidential client sending PAR without authentication must be rejected.
+///
+/// @rfc 9126
+/// @section 2.1
+/// @requirement PAR endpoint must reject confidential clients that do not authenticate.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc9126#section-2.1
 #[actix_web::test]
 async fn rfc9126_par_confidential_client_no_secret_rejected() {
     // Confidential client (default token_endpoint_auth_method = "client_secret_basic").
@@ -278,6 +302,12 @@ async fn rfc9126_par_confidential_client_no_secret_rejected() {
 }
 
 /// RFC 9126 §2.1: Confidential client with valid Basic auth succeeds.
+///
+/// @rfc 9126
+/// @section 2.1
+/// @requirement PAR endpoint must accept confidential client authenticated via HTTP Basic.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc9126#section-2.1
 #[actix_web::test]
 async fn rfc9126_par_confidential_client_with_basic_auth_succeeds() {
     let client = Client::new(
@@ -336,6 +366,12 @@ async fn rfc9126_par_confidential_client_with_basic_auth_succeeds() {
 /// RFC 8707 §2: A `resource` parameter in a client_credentials request must be
 /// accepted. The token must be issued successfully (the server records the
 /// audience for later use).
+///
+/// @rfc 8707
+/// @section 2
+/// @requirement Token endpoint must accept `resource` parameter and bind it as token audience.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc8707#section-2
 #[actix_web::test]
 async fn rfc8707_resource_indicator_accepted_in_client_credentials() {
     let client = Client::new(
@@ -396,6 +432,12 @@ async fn rfc8707_resource_indicator_accepted_in_client_credentials() {
 /// the introspection endpoint must return a signed JWT with
 /// `Content-Type: application/token-introspection+jwt` and
 /// JOSE header `typ: "token-introspection+jwt"`.
+///
+/// @rfc 9701
+/// @section 4
+/// @requirement Introspection must return a signed JWT response when `Accept: application/token-introspection+jwt`.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc9701#section-4
 #[actix_web::test]
 async fn rfc9701_jwt_accept_header_returns_jwt_introspection_response() {
     let client = Client::new(
@@ -479,6 +521,12 @@ async fn rfc9701_jwt_accept_header_returns_jwt_introspection_response() {
 
 /// RFC 9701 §4: When no special Accept header is sent, the introspection endpoint
 /// must still return the standard JSON response.
+///
+/// @rfc 9701
+/// @section 4
+/// @requirement Introspection without special Accept must return the standard JSON response.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc9701#section-4
 #[actix_web::test]
 async fn rfc9701_standard_accept_returns_json_introspection_response() {
     let client = Client::new(
@@ -546,6 +594,12 @@ async fn rfc9701_standard_accept_returns_json_introspection_response() {
 
 /// RFC 9701 §4: The JWT payload must contain a `token_introspection` claim
 /// with the standard introspection fields (active, scope, client_id).
+///
+/// @rfc 9701
+/// @section 4
+/// @requirement JWT introspection payload must include a `token_introspection` claim with standard fields.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc9701#section-4
 #[actix_web::test]
 async fn rfc9701_jwt_payload_contains_token_introspection_claim() {
     let client = Client::new(

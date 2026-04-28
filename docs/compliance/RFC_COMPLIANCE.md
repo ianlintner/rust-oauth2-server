@@ -1,286 +1,374 @@
 # RFC Compliance Matrix
 
-This document tracks which OAuth2/OIDC specification requirements are covered by automated tests.
-Each row maps a specific RFC section to one or more test functions.
-
-**Legend**: ✅ Covered | ⚠️ Partial | ❌ Not Covered
-
----
-
-## RFC 6749 — The OAuth 2.0 Authorization Framework
-
-Test file: [`tests/compliance_rfc6749.rs`](https://github.com/ianlintner/rust-oauth2-server/blob/main/tests/compliance_rfc6749.rs)  
-Supplemental: [`tests/security_http.rs`](https://github.com/ianlintner/rust-oauth2-server/blob/main/tests/security_http.rs)
-
-| Section | Requirement                                                         | Test Function                                                    | Status |
-| ------- | ------------------------------------------------------------------- | ---------------------------------------------------------------- | ------ |
-| §3.1.2  | Redirect URI must be pre-registered and match exactly               | `rfc6749_s3_1_2_redirect_uri_must_match`                         | ✅     |
-| §4.1.1  | Authorization endpoint requires `response_type=code`                | `rfc6749_s4_1_1_authorize_requires_response_type`                | ✅     |
-| §4.1.1  | Unknown `response_type` is rejected                                 | `rfc6749_s4_1_1_authorize_rejects_unknown_response_type`         | ✅     |
-| §4.1.1  | `client_id` is required                                             | `rfc6749_s4_1_1_authorize_requires_client_id`                    | ✅     |
-| §4.1.1  | Unknown `client_id` is rejected                                     | `rfc6749_s4_1_1_authorize_rejects_unknown_client`                | ✅     |
-| §4.1.2  | Successful authorize redirects with `code`                          | `rfc6749_s4_1_2_authorize_redirects_with_code`                   | ✅     |
-| §4.1.2  | `state` parameter is echoed back verbatim                           | `rfc6749_s4_1_2_state_is_echoed_in_redirect`                     | ✅     |
-| §4.1.3  | Token endpoint validates `grant_type` is present                    | `rfc6749_s4_1_3_token_requires_grant_type`                       | ✅     |
-| §4.1.3  | Unsupported `grant_type` is rejected                                | `rfc6749_s4_1_3_token_rejects_unsupported_grant_type`            | ✅     |
-| §4.1.3  | Code exchange with wrong client is rejected                         | `rfc6749_s4_1_3_token_rejects_wrong_client_for_code`             | ✅     |
-| §4.2    | Implicit grant (`response_type=token`) is rejected                  | `authorize_rejects_implicit_response_type` (security_http.rs)    | ✅     |
-| §4.4.2  | Client credentials flow returns access token                        | `rfc6749_s4_4_2_client_credentials_returns_access_token`         | ✅     |
-| §4.4.3  | Client credentials with invalid secret → `invalid_client`           | `rfc6749_s4_4_3_client_credentials_rejects_invalid_client`       | ✅     |
-| §2.3.1  | Client auth via HTTP Basic header                                   | `rfc6749_s2_3_client_auth_via_basic_header`                      | ✅     |
-| §2.3.1  | Client auth via request body (`client_id` + `client_secret`)        | `rfc6749_s2_3_client_auth_via_post_params`                       | ✅     |
-| §2.3.1  | URL-encoded credentials in Basic auth                               | `token_basic_auth_decodes_url_encoded_secret` (security_http.rs) | ✅     |
-| §5.1    | Token response includes `token_type=bearer` and `access_token`      | `rfc6749_s5_1_token_response_has_required_fields`                | ✅     |
-| §5.2    | Token response has `Cache-Control: no-store` and `Pragma: no-cache` | `rfc6749_s5_2_token_response_no_cache_headers`                   | ✅     |
-| §5.2    | Error response JSON has `error` field                               | `rfc6749_s5_2_error_response_format`                             | ✅     |
-| §10.3   | Authorization code must not be accepted twice                       | `rfc6749_s10_3_authorization_code_single_use`                    | ✅     |
-
----
-
-## RFC 7636 — PKCE (Proof Key for Code Exchange)
-
-Test file: [`tests/compliance_rfc7636.rs`](https://github.com/ianlintner/rust-oauth2-server/blob/main/tests/compliance_rfc7636.rs)
-
-| Section | Requirement                                              | Test Function                                         | Status |
-| ------- | -------------------------------------------------------- | ----------------------------------------------------- | ------ |
-| §4.1    | Authorization code flow requires PKCE                    | `rfc7636_s4_1_pkce_required_for_authorization_code`   | ✅     |
-| §4.2    | `S256` is the only accepted challenge method             | `rfc7636_s4_2_s256_challenge_method_is_accepted`      | ✅     |
-| §4.2    | `plain` challenge method is rejected                     | `rfc7636_s4_2_plain_method_is_rejected`               | ✅     |
-| §4.3    | Valid verifier exchanges code successfully               | `rfc7636_s4_3_valid_verifier_exchanges_code`          | ✅     |
-| §4.3    | Wrong verifier is rejected with `invalid_grant`          | `rfc7636_s4_3_wrong_verifier_is_rejected`             | ✅     |
-| §4.3    | Missing verifier for a PKCE code → `invalid_grant`       | `rfc7636_s4_3_missing_verifier_rejects_pkce_code`     | ✅     |
-| §4.1    | Verifier shorter than 43 chars → `invalid_grant`         | `rfc7636_s4_1_verifier_min_length_43`                 | ✅     |
-| §4.1    | Verifier longer than 128 chars → `invalid_grant`         | `rfc7636_s4_1_verifier_max_length_128`                | ✅     |
-| §4.2    | `code_challenge_method` without `code_challenge` → error | `rfc7636_s4_2_method_without_challenge_rejected`      | ✅     |
-| §4.3    | Sending raw verifier as challenge in exchange → rejected | `rfc7636_s4_3_sending_verifier_as_challenge_rejected` | ✅     |
-
----
-
-## RFC 7662 — OAuth 2.0 Token Introspection
-
-Test file: [`tests/compliance_rfc7662_7009.rs`](https://github.com/ianlintner/rust-oauth2-server/blob/main/tests/compliance_rfc7662_7009.rs)
-
-| Section | Requirement                                 | Test Function                                         | Status |
-| ------- | ------------------------------------------- | ----------------------------------------------------- | ------ |
-| §2      | Valid token introspects with `active: true` | `rfc7662_s2_active_token_returns_true`                | ✅     |
-| §2      | Invalid/unknown token → `active: false`     | `rfc7662_s2_invalid_token_returns_false`              | ✅     |
-| §2      | Revoked token → `active: false`             | `rfc7662_s2_revoked_token_returns_inactive`           | ✅     |
-| §2.1    | Introspect requires client authentication   | `rfc7662_s2_1_introspect_requires_client_auth`        | ✅     |
-| §2.2    | Response contains `scope` field             | `rfc7662_s2_2_introspect_returns_scope`               | ✅     |
-| §2.2    | Response contains `client_id` field         | `rfc7662_s2_2_introspect_returns_client_id`           | ✅     |
-| §2.2    | Response contains `sub` for user tokens     | `rfc7662_s2_2_introspect_returns_sub_for_user_tokens` | ✅     |
-| §2.2    | Response contains `token_type`              | `rfc7662_s2_2_introspect_returns_token_type`          | ✅     |
-
----
-
-## RFC 7009 — OAuth 2.0 Token Revocation
-
-Test file: [`tests/compliance_rfc7662_7009.rs`](https://github.com/ianlintner/rust-oauth2-server/blob/main/tests/compliance_rfc7662_7009.rs)
-
-| Section | Requirement                                            | Test Function                                   | Status |
-| ------- | ------------------------------------------------------ | ----------------------------------------------- | ------ |
-| §2.1    | Revoking a valid token returns 200 OK                  | `rfc7009_s2_1_revoke_valid_token_returns_200`   | ✅     |
-| §2.2    | Revoking an unknown/invalid token still returns 200 OK | `rfc7009_s2_2_revoke_unknown_token_returns_200` | ✅     |
-| §2.1    | Revoke requires client authentication                  | `rfc7009_s2_1_revoke_requires_client_auth`      | ✅     |
-| §2.1    | Revoked token is subsequently inactive                 | `rfc7009_s2_1_revoked_token_becomes_inactive`   | ✅     |
-| §2.2    | Unsupported `token_type_hint` is tolerated             | `rfc7009_s2_2_unsupported_hint_is_tolerated`    | ✅     |
-
----
-
-## RFC 6750 — Bearer Token Usage
-
-Test file: [`tests/compliance_rfc6750.rs`](https://github.com/ianlintner/rust-oauth2-server/blob/main/tests/compliance_rfc6750.rs)
-
-| Section | Requirement                                           | Test Function                                   | Status |
-| ------- | ----------------------------------------------------- | ----------------------------------------------- | ------ |
-| §2.1    | Bearer token in `Authorization` header accepted       | `rfc6750_s2_1_bearer_header_accepted`           | ✅     |
-| §2.1    | Invalid token → 401 with `WWW-Authenticate` header    | `rfc6750_s2_1_invalid_token_returns_401`        | ✅     |
-| §2.1    | Missing token → 401 with `WWW-Authenticate` header    | `rfc6750_s2_1_missing_token_returns_401`        | ✅     |
-| §3.1    | `WWW-Authenticate: Bearer` present on unauthorized    | `rfc6750_s3_1_www_authenticate_header_on_401`   | ✅     |
-| §3.1    | `invalid_token` error code for expired/invalid tokens | `rfc6750_s3_1_error_code_invalid_token`         | ✅     |
-| §2.1    | Token with sufficient scope returns claims            | `rfc6750_s2_1_valid_token_returns_user_claims`  | ✅     |
-| §2.3    | URI query parameter bearer is not supported           | `rfc6750_s2_3_query_param_bearer_not_supported` | ✅     |
-| §2.2    | Form-encoded body bearer is not supported             | `rfc6750_s2_2_form_body_bearer_not_supported`   | ✅     |
-
----
-
-## RFC 8414 — OAuth 2.0 Authorization Server Metadata
-
-Test file: [`tests/compliance_rfc8414.rs`](https://github.com/ianlintner/rust-oauth2-server/blob/main/tests/compliance_rfc8414.rs)
-
-| Section | Requirement                                                                                  | Test Function                                           | Status |
-| ------- | -------------------------------------------------------------------------------------------- | ------------------------------------------------------- | ------ |
-| §2      | `/.well-known/openid-configuration` returns 200 JSON                                         | `rfc8414_s2_discovery_endpoint_returns_200`             | ✅     |
-| §2      | Response includes `issuer` matching the server URL                                           | `rfc8414_s2_issuer_is_present_and_matches`              | ✅     |
-| §2      | Response includes `authorization_endpoint`                                                   | `rfc8414_s2_authorization_endpoint_present`             | ✅     |
-| §2      | Response includes `token_endpoint`                                                           | `rfc8414_s2_token_endpoint_present`                     | ✅     |
-| §2      | Response includes `jwks_uri`                                                                 | `rfc8414_s2_jwks_uri_present`                           | ✅     |
-| §2      | `response_types_supported` does not include `token` (implicit)                               | `rfc8414_s2_implicit_not_advertised`                    | ✅     |
-| §2      | `code_challenge_methods_supported` includes `S256` only                                      | `rfc8414_s2_pkce_s256_only_advertised`                  | ✅     |
-| §2      | `grant_types_supported` includes `authorization_code`, `client_credentials`, `refresh_token` | `rfc8414_s2_grant_types_advertised`                     | ✅     |
-| §2      | `introspection_endpoint` and `revocation_endpoint` are present                               | `rfc8414_s2_introspection_revocation_endpoints_present` | ✅     |
-
----
-
-## OpenID Connect Core 1.0
-
-Test file: [`tests/compliance_oidc_core.rs`](https://github.com/ianlintner/rust-oauth2-server/blob/main/tests/compliance_oidc_core.rs)
-
-| Section  | Requirement                                                      | Test Function                                     | Status |
-| -------- | ---------------------------------------------------------------- | ------------------------------------------------- | ------ |
-| §3.1     | Successful OIDC code flow returns `id_token` with `openid` scope | `oidc_core_s3_1_id_token_issued_for_openid_scope` | ✅     |
-| §3.1.3.3 | `id_token` is a valid JWT with three `.`-separated parts         | `oidc_core_s3_1_3_id_token_is_valid_jwt`          | ✅     |
-| §2       | `sub` claim is present and non-empty in `id_token`               | `oidc_core_s2_sub_claim_present`                  | ✅     |
-| §2       | `iss` claim matches the issuer                                   | `oidc_core_s2_iss_claim_matches_issuer`           | ✅     |
-| §2       | `aud` claim contains the `client_id`                             | `oidc_core_s2_aud_claim_contains_client_id`       | ✅     |
-| §2       | `exp` and `iat` claims are present and numeric                   | `oidc_core_s2_exp_and_iat_claims_present`         | ✅     |
-| §3.1.2.1 | `nonce` from authorize request is echoed in `id_token`           | `oidc_core_s3_1_2_1_nonce_echoed_in_id_token`     | ✅     |
-| §5.3     | UserInfo endpoint returns `sub` claim                            | `oidc_core_s5_3_userinfo_returns_sub`             | ✅     |
-| §5.3     | UserInfo endpoint requires Bearer token                          | `oidc_core_s5_3_userinfo_requires_bearer`         | ✅     |
-| §5.3     | UserInfo `sub` matches `sub` in `id_token`                       | `oidc_core_s5_3_userinfo_sub_matches_id_token`    | ✅     |
-| §3.1     | Token without `openid` scope does not include `id_token`         | `oidc_core_s3_1_no_id_token_without_openid_scope` | ✅     |
-
----
-
-## RFC 8628 — OAuth 2.0 Device Authorization Grant
-
-Test file: [`tests/compliance_rfc8628.rs`](https://github.com/ianlintner/rust-oauth2-server/blob/main/tests/compliance_rfc8628.rs)  
-Supplemental: [`tests/device_flow.rs`](https://github.com/ianlintner/rust-oauth2-server/blob/main/tests/device_flow.rs)
-
-| Section | Requirement                                                                          | Test Function                                               | Status |
-| ------- | ------------------------------------------------------------------------------------ | ----------------------------------------------------------- | ------ |
-| §3.1    | Device authorization endpoint returns `device_code`, `user_code`, `verification_uri` | `rfc8628_s3_1_device_authorization_returns_required_fields` | ✅     |
-| §3.1    | `expires_in` and `interval` are present in response                                  | `rfc8628_s3_1_expires_in_and_interval_present`              | ✅     |
-| §3.2    | `authorization_pending` while user has not yet approved                              | `rfc8628_s3_2_returns_authorization_pending`                | ✅     |
-| §3.2    | `slow_down` error is returned when polling too fast                                  | `rfc8628_s3_2_slow_down_on_rapid_polling`                   | ⚠️     |
-| §3.2    | `expired_token` when device code has expired                                         | `rfc8628_s3_2_expired_device_code_returns_error`            | ✅     |
-| §3.5    | Unsupported `grant_type` string → `unsupported_grant_type`                           | `rfc8628_s3_5_unsupported_grant_type`                       | ✅     |
-| §6.1    | Client must be registered for device flow grant type                                 | `rfc8628_s6_1_client_must_support_device_grant`             | ✅     |
-| §3.2    | `access_denied` when user explicitly rejects                                         | `rfc8628_s3_2_access_denied`                                | ⚠️     |
-| §3.1    | `verification_uri_complete` is included when supported                               | `rfc8628_s3_1_verification_uri_complete_present`            | ✅     |
-
-> **Notes**:
->
-> - `slow_down` (⚠️): The server enforces polling intervals via the `interval` field but does not currently track per-device polling rate; this test validates the field is advertised.
-> - `access_denied` (⚠️): Manual user rejection flow is exercised in `tests/device_flow.rs` (happy path); explicit denial is not yet a test case.
-
----
+_This file is generated by `cargo run --bin compliance_report`. Do not edit by hand — re-run the generator to regenerate._
 
 ## Summary
 
-| RFC / Spec | Tests Written | Tests Passing |
-| ---------- | :-----------: | :-----------: |
-| RFC 6749   |      20       |      ✅       |
-| RFC 7636   |      10       |      ✅       |
-| RFC 7662   |       8       |      ✅       |
-| RFC 7009   |       5       |      ✅       |
-| RFC 6750   |       8       |      ✅       |
-| RFC 8414   |       9       |      ✅       |
-| OIDC Core  |      11       |      ✅       |
-| RFC 8628   |       9       |      ⚠️       |
-| RFC 9126   |       5       |      ✅       |
-| RFC 8707   |       1       |      ✅       |
-| RFC 9701   |       3       |      ✅       |
-| RFC 7591   |       6       |      ✅       |
-| RFC 7592   |       3       |      ✅       |
-| RFC 7523   |       4       |      ✅       |
-| Wave 4     |      11       |      ✅       |
-| **Total**  |   **113**     |               |
+- **Total annotated tests:** 189
+- **Passing:** 185
+- **Failing:** 0
+- **Ignored:** 4
+- **Compliance score (passed / passed+failed+ignored):** 97%
 
-_Last updated automatically. Run `cargo test --test compliance_\*` to verify._
+## RFC 6749
+
+| Status | Section | Level | Requirement | Test |
+|---|---|---|---|---|
+| ✅ | [§2.3.1](https://datatracker.ietf.org/doc/html/rfc6749#section-2.3.1) | MUST | The authorization server MUST support HTTP Basic authentication for clients with a client password. | `rfc6749_s2_3_client_auth_via_basic_header` <br/><sub>tests/compliance_rfc6749.rs:899</sub> |
+| ✅ | [§2.3.1](https://datatracker.ietf.org/doc/html/rfc6749#section-2.3.1) | MAY | Client credentials MAY be included in the request body using `client_id` and `client_secret` parameters. | `rfc6749_s2_3_client_auth_via_post_params` <br/><sub>tests/compliance_rfc6749.rs:942</sub> |
+| ✅ | [§3.1.2](https://datatracker.ietf.org/doc/html/rfc6749#section-3.1.2) | MUST | Redirect URI in the authorization request must exactly match a registered redirect URI. | `rfc6749_s3_1_2_redirect_uri_must_match` <br/><sub>tests/compliance_rfc6749.rs:247</sub> |
+| ✅ | [§4.1.1](https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.1) | MUST | Authorization requests bearing an unknown `client_id` MUST be rejected. | `rfc6749_s4_1_1_authorize_rejects_unknown_client` <br/><sub>tests/compliance_rfc6749.rs:414</sub> |
+| ✅ | [§4.1.1](https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.1) | MUST | Authorization requests with an unsupported `response_type` MUST be rejected with `unsupported_response_type` (or equivalent error). | `rfc6749_s4_1_1_authorize_rejects_unknown_response_type` <br/><sub>tests/compliance_rfc6749.rs:330</sub> |
+| ✅ | [§4.1.1](https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.1) | MUST | The authorization request MUST include the `client_id` parameter. | `rfc6749_s4_1_1_authorize_requires_client_id` <br/><sub>tests/compliance_rfc6749.rs:372</sub> |
+| ✅ | [§4.1.1](https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.1) | MUST | The authorization request MUST include the `response_type` parameter. | `rfc6749_s4_1_1_authorize_requires_response_type` <br/><sub>tests/compliance_rfc6749.rs:293</sub> |
+| ✅ | [§4.1.2](https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.2) | MUST | A successful authorization response MUST be delivered as a redirect to the client's redirect URI with a `code` query parameter. | `rfc6749_s4_1_2_authorize_redirects_with_code` <br/><sub>tests/compliance_rfc6749.rs:463</sub> |
+| ✅ | [§4.1.2](https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.2) | MUST | If the client includes a `state` parameter, the authorization server MUST include the exact value received in the response. | `rfc6749_s4_1_2_state_is_echoed_in_redirect` <br/><sub>tests/compliance_rfc6749.rs:522</sub> |
+| ✅ | [§4.1.3](https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.3) | MUST | Public clients (`token_endpoint_auth_method=none`) must exchange auth codes via PKCE without a secret. | `public_client_exchanges_code_without_secret` <br/><sub>tests/rfc_compliance.rs:586</sub> |
+| ✅ | [§4.1.3](https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.3) | MUST | Public clients presenting a client_secret must be rejected (`invalid_client`). | `public_client_must_not_present_secret` <br/><sub>tests/rfc_compliance.rs:687</sub> |
+| ✅ | [§4.1.3](https://datatracker.ietf.org/doc/html/rfc6749#section-5.2) | MUST | Token requests with an unsupported `grant_type` MUST be rejected with `unsupported_grant_type`. | `rfc6749_s4_1_3_token_rejects_unsupported_grant_type` <br/><sub>tests/compliance_rfc6749.rs:629</sub> |
+| ✅ | [§4.1.3](https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.3) | MUST | The authorization server MUST ensure that an authorization code is bound to the client identifier it was issued to. | `rfc6749_s4_1_3_token_rejects_wrong_client_for_code` <br/><sub>tests/compliance_rfc6749.rs:678</sub> |
+| ✅ | [§4.1.3](https://datatracker.ietf.org/doc/html/rfc6749#section-4.1.3) | MUST | Token requests MUST include the `grant_type` parameter. | `rfc6749_s4_1_3_token_requires_grant_type` <br/><sub>tests/compliance_rfc6749.rs:584</sub> |
+| ✅ | [§4.4.2](https://datatracker.ietf.org/doc/html/rfc6749#section-4.4.2) | MUST | A successful client credentials grant MUST return an access token in the token response body. | `rfc6749_s4_4_2_client_credentials_returns_access_token` <br/><sub>tests/compliance_rfc6749.rs:805</sub> |
+| ✅ | [§4.4.3](https://datatracker.ietf.org/doc/html/rfc6749#section-5.2) | MUST | Invalid client authentication on the token endpoint MUST be rejected with `invalid_client`. | `rfc6749_s4_4_3_client_credentials_rejects_invalid_client` <br/><sub>tests/compliance_rfc6749.rs:851</sub> |
+| ✅ | [§5.1](https://datatracker.ietf.org/doc/html/rfc6749#section-5.1) | MUST | Successful token responses MUST include the `access_token` and `token_type` fields. | `rfc6749_s5_1_token_response_has_required_fields` <br/><sub>tests/compliance_rfc6749.rs:990</sub> |
+| ✅ | [§5.1](https://datatracker.ietf.org/doc/html/rfc6749#section-5.1) | MUST | Token endpoint responses MUST include `Cache-Control: no-store` and `Pragma: no-cache` to prevent caching of sensitive credentials. | `rfc6749_s5_2_token_response_no_cache_headers` <br/><sub>tests/compliance_rfc6749.rs:1046</sub> |
+| ✅ | [§5.2](https://datatracker.ietf.org/doc/html/rfc6749#section-5.2) | MUST | Error responses from the token endpoint MUST be JSON objects containing an `error` field. | `rfc6749_s5_2_error_response_format` <br/><sub>tests/compliance_rfc6749.rs:1108</sub> |
+| ✅ | [§10.5](https://datatracker.ietf.org/doc/html/rfc6749#section-10.5) | MUST | Authorization codes MUST be single-use; a second redemption of the same code MUST be rejected. | `rfc6749_s10_3_authorization_code_single_use` <br/><sub>tests/compliance_rfc6749.rs:1160</sub> |
+
+## RFC 6750
+
+| Status | Section | Level | Requirement | Test |
+|---|---|---|---|---|
+| ✅ | [§2](https://datatracker.ietf.org/doc/html/rfc6750#section-2) | MUST | A token without a resource-owner subject must not be accepted by the userinfo endpoint. | `rfc6750_s2_client_credentials_token_cannot_access_userinfo` <br/><sub>tests/compliance_rfc6750.rs:315</sub> |
+| ✅ | [§2.1](https://datatracker.ietf.org/doc/html/rfc6750#section-2.1) | MUST | Bearer token in the Authorization header must be accepted by protected resources. | `rfc6750_s2_1_bearer_in_authorization_header_returns_200` <br/><sub>tests/compliance_rfc6750.rs:132</sub> |
+| ✅ | [§2.1](https://datatracker.ietf.org/doc/html/rfc6750#section-2.1) | MUST | A valid Bearer token must enable retrieval of the resource owner's `sub` claim. | `rfc6750_s2_1_userinfo_response_contains_sub` <br/><sub>tests/compliance_rfc6750.rs:165</sub> |
+| ✅ | [§3.1](https://datatracker.ietf.org/doc/html/rfc6750#section-3.1) | MUST | Invalid token error body must contain `error: invalid_token`. | `rfc6750_s3_1_error_body_has_invalid_token_code` <br/><sub>tests/compliance_rfc6750.rs:279</sub> |
+| ✅ | [§3.1](https://datatracker.ietf.org/doc/html/rfc6750#section-3.1) | MUST | Invalid Bearer token must return 401 with WWW-Authenticate including error=invalid_token. | `rfc6750_s3_1_invalid_token_returns_401_with_www_authenticate` <br/><sub>tests/compliance_rfc6750.rs:240</sub> |
+| ✅ | [§3.1](https://datatracker.ietf.org/doc/html/rfc6750#section-3.1) | MUST | Missing Bearer credentials must return 401 with WWW-Authenticate: Bearer. | `rfc6750_s3_1_missing_token_returns_401` <br/><sub>tests/compliance_rfc6750.rs:204</sub> |
+
+## RFC 7009
+
+| Status | Section | Level | Requirement | Test |
+|---|---|---|---|---|
+| ✅ | [§2](https://datatracker.ietf.org/doc/html/rfc7009#section-2) | MUST | Revoking a token must cascade-revoke the entire token family (security BCP). | `revoke_cascades_to_entire_token_family` <br/><sub>tests/rfc_compliance.rs:1649</sub> |
+| ✅ | [§2](https://datatracker.ietf.org/doc/html/rfc7009#section-2) | MUST | A revoked token must subsequently be reported as inactive by introspection. | `rfc7009_s2_token_inactive_after_revoke` <br/><sub>tests/compliance_rfc7662_7009.rs:624</sub> |
+| ✅ | [§2.1](https://datatracker.ietf.org/doc/html/rfc7009#section-2.1) | MUST | Token revocation endpoint must require client authentication. | `rfc7009_s2_1_revoke_requires_client_auth` <br/><sub>tests/compliance_rfc7662_7009.rs:582</sub> |
+| ✅ | [§2.2](https://datatracker.ietf.org/doc/html/rfc7009#section-2.2) | MUST | Revocation of an unknown token must still return HTTP 200. | `rfc7009_s2_2_revoke_unknown_token_returns_200` <br/><sub>tests/compliance_rfc7662_7009.rs:538</sub> |
+| ✅ | [§2.2](https://datatracker.ietf.org/doc/html/rfc7009#section-2.2) | MUST | Successful token revocation must return HTTP 200. | `rfc7009_s2_2_revoke_valid_token_returns_200` <br/><sub>tests/compliance_rfc7662_7009.rs:496</sub> |
+
+## RFC 7515
+
+| Status | Section | Level | Requirement | Test |
+|---|---|---|---|---|
+| ✅ | [§6](https://datatracker.ietf.org/doc/html/rfc7515#section-6) | MUST | A JWS with `alg: none` and a non-empty signature must be rejected. | `wave2_c1_public_client_jar_rejects_nonempty_signature_with_alg_none` <br/><sub>tests/compliance_wave5.rs:797</sub> |
+
+## RFC 7523
+
+| Status | Section | Level | Requirement | Test |
+|---|---|---|---|---|
+| ✅ | [§2.2](https://datatracker.ietf.org/doc/html/rfc7523#section-2.2) | MUST | Token endpoint must accept `client_secret_jwt` (HS256 JWT signed with client_secret). | `rfc7523_client_secret_jwt_authentication` <br/><sub>tests/phase2_rfc_compliance.rs:595</sub> |
+| ✅ | [§2.2](https://datatracker.ietf.org/doc/html/rfc7523#section-2.2) | MUST | A client_secret_jwt assertion signed with the wrong secret must be rejected. | `rfc7523_client_secret_jwt_wrong_secret_fails` <br/><sub>tests/phase2_rfc_compliance.rs:671</sub> |
+| ✅ | [§2.2](https://datatracker.ietf.org/doc/html/rfc7523#section-2.2) | MUST | Token endpoint must accept `private_key_jwt` (RS256 JWT verified against registered JWKS). | `rfc7523_private_key_jwt_authentication` <br/><sub>tests/phase2_rfc_compliance.rs:748</sub> |
+
+## RFC 7591
+
+| Status | Section | Level | Requirement | Test |
+|---|---|---|---|---|
+| ✅ | [§2](https://datatracker.ietf.org/doc/html/rfc7591#section-2) | MUST | Dynamic registration must reject public clients requesting the `client_credentials` grant. | `public_client_registration_with_client_credentials_is_rejected` <br/><sub>tests/rfc_compliance.rs:972</sub> |
+| ✅ | [§2](https://datatracker.ietf.org/doc/html/rfc7591#section-2) | MUST | Dynamic registration must accept `token_endpoint_auth_method=none` for public clients. | `public_client_registration_with_none_auth_method_succeeds` <br/><sub>tests/rfc_compliance.rs:926</sub> |
+| ✅ | [§2](https://datatracker.ietf.org/doc/html/rfc7591#section-2) | MUST | Registration request must not contain both `jwks` and `jwks_uri`. | `rfc7591_jwks_and_jwks_uri_mutually_exclusive` <br/><sub>tests/phase2_rfc_compliance.rs:1089</sub> |
+| ✅ | [§2](https://datatracker.ietf.org/doc/html/rfc7591#section-2) | MUST | Registering with `token_endpoint_auth_method=private_key_jwt` must require `jwks` or `jwks_uri`. | `rfc7591_private_key_jwt_requires_jwks` <br/><sub>tests/phase2_rfc_compliance.rs:1022</sub> |
+| ✅ | [§2](https://datatracker.ietf.org/doc/html/rfc7591#section-2) | MUST | Registration must reject invalid `redirect_uris` (malformed/non-absolute/etc). | `rfc7591_rejects_invalid_redirect_uris` <br/><sub>tests/phase2_rfc_compliance.rs:296</sub> |
+| ✅ | [§3.1](https://datatracker.ietf.org/doc/html/rfc7591#section-3.1) | MUST | Registration must default `grant_types`/`response_types` to `authorization_code`/`code` when omitted. | `rfc7591_defaults_grant_and_response_types` <br/><sub>tests/phase2_rfc_compliance.rs:186</sub> |
+| ✅ | [§3.1](https://datatracker.ietf.org/doc/html/rfc7591#section-3.1) | MUST | Successful dynamic client registration must return 201 with full client info plus registration_access_token. | `rfc7591_dynamic_registration_success` <br/><sub>tests/phase2_rfc_compliance.rs:100</sub> |
+| ✅ | [§3.1](https://datatracker.ietf.org/doc/html/rfc7591#section-3.1) | MUST | Public-client registration must omit `client_secret` from the registration response. | `rfc7591_public_client_no_secret` <br/><sub>tests/phase2_rfc_compliance.rs:238</sub> |
+
+## RFC 7592
+
+| Status | Section | Level | Requirement | Test |
+|---|---|---|---|---|
+| ✅ | [§2.1](https://datatracker.ietf.org/doc/html/rfc7592#section-2.1) | MUST | GET on the client configuration endpoint must return the client config when authenticated with the registration access token. | `rfc7592_read_client_configuration` <br/><sub>tests/phase2_rfc_compliance.rs:379</sub> |
+| ✅ | [§2.2](https://datatracker.ietf.org/doc/html/rfc7592#section-2.2) | MUST | PUT on the client configuration endpoint must update the client metadata. | `rfc7592_update_client_configuration` <br/><sub>tests/phase2_rfc_compliance.rs:451</sub> |
+| ✅ | [§2.3](https://datatracker.ietf.org/doc/html/rfc7592#section-2.3) | MUST | DELETE on the client configuration endpoint must remove the client. | `rfc7592_delete_client` <br/><sub>tests/phase2_rfc_compliance.rs:521</sub> |
+
+## RFC 7636
+
+| Status | Section | Level | Requirement | Test |
+|---|---|---|---|---|
+| ✅ | [§4.1](https://datatracker.ietf.org/doc/html/rfc7636#section-4.1) | MUST | Public clients using authorization_code must include code_challenge in the authorize request. | `rfc7636_s4_1_pkce_required_for_authorization_code` <br/><sub>tests/compliance_rfc7636.rs:190</sub> |
+| ✅ | [§4.1](https://datatracker.ietf.org/doc/html/rfc7636#section-4.1) | MUST | code_verifier longer than 128 characters must be rejected. | `rfc7636_s4_1_verifier_max_length_128` <br/><sub>tests/compliance_rfc7636.rs:291</sub> |
+| ✅ | [§4.1](https://datatracker.ietf.org/doc/html/rfc7636#section-4.1) | MUST | code_verifier shorter than 43 characters must be rejected. | `rfc7636_s4_1_verifier_min_length_43` <br/><sub>tests/compliance_rfc7636.rs:236</sub> |
+| ✅ | [§4.2](https://datatracker.ietf.org/doc/html/rfc7636#section-4.2) | MUST | code_challenge_method without code_challenge must be rejected. | `rfc7636_s4_2_method_without_challenge_rejected` <br/><sub>tests/compliance_rfc7636.rs:457</sub> |
+| ✅ | [§4.2](https://datatracker.ietf.org/doc/html/rfc7636#section-4.2) | MUST | The plain code_challenge_method must be rejected (S256-only enforcement). | `rfc7636_s4_2_plain_method_is_rejected` <br/><sub>tests/compliance_rfc7636.rs:398</sub> |
+| ✅ | [§4.2](https://datatracker.ietf.org/doc/html/rfc7636#section-4.2) | MUST | Servers must support the S256 code_challenge_method. | `rfc7636_s4_2_s256_challenge_method_is_accepted` <br/><sub>tests/compliance_rfc7636.rs:348</sub> |
+| ✅ | [§4.3](https://datatracker.ietf.org/doc/html/rfc7636#section-4.3) | MUST | Missing code_verifier when challenge was registered must yield invalid_grant. | `rfc7636_s4_3_missing_verifier_rejects_pkce_code` <br/><sub>tests/compliance_rfc7636.rs:603</sub> |
+| ✅ | [§4.3](https://datatracker.ietf.org/doc/html/rfc7636#section-4.3) | MUST | Verifier-as-challenge (plain-style) misuse must be rejected when S256 is required. | `rfc7636_s4_3_sending_verifier_as_challenge_rejected` <br/><sub>tests/compliance_rfc7636.rs:657</sub> |
+| ✅ | [§4.3](https://datatracker.ietf.org/doc/html/rfc7636#section-4.3) | MUST | A correct PKCE code_verifier must be accepted at the token endpoint. | `rfc7636_s4_3_valid_verifier_exchanges_code` <br/><sub>tests/compliance_rfc7636.rs:502</sub> |
+| ✅ | [§4.3](https://datatracker.ietf.org/doc/html/rfc7636#section-4.3) | MUST | An incorrect PKCE code_verifier must yield invalid_grant at the token endpoint. | `rfc7636_s4_3_wrong_verifier_is_rejected` <br/><sub>tests/compliance_rfc7636.rs:552</sub> |
+
+## RFC 7662
+
+| Status | Section | Level | Requirement | Test |
+|---|---|---|---|---|
+| ✅ | [§2.1](https://datatracker.ietf.org/doc/html/rfc7662#section-2.1) | MUST | Introspection endpoint must accept HTTP Basic client authentication. | `rfc7662_s2_1_introspect_accepts_basic_auth` <br/><sub>tests/compliance_rfc7662_7009.rs:449</sub> |
+| ✅ | [§2.1](https://datatracker.ietf.org/doc/html/rfc7662#section-2.1) | MUST | Introspection endpoint must require client authentication. | `rfc7662_s2_1_introspect_requires_client_auth` <br/><sub>tests/compliance_rfc7662_7009.rs:294</sub> |
+| ✅ | [§2.2](https://datatracker.ietf.org/doc/html/rfc7662#section-2.2) | MUST | Active introspection response must include `nbf`, `jti`, `aud`, and `iss` claims. | `rfc7662_introspection_includes_nbf_jti_aud_iss` <br/><sub>tests/rfc_compliance.rs:371</sub> |
+| ✅ | [§2.2](https://datatracker.ietf.org/doc/html/rfc7662#section-2.2) | MUST | Introspection response must satisfy `nbf <= iat` for tokens valid from issuance. | `rfc7662_introspection_nbf_le_iat` <br/><sub>tests/rfc_compliance.rs:479</sub> |
+| ✅ | [§2.2](https://datatracker.ietf.org/doc/html/rfc7662#section-2.2) | MUST | Introspection of an active token must yield `active: true`. | `rfc7662_s2_2_introspect_active_token_returns_true` <br/><sub>tests/compliance_rfc7662_7009.rs:207</sub> |
+| ✅ | [§2.2](https://datatracker.ietf.org/doc/html/rfc7662#section-2.2) | MUST | Introspection must report a token belonging to a different client as inactive. | `rfc7662_s2_2_introspect_cross_client_returns_inactive` <br/><sub>tests/compliance_rfc7662_7009.rs:391</sub> |
+| ✅ | [§2.2](https://datatracker.ietf.org/doc/html/rfc7662#section-2.2) | MUST | Introspection must return `active: false` for an invalid or unknown token. | `rfc7662_s2_2_introspect_invalid_token_returns_false` <br/><sub>tests/compliance_rfc7662_7009.rs:251</sub> |
+| ✅ | [§2.2](https://datatracker.ietf.org/doc/html/rfc7662#section-2.2) | MUST | Introspection response for an active token must include scope, client_id, and token_type. | `rfc7662_s2_2_introspect_response_includes_required_fields` <br/><sub>tests/compliance_rfc7662_7009.rs:337</sub> |
+| ✅ | [§5](https://datatracker.ietf.org/doc/html/rfc7662#section-5) | MUST | Anonymous introspection must strip subject identity fields (username, sub) while keeping lifecycle claims. | `rfc9700_anonymous_introspection_strips_username_and_sub` <br/><sub>tests/rfc9700_introspection_pii.rs:28</sub> |
+| ✅ | [§5](https://datatracker.ietf.org/doc/html/rfc7662#section-5) | MUST | Authenticated owner introspection must still return identity claims (sub, client_id) for the token's owner. | `rfc9700_owner_introspection_still_returns_pii` <br/><sub>tests/rfc9700_introspection_pii.rs:169</sub> |
+
+## RFC 8252
+
+| Status | Section | Level | Requirement | Test |
+|---|---|---|---|---|
+| ✅ | [§7.1](https://datatracker.ietf.org/doc/html/rfc8252#section-7.1) | MUST | Claimed/custom URI schemes must match registered redirect URI byte-for-byte. | `rfc8252_custom_scheme_exact_match_only` <br/><sub>tests/rfc8252_native_apps.rs:149</sub> |
+| ✅ | [§7.3](https://datatracker.ietf.org/doc/html/rfc8252#section-7.3) | MUST | IPv4 loopback (127.0.0.1) redirect URIs must accept any port at request time. | `rfc8252_ipv4_loopback_any_port_accepted` <br/><sub>tests/rfc8252_native_apps.rs:36</sub> |
+| ✅ | [§7.3](https://datatracker.ietf.org/doc/html/rfc8252#section-7.3) | MUST | IPv6 loopback ([::1]) redirect URIs must accept any port at request time. | `rfc8252_ipv6_loopback_any_port_accepted` <br/><sub>tests/rfc8252_native_apps.rs:50</sub> |
+| ✅ | [§7.3](https://datatracker.ietf.org/doc/html/rfc8252#section-7.3) | MUST | Loopback exception must still require path equality; only the port is wildcarded. | `rfc8252_loopback_exception_still_requires_path_match` <br/><sub>tests/rfc8252_native_apps.rs:119</sub> |
+| ✅ | [§7.3](https://datatracker.ietf.org/doc/html/rfc8252#section-7.3) | MUST | Loopback exception must still require scheme equality (http vs https are distinct). | `rfc8252_loopback_exception_still_requires_scheme_match` <br/><sub>tests/rfc8252_native_apps.rs:134</sub> |
+| ✅ | [§7.3](https://datatracker.ietf.org/doc/html/rfc8252#section-7.3) | MUST | IPv4 and IPv6 loopback hosts must be treated as distinct (no cross-family wildcarding). | `rfc8252_loopback_families_do_not_cross` <br/><sub>tests/rfc8252_native_apps.rs:88</sub> |
+| ✅ | [§7.3](https://datatracker.ietf.org/doc/html/rfc8252#section-7.3) | MUST | Non-loopback hosts must require exact redirect URI match (no port wildcard). | `rfc8252_non_loopback_host_requires_exact_match` <br/><sub>tests/rfc8252_native_apps.rs:105</sub> |
+| ✅ | [§8.3](https://datatracker.ietf.org/doc/html/rfc8252#section-8.3) | MUST | `localhost` hostname must NOT receive the loopback port-wildcard exception. | `rfc8252_localhost_hostname_does_not_wildcard_port` <br/><sub>tests/rfc8252_native_apps.rs:67</sub> |
+
+## RFC 8414
+
+| Status | Section | Level | Requirement | Test |
+|---|---|---|---|---|
+| ✅ | [§2](https://datatracker.ietf.org/doc/html/rfc8414#section-2) | MUST | Discovery doc must reflect supported client auth methods (incl. client_secret_jwt, private_key_jwt) and registration endpoint. | `rfc8414_discovery_reflects_phase2` <br/><sub>tests/phase2_rfc_compliance.rs:857</sub> |
+| ✅ | [§2](https://datatracker.ietf.org/doc/html/rfc8414#section-2) | MUST | Metadata must include the `authorization_endpoint` field. | `rfc8414_s2_authorization_endpoint_present` <br/><sub>tests/compliance_rfc8414.rs:91</sub> |
+| ✅ | [§2](https://datatracker.ietf.org/doc/html/rfc8414#section-2) | MUST | `code_challenge_methods_supported` must include `S256`. | `rfc8414_s2_code_challenge_methods_includes_s256` <br/><sub>tests/compliance_rfc8414.rs:166</sub> |
+| ✅ | [§2](https://datatracker.ietf.org/doc/html/rfc8414#section-2) | MUST | `grant_types_supported` must include `authorization_code`. | `rfc8414_s2_grant_types_includes_authorization_code` <br/><sub>tests/compliance_rfc8414.rs:243</sub> |
+| ✅ | [§2](https://datatracker.ietf.org/doc/html/rfc8414#section-2) | MUST | The `issuer` metadata value must match the configured issuer URL. | `rfc8414_s2_issuer_matches_configured_value` <br/><sub>tests/compliance_rfc8414.rs:68</sub> |
+| ✅ | [§2](https://datatracker.ietf.org/doc/html/rfc8414#section-2) | MUST | Authorization-server metadata endpoint must return 200 OK. | `rfc8414_s2_metadata_endpoint_returns_200` <br/><sub>tests/compliance_rfc8414.rs:49</sub> |
+| ✅ | [§2](https://datatracker.ietf.org/doc/html/rfc8414#section-2) | MUST | `response_types_supported` must include `code`. | `rfc8414_s2_response_types_includes_code` <br/><sub>tests/compliance_rfc8414.rs:142</sub> |
+| ✅ | [§2](https://datatracker.ietf.org/doc/html/rfc8414#section-2) | MUST | `token_endpoint_auth_methods_supported` must include `client_secret_basic`. | `rfc8414_s2_token_endpoint_auth_methods_include_basic` <br/><sub>tests/compliance_rfc8414.rs:215</sub> |
+| ✅ | [§2](https://datatracker.ietf.org/doc/html/rfc8414#section-2) | MUST | Metadata must include the `token_endpoint` field. | `rfc8414_s2_token_endpoint_present` <br/><sub>tests/compliance_rfc8414.rs:120</sub> |
+| ✅ | [§3](https://datatracker.ietf.org/doc/html/rfc8414#section-3) | MUST | Both `/.well-known/oauth-authorization-server` and `/.well-known/openid-configuration` must serve identical metadata. | `rfc8414_both_well_known_paths_return_same_response` <br/><sub>tests/rfc_compliance.rs:857</sub> |
+| ✅ | [§3](https://datatracker.ietf.org/doc/html/rfc8414#section-3) | MUST | AS metadata must be served at `/.well-known/oauth-authorization-server`. | `rfc8414_oauth_authorization_server_well_known_returns_metadata` <br/><sub>tests/rfc_compliance.rs:792</sub> |
+
+## RFC 8628
+
+| Status | Section | Level | Requirement | Test |
+|---|---|---|---|---|
+| ✅ | [§3.1](https://datatracker.ietf.org/doc/html/rfc8628#section-3.1) | MUST | Device authorization endpoint must accept client_secret_basic credentials. | `rfc8628_s3_1_accepts_client_secret_basic` <br/><sub>tests/compliance_rfc8628.rs:654</sub> |
+| ✅ | [§3.1](https://datatracker.ietf.org/doc/html/rfc8628#section-3.1) | MUST | Device authorization endpoint must reject missing or unknown client_id. | `rfc8628_s3_1_missing_client_id_returns_error` <br/><sub>tests/compliance_rfc8628.rs:235</sub> |
+| ✅ | [§3.1](https://datatracker.ietf.org/doc/html/rfc8628#section-3.1) | MUST | Device authorization response must include device_code, user_code, verification_uri, expires_in. | `rfc8628_s3_1_response_contains_required_fields` <br/><sub>tests/compliance_rfc8628.rs:171</sub> |
+| ✅ | [§3.1](https://datatracker.ietf.org/doc/html/rfc8628#section-3.1) | MUST | A client without device_code grant must receive `unauthorized_client`. | `rfc8628_s3_1_unauthorized_client_is_rejected` <br/><sub>tests/compliance_rfc8628.rs:273</sub> |
+| ✅ | [§3.3](https://datatracker.ietf.org/doc/html/rfc8628#section-3.3) | MUST | Approving a valid user_code at the verification endpoint must return a 2xx response. | `rfc8628_s3_3_approve_returns_success` <br/><sub>tests/compliance_rfc8628.rs:328</sub> |
+| ✅ | [§3.3](https://datatracker.ietf.org/doc/html/rfc8628#section-3.3) | MUST | Denying a valid user_code at the verification endpoint must return a 2xx response. | `rfc8628_s3_3_deny_returns_success` <br/><sub>tests/compliance_rfc8628.rs:395</sub> |
+| ✅ | [§3.4](https://datatracker.ietf.org/doc/html/rfc8628#section-3.4) | MUST | After user approval, token polling must return 200 with an access token. | `rfc8628_s3_4_approved_returns_access_token` <br/><sub>tests/compliance_rfc8628.rs:524</sub> |
+| ✅ | [§3.4](https://datatracker.ietf.org/doc/html/rfc8628#section-3.4) | MUST | Token polling before approval must return 400 with error=authorization_pending. | `rfc8628_s3_4_pending_returns_authorization_pending` <br/><sub>tests/compliance_rfc8628.rs:462</sub> |
+| ✅ | [§3.4](https://datatracker.ietf.org/doc/html/rfc8628#section-3.4) | MUST | Unknown or invalid device_code at the token endpoint must return a 4xx error. | `rfc8628_s3_4_unknown_device_code_returns_error` <br/><sub>tests/compliance_rfc8628.rs:609</sub> |
+
+## RFC 8693
+
+| Status | Section | Level | Requirement | Test |
+|---|---|---|---|---|
+| ✅ | [§2.1](https://datatracker.ietf.org/doc/html/rfc8693#section-2.1) | MUST | Discovery metadata must include `urn:ietf:params:oauth:grant-type:token-exchange` in grant_types_supported. | `wave4_rfc8693_token_exchange_grant_type_in_discovery` <br/><sub>tests/compliance_wave4.rs:126</sub> |
+
+## RFC 8705
+
+| Status | Section | Level | Requirement | Test |
+|---|---|---|---|---|
+| ✅ | [§2.1](https://datatracker.ietf.org/doc/html/rfc8705#section-2.1) | MUST | `tls_client_auth` must validate the client certificate Subject DN against the registered value. | `test_vector_p_mtls_subject_dn_validation` <br/><sub>tests/rfc9700_compliance.rs:1003</sub> |
+| ✅ | [§3](https://datatracker.ietf.org/doc/html/rfc8705#section-3) | MUST | Discovery metadata must advertise `tls_client_certificate_bound_access_tokens: true`. | `wave4_rfc8705_mtls_advertised_in_discovery` <br/><sub>tests/compliance_wave4.rs:104</sub> |
+
+## RFC 8707
+
+| Status | Section | Level | Requirement | Test |
+|---|---|---|---|---|
+| ✅ | [§2](https://datatracker.ietf.org/doc/html/rfc8707#section-2) | MUST | Token endpoint must accept `resource` parameter and bind it as token audience. | `rfc8707_resource_indicator_accepted_in_client_credentials` <br/><sub>tests/compliance_wave3.rs:376</sub> |
+| ✅ | [§2](https://datatracker.ietf.org/doc/html/rfc8707#section-2) | MUST | Token request `resource` parameter must populate the issued token's `aud` claim. | `test_vector_m_resource_to_aud_claim` <br/><sub>tests/rfc9700_compliance.rs:860</sub> |
+
+## RFC 9068
+
+| Status | Section | Level | Requirement | Test |
+|---|---|---|---|---|
+| ✅ | [§2.1](https://datatracker.ietf.org/doc/html/rfc9068#section-2.1) | MUST | JWT access tokens must use JOSE header `typ: "at+JWT"`. | `rfc9068_access_token_has_typ_at_jwt` <br/><sub>tests/rfc_compliance.rs:225</sub> |
+| ✅ | [§2.2](https://datatracker.ietf.org/doc/html/rfc9068#section-2.2) | MUST | Access-token JWT `iss` claim must equal the configured AS issuer URL. | `rfc9068_jwt_iss_matches_configured_issuer` <br/><sub>tests/rfc_compliance.rs:292</sub> |
+
+## RFC 9101
+
+| Status | Section | Level | Requirement | Test |
+|---|---|---|---|---|
+| ✅ | [§4](https://datatracker.ietf.org/doc/html/rfc9101#section-4) | MUST | Authorization endpoint must accept and process the JAR `request` parameter. | `test_vector_q_jar_request_parameter_integration` <br/><sub>tests/rfc9700_compliance.rs:1090</sub> |
+| ✅ | [§4](https://datatracker.ietf.org/doc/html/rfc9101#section-4) | MUST | JAR signed via `private_key_jwt` must be verified using the client's resolved JWKS. | `test_vector_r_jar_private_key_jwt_jwks_cache` <br/><sub>tests/rfc9700_compliance.rs:1262</sub> |
+| ✅ | [§4](https://datatracker.ietf.org/doc/html/rfc9101#section-4) | MUST | A public-client JAR with a non-`none` `alg` header must be rejected (no signature-bypass). | `wave2_c1_public_client_jar_rejects_non_none_alg_header` <br/><sub>tests/compliance_wave5.rs:736</sub> |
+| ✅ | [§4](https://datatracker.ietf.org/doc/html/rfc9101#section-4) | MAY | A confidential client may submit a JAR signed with HS256 derived from client_secret. | `wave5_jar_confidential_client_hs256_succeeds` <br/><sub>tests/compliance_wave5.rs:585</sub> |
+| ✅ | [§4](https://datatracker.ietf.org/doc/html/rfc9101#section-4) | MAY | A public client may submit an unsigned (alg=none) JAR via the `request` parameter. | `wave5_jar_public_client_unsigned_succeeds` <br/><sub>tests/compliance_wave5.rs:512</sub> |
+| ✅ | [§4](https://datatracker.ietf.org/doc/html/rfc9101#section-4) | MUST | JAR with an invalid / tampered signature must be rejected. | `wave5_jar_tampered_hs256_is_rejected` <br/><sub>tests/compliance_wave5.rs:661</sub> |
+| ✅ | [§9](https://datatracker.ietf.org/doc/html/rfc9101#section-9) | MUST | Discovery must advertise `request_parameter_supported: true`. | `wave5_discovery_request_parameter_supported_is_true` <br/><sub>tests/compliance_wave5.rs:997</sub> |
+
+## RFC 9126
+
+| Status | Section | Level | Requirement | Test |
+|---|---|---|---|---|
+| ✅ | [§2.1](https://datatracker.ietf.org/doc/html/rfc9126#section-2.1) | MUST | PAR endpoint must reject confidential clients that do not authenticate. | `rfc9126_par_confidential_client_no_secret_rejected` <br/><sub>tests/compliance_wave3.rs:263</sub> |
+| ✅ | [§2.1](https://datatracker.ietf.org/doc/html/rfc9126#section-2.1) | MUST | PAR endpoint must accept confidential client authenticated via HTTP Basic. | `rfc9126_par_confidential_client_with_basic_auth_succeeds` <br/><sub>tests/compliance_wave3.rs:312</sub> |
+| ✅ | [§2.1](https://datatracker.ietf.org/doc/html/rfc9126#section-2.1) | MUST | PAR endpoint must reject requests containing duplicate parameters. | `rfc9126_par_duplicate_param_is_rejected` <br/><sub>tests/compliance_wave3.rs:215</sub> |
+| ✅ | [§2.1](https://datatracker.ietf.org/doc/html/rfc9126#section-2.1) | MUST | PAR endpoint must reject requests missing the `response_type` parameter. | `rfc9126_par_missing_response_type_is_rejected` <br/><sub>tests/compliance_wave3.rs:168</sub> |
+| ✅ | [§2.2](https://datatracker.ietf.org/doc/html/rfc9126#section-2.2) | MUST | PAR endpoint must return 201 with `request_uri` and `expires_in` for valid public-client requests. | `rfc9126_par_public_client_returns_request_uri` <br/><sub>tests/compliance_wave3.rs:108</sub> |
+
+## RFC 9207
+
+| Status | Section | Level | Requirement | Test |
+|---|---|---|---|---|
+| ✅ | [§2](https://datatracker.ietf.org/doc/html/rfc9207#section-2) | MUST | Authorization response must include the `iss` parameter naming the AS. | `rfc9207_iss_included_in_authorization_response` <br/><sub>tests/rfc_compliance.rs:136</sub> |
+| ✅ | [§2](https://datatracker.ietf.org/doc/html/rfc9207#section-2) | MUST | Authorization response (success or error) must include the `iss` parameter. | `test_vector_e_iss_in_authorization_response` <br/><sub>tests/rfc9700_compliance.rs:341</sub> |
+| ✅ | [§3](https://datatracker.ietf.org/doc/html/rfc9207#section-3) | MUST | Discovery must advertise `authorization_response_iss_parameter_supported: true`. | `discovery_includes_iss_parameter_supported` <br/><sub>tests/rfc_compliance.rs:1814</sub> |
+
+## RFC 9396
+
+| Status | Section | Level | Requirement | Test |
+|---|---|---|---|---|
+| ✅ | [§7](https://datatracker.ietf.org/doc/html/rfc9396#section-7) | MUST | Discovery metadata must advertise `authorization_details_types_supported`. | `wave4_rfc9396_rar_advertised_in_discovery` <br/><sub>tests/compliance_wave4.rs:152</sub> |
+
+## RFC 9449
+
+| Status | Section | Level | Requirement | Test |
+|---|---|---|---|---|
+| ✅ | [§4](https://datatracker.ietf.org/doc/html/rfc9449#section-4) | MUST | DPoP proof with invalid `typ` JOSE header must be rejected with `invalid_dpop_proof`. | `test_vector_n_dpop_invalid_typ` <br/><sub>tests/rfc9700_compliance.rs:944</sub> |
+| ✅ | [§4](https://datatracker.ietf.org/doc/html/rfc9449#section-4) | MUST | Replayed DPoP proof (same `jti`) must be rejected with `invalid_dpop_proof`. | `test_vector_o_dpop_jti_replay` <br/><sub>tests/rfc9700_compliance.rs:972</sub> |
+| ✅ | [§5](https://datatracker.ietf.org/doc/html/rfc9449#section-5) | MUST | Discovery metadata must advertise `dpop_signing_alg_values_supported`. | `wave4_rfc9449_dpop_signing_alg_values_supported_advertised` <br/><sub>tests/compliance_wave4.rs:75</sub> |
+
+## RFC 9470
+
+| Status | Section | Level | Requirement | Test |
+|---|---|---|---|---|
+| ✅ | [§4](https://datatracker.ietf.org/doc/html/rfc9470#section-4) | MUST | Discovery metadata must advertise `acr_values_supported`. | `wave4_rfc9470_acr_values_supported_advertised` <br/><sub>tests/compliance_wave4.rs:175</sub> |
+
+## RFC 9700
+
+| Status | Section | Level | Requirement | Test |
+|---|---|---|---|---|
+| ✅ | [§2.1.1](https://datatracker.ietf.org/doc/html/rfc9700#section-2.1.1) | MUST | Authorization-code replay must cascade-revoke every access/refresh token issued from the original exchange. | `rfc9700_authorization_code_replay_revokes_issued_tokens` <br/><sub>tests/rfc9700_code_replay.rs:54</sub> |
+| ✅ | [§2.1.1](https://datatracker.ietf.org/doc/html/rfc9700#section-2.1.1) | MUST | PKCE `plain` method must be rejected; only S256 is acceptable. | `test_vector_a_plain_pkce_rejected` <br/><sub>tests/rfc9700_compliance.rs:158</sub> |
+| ✅ | [§2.1.1](https://datatracker.ietf.org/doc/html/rfc9700#section-2.1.1) | MUST | Public clients must supply PKCE on the authorization-code flow. | `test_vector_b_public_client_missing_pkce` <br/><sub>tests/rfc9700_compliance.rs:229</sub> |
+| ⚠️ | [§2.1.5](https://datatracker.ietf.org/doc/html/rfc9700#section-2.1.5) | MUST | Authorization-code replay must revoke the entire issued token family. _(ignored: Awaits bead 6.1: token family revocation on code replay)_ | `test_vector_c_authorization_code_replay` <br/><sub>tests/rfc9700_compliance.rs:306</sub> |
+| ⚠️ | [§2.1.5](https://datatracker.ietf.org/doc/html/rfc9700#section-2.1.5) | MUST | Replaying a rotated refresh token must revoke the entire token family. _(ignored: Awaits bead 6.1: token family revocation on refresh replay)_ | `test_vector_d_refresh_token_replay` <br/><sub>tests/rfc9700_compliance.rs:324</sub> |
+| ✅ | [§2.3](https://datatracker.ietf.org/doc/html/rfc9700#section-2.3) | MUST | Token endpoint responses must include `Cache-Control: no-store`. | `test_vector_i_token_cache_control_no_store` <br/><sub>tests/rfc9700_compliance.rs:621</sub> |
+| ✅ | [§2.4](https://datatracker.ietf.org/doc/html/rfc9700#section-2.4) | MUST | Resource Owner Password Credentials grant must be disabled (`unsupported_grant_type`). | `wave2_c3_password_grant_is_rejected` <br/><sub>tests/compliance_wave5.rs:867</sub> |
+| ✅ | [§2.5](https://datatracker.ietf.org/doc/html/rfc9700#section-2.5) | SHOULD | Rate-limit buckets must be keyed per client_id so one client's exhaustion does not affect others. | `invalid_client_buckets_are_isolated_per_client_id` <br/><sub>tests/rfc9700_rate_limit.rs:180</sub> |
+| ✅ | [§2.5](https://datatracker.ietf.org/doc/html/rfc9700#section-2.5) | MUST | Without a configured rate limiter, the token endpoint must still respond 401 `invalid_client` to bad credentials. | `invalid_client_no_limiter_returns_401` <br/><sub>tests/rfc9700_rate_limit.rs:140</sub> |
+| ✅ | [§2.5](https://datatracker.ietf.org/doc/html/rfc9700#section-2.5) | SHOULD | Token endpoint must rate-limit repeated `invalid_client` failures and return 429 when the budget is exhausted. | `invalid_client_rate_limit_returns_429_after_budget_exhausted` <br/><sub>tests/rfc9700_rate_limit.rs:76</sub> |
+| ✅ | [§2.5](https://datatracker.ietf.org/doc/html/rfc9700#section-2.5) | MUST | Replayed JWT client-assertion (same client_id + jti within exp window) must be rejected with `invalid_client`. | `rfc9700_client_secret_jwt_replay_is_rejected` <br/><sub>tests/rfc9700_jti_replay.rs:27</sub> |
+| ✅ | [§2.5](https://datatracker.ietf.org/doc/html/rfc9700#section-2.5) | MUST | A new (client_id, jti) pair from the same client must still be accepted. | `rfc9700_fresh_jti_from_same_client_is_accepted` <br/><sub>tests/rfc9700_jti_replay.rs:175</sub> |
+| ⚠️ | [§2.5](https://datatracker.ietf.org/doc/html/rfc9700#section-2.5) | MUST | A replayed client assertion (same `jti` within exp window) must be rejected. _(ignored: Awaits bead 6.5: JWT client-assertion jti replay store)_ | `test_vector_l_client_assertion_jti_replay` <br/><sub>tests/rfc9700_compliance.rs:843</sub> |
+| ✅ | [§2.5](https://datatracker.ietf.org/doc/html/rfc9700#section-2.5) | SHOULD | Successful token issuance must not consume the `invalid_client` rate-limit bucket. | `valid_requests_do_not_deplete_invalid_client_bucket` <br/><sub>tests/rfc9700_rate_limit.rs:288</sub> |
+| ✅ | [§2.6](https://datatracker.ietf.org/doc/html/rfc9700#section-2.6) | MAY | HTTPS-enforcement middleware must be a no-op when explicitly disabled. | `disabled_by_default_passes_plain_http_through` <br/><sub>tests/rfc9700_https_enforcement.rs:19</sub> |
+| ✅ | [§2.6](https://datatracker.ietf.org/doc/html/rfc9700#section-2.6) | MUST | Plain-HTTP requests must be redirected (308) to the corresponding HTTPS URL when enforcement is on. | `enforced_plain_http_is_redirected_308_to_https` <br/><sub>tests/rfc9700_https_enforcement.rs:45</sub> |
+| ✅ | [§2.6](https://datatracker.ietf.org/doc/html/rfc9700#section-2.6) | MUST | HTTPS-enforcement must accept TLS-terminated upstream traffic via trusted X-Forwarded-Proto. | `trusted_forwarded_proto_https_passes_through` <br/><sub>tests/rfc9700_https_enforcement.rs:96</sub> |
+| ✅ | [§2.6](https://datatracker.ietf.org/doc/html/rfc9700#section-2.6) | MUST | Untrusted X-Forwarded-Proto must not bypass HTTPS enforcement (anti-spoof). | `untrusted_forwarded_proto_header_is_ignored` <br/><sub>tests/rfc9700_https_enforcement.rs:131</sub> |
+| ✅ | [§4](https://datatracker.ietf.org/doc/html/rfc9700#section-4) | MUST | Discovery doc must satisfy RFC 9700 BCP constraints (S256-only, no password, no implicit, iss param). | `test_vector_k_discovery_json_constraints` <br/><sub>tests/rfc9700_compliance.rs:781</sub> |
+| ✅ | [§4.1](https://datatracker.ietf.org/doc/html/rfc9700#section-4.1) | MUST | redirect_uri must be matched byte-for-byte; trailing-slash differences must be rejected. | `test_vector_f_redirect_uri_trailing_slash` <br/><sub>tests/rfc9700_compliance.rs:445</sub> |
+| ✅ | [§4.1](https://datatracker.ietf.org/doc/html/rfc9700#section-4.1) | MUST | redirect_uri carrying additional query parameters must be rejected. | `test_vector_g_redirect_uri_extra_query_param` <br/><sub>tests/rfc9700_compliance.rs:524</sub> |
+| ✅ | [§4.7](https://datatracker.ietf.org/doc/html/rfc9700#section-4.7) | MAY | Default `require_state=false` must allow authorize requests without a `state` parameter. | `require_state_off_accepts_missing_state` <br/><sub>tests/rfc9700_require_state.rs:151</sub> |
+| ✅ | [§4.7](https://datatracker.ietf.org/doc/html/rfc9700#section-4.7) | MUST | `require_state=true` must accept authorize requests when `state` is provided. | `require_state_on_accepts_present_state` <br/><sub>tests/rfc9700_require_state.rs:183</sub> |
+| ✅ | [§4.7](https://datatracker.ietf.org/doc/html/rfc9700#section-4.7) | MUST | `require_state=true` must reject authorize requests missing a `state` parameter. | `require_state_on_rejects_missing_state` <br/><sub>tests/rfc9700_require_state.rs:167</sub> |
+| ⚠️ | [§4.11](https://datatracker.ietf.org/doc/html/rfc9700#section-4.11) | SHOULD | Login form POST handler should redirect with 303 See Other (not 302). _(ignored: Awaits bead 6.7: 302 → 303 See Other for login redirects)_ | `test_vector_h_login_redirect_303` <br/><sub>tests/rfc9700_compliance.rs:604</sub> |
+| ✅ | [§4.12](https://datatracker.ietf.org/doc/html/rfc9700#section-4.12) | MUST | /authorize and /consent must set X-Frame-Options: DENY or CSP frame-ancestors 'none'. | `test_vector_j_authorize_security_headers` <br/><sub>tests/rfc9700_compliance.rs:689</sub> |
+
+## RFC 9701
+
+| Status | Section | Level | Requirement | Test |
+|---|---|---|---|---|
+| ✅ | [§4](https://datatracker.ietf.org/doc/html/rfc9701#section-4) | MUST | Introspection must return a signed JWT response when `Accept: application/token-introspection+jwt`. | `rfc9701_jwt_accept_header_returns_jwt_introspection_response` <br/><sub>tests/compliance_wave3.rs:442</sub> |
+| ✅ | [§4](https://datatracker.ietf.org/doc/html/rfc9701#section-4) | MUST | JWT introspection payload must include a `token_introspection` claim with standard fields. | `rfc9701_jwt_payload_contains_token_introspection_claim` <br/><sub>tests/compliance_wave3.rs:604</sub> |
+| ✅ | [§4](https://datatracker.ietf.org/doc/html/rfc9701#section-4) | MUST | Introspection without special Accept must return the standard JSON response. | `rfc9701_standard_accept_returns_json_introspection_response` <br/><sub>tests/compliance_wave3.rs:531</sub> |
+
+## RFC 9728
+
+| Status | Section | Level | Requirement | Test |
+|---|---|---|---|---|
+| ✅ | [§3](https://datatracker.ietf.org/doc/html/rfc9728#section-3) | MUST | Protected resource metadata must include an `authorization_servers` array. | `wave4_rfc9728_protected_resource_metadata_has_authorization_servers` <br/><sub>tests/compliance_wave4.rs:238</sub> |
+| ✅ | [§3](https://datatracker.ietf.org/doc/html/rfc9728#section-3) | MUST | Protected resource metadata must include a `resource` field. | `wave4_rfc9728_protected_resource_metadata_has_resource_field` <br/><sub>tests/compliance_wave4.rs:216</sub> |
+| ✅ | [§3](https://datatracker.ietf.org/doc/html/rfc9728#section-3) | MUST | /.well-known/oauth-protected-resource must return 200. | `wave4_rfc9728_protected_resource_metadata_returns_200` <br/><sub>tests/compliance_wave4.rs:195</sub> |
+
+## OpenID Connect Back-Channel Logout 1.0
+
+| Status | Section | Level | Requirement | Test |
+|---|---|---|---|---|
+| ✅ | [§2.1](https://openid.net/specs/openid-connect-backchannel-1_0.html#ClientMetadata) | MUST | Dynamic client registration must accept `backchannel_logout_uri` and `backchannel_logout_session_required`. | `wave6_client_registration_includes_logout_fields` <br/><sub>tests/compliance_wave6.rs:586</sub> |
+
+## OpenID Connect Core 1.0
+
+| Status | Section | Level | Requirement | Test |
+|---|---|---|---|---|
+| ✅ | [§2](https://openid.net/specs/openid-connect-core-1_0.html#IDToken) | MUST | id_token `aud` claim must contain the requesting RP's client_id. | `oidc_core_s3_1_id_token_aud_matches_client` <br/><sub>tests/compliance_oidc_core.rs:409</sub> |
+| ✅ | [§2](https://openid.net/specs/openid-connect-core-1_0.html#IDToken) | MUST | id_token must have `iat` and `exp` NumericDate claims with `exp` > `iat`. | `oidc_core_s3_1_id_token_has_iat_and_exp` <br/><sub>tests/compliance_oidc_core.rs:455</sub> |
+| ✅ | [§2](https://openid.net/specs/openid-connect-core-1_0.html#IDToken) | MUST | id_token `iss` claim must match the configured issuer value exactly. | `oidc_core_s3_1_id_token_iss_matches_config` <br/><sub>tests/compliance_oidc_core.rs:368</sub> |
+| ✅ | [§2](https://openid.net/specs/openid-connect-core-1_0.html#IDToken) | MUST | id_token must contain a `sub` claim identifying the end-user. | `oidc_core_s3_1_id_token_sub_claim_present` <br/><sub>tests/compliance_oidc_core.rs:329</sub> |
+| ✅ | [§3.1](https://openid.net/specs/openid-connect-core-1_0.html#IDToken) | MUST | id_token must be a compact-serialised JWT (header.payload.signature). | `oidc_core_s3_1_id_token_is_valid_jwt` <br/><sub>tests/compliance_oidc_core.rs:289</sub> |
+| ✅ | [§3.1](https://openid.net/specs/openid-connect-core-1_0.html#TokenResponse) | MUST | Token response without `openid` scope must not include an id_token. | `oidc_core_s3_1_no_id_token_without_openid_scope` <br/><sub>tests/compliance_oidc_core.rs:543</sub> |
+| ✅ | [§3.1](https://openid.net/specs/openid-connect-core-1_0.html#TokenResponse) | MUST | Authorization-code flow with `openid` scope must include an id_token in the token response. | `oidc_core_s3_1_openid_scope_triggers_id_token` <br/><sub>tests/compliance_oidc_core.rs:251</sub> |
+| ✅ | [§3.1.2.1](https://openid.net/specs/openid-connect-core-1_0.html#AuthRequest) | MUST | `max_age=0` must force re-authentication when auth_time is unavailable or stale. | `max_age_zero_forces_reauthentication` <br/><sub>tests/rfc_compliance.rs:1490</sub> |
+| ✅ | [§3.1.2.1](https://openid.net/specs/openid-connect-core-1_0.html#AuthRequest) | MUST | A nonce in the authorization request must be echoed verbatim in the id_token. | `oidc_core_s3_1_2_1_nonce_echoed_in_id_token` <br/><sub>tests/compliance_oidc_core.rs:497</sub> |
+| ✅ | [§3.1.2.1](https://openid.net/specs/openid-connect-core-1_0.html#AuthRequest) | MUST | `prompt=login` must force re-authentication even when an active session exists. | `prompt_login_forces_reauthentication` <br/><sub>tests/rfc_compliance.rs:1407</sub> |
+| ✅ | [§3.1.2.1](https://openid.net/specs/openid-connect-core-1_0.html#AuthRequest) | MUST | `prompt=none` without an active session must return a `login_required` error redirect. | `prompt_none_without_session_returns_login_required` <br/><sub>tests/rfc_compliance.rs:1324</sub> |
+| ✅ | [§3.1.2.1](https://openid.net/specs/openid-connect-core-1_0.html#AuthRequest) | MUST | `prompt=consent` must proceed to authorization (auto-approve in test harness). | `wave6_prompt_consent_proceeds_after_auto_approve` <br/><sub>tests/compliance_wave6.rs:454</sub> |
+| ✅ | [§3.1.2.1](https://openid.net/specs/openid-connect-core-1_0.html#AuthRequest) | MUST | `prompt=select_account` must force account selection / re-authentication. | `wave6_prompt_select_account_forces_reauth` <br/><sub>tests/compliance_wave6.rs:521</sub> |
+| ✅ | [§3.3](https://openid.net/specs/openid-connect-core-1_0.html#HybridFlowAuth) | MUST | Hybrid `code id_token` flow must return both `code` and `id_token` in the response fragment. | `wave5_hybrid_code_id_token_delivers_both_in_fragment` <br/><sub>tests/compliance_wave5.rs:370</sub> |
+| ✅ | [§3.3](https://openid.net/specs/openid-connect-core-1_0.html#HybridFlowAuth) | MUST | Hybrid `code id_token` without `openid` scope must not return an id_token. | `wave5_hybrid_no_openid_scope_omits_id_token` <br/><sub>tests/compliance_wave5.rs:441</sub> |
+| ✅ | [§5.3](https://openid.net/specs/openid-connect-core-1_0.html#UserInfo) | MUST | UserInfo endpoint must return 401 with WWW-Authenticate: Bearer when token is missing. | `oidc_core_userinfo_s5_3_missing_token_returns_401` <br/><sub>tests/compliance_oidc_core.rs:632</sub> |
+| ✅ | [§5.3](https://openid.net/specs/openid-connect-core-1_0.html#UserInfo) | MUST | UserInfo response with a valid token must include the `sub` claim. | `oidc_core_userinfo_s5_3_sub_claim_present` <br/><sub>tests/compliance_oidc_core.rs:585</sub> |
+| ✅ | [§5.4](https://openid.net/specs/openid-connect-core-1_0.html#StandardClaims) | MUST | UserInfo must return profile claims (e.g. preferred_username) when `profile` scope is granted. | `userinfo_returns_real_claims_for_auth_code_flow` <br/><sub>tests/rfc_compliance.rs:1146</sub> |
+| ✅ | [§5.4](https://openid.net/specs/openid-connect-core-1_0.html#StandardClaims) | MUST | UserInfo must return the `email` claim when the access token has the `email` scope. | `userinfo_returns_real_email_when_email_scope_requested` <br/><sub>tests/rfc_compliance.rs:1022</sub> |
+| ✅ | [§5.5](https://openid.net/specs/openid-connect-core-1_0.html#ClaimsParameter) | MUST | Discovery `claims_supported` must advertise `acr` and `auth_time` to indicate Claims Request support. | `wave4_oidc_claims_request_acr_auth_time_in_claims_supported` <br/><sub>tests/compliance_wave4.rs:311</sub> |
+
+## OpenID Connect Discovery 1.0
+
+| Status | Section | Level | Requirement | Test |
+|---|---|---|---|---|
+| ✅ | [§3](https://openid.net/specs/openid-connect-discovery-1_0.html#ProviderMetadata) | MUST | OIDC discovery metadata must include `userinfo_endpoint`. | `rfc8414_s2_userinfo_endpoint_present` <br/><sub>tests/compliance_rfc8414.rs:192</sub> |
+| ✅ | [§3](https://openid.net/specs/openid-connect-discovery-1_0.html#ProviderMetadata) | MUST | Discovery `response_modes_supported` must include `fragment`. | `wave5_discovery_response_modes_includes_fragment` <br/><sub>tests/compliance_wave5.rs:963</sub> |
+| ✅ | [§3](https://openid.net/specs/openid-connect-discovery-1_0.html#ProviderMetadata) | MUST | Discovery `response_types_supported` must include `code id_token` for hybrid flow. | `wave5_discovery_response_types_includes_code_id_token` <br/><sub>tests/compliance_wave5.rs:932</sub> |
+
+## OpenID Connect Front-Channel Logout 1.0
+
+| Status | Section | Level | Requirement | Test |
+|---|---|---|---|---|
+| ✅ | [§3](https://openid.net/specs/openid-connect-frontchannel-1_0.html#RPLogout) | MUST | Logout endpoint must render front-channel logout iframes for clients with `frontchannel_logout_uri`. | `wave6_logout_renders_frontchannel_iframes` <br/><sub>tests/compliance_wave6.rs:317</sub> |
+
+## OAuth 2.0 Multiple Response Type Encoding Practices
+
+| Status | Section | Level | Requirement | Test |
+|---|---|---|---|---|
+| ✅ | [§2](https://openid.net/specs/oauth-v2-multiple-response-types-1_0.html#ResponseModes) | MUST | `response_mode=fragment` must encode authorization response in URL fragment. | `wave5_response_mode_fragment_delivers_code_in_fragment` <br/><sub>tests/compliance_wave5.rs:247</sub> |
+| ✅ | [§2](https://openid.net/specs/oauth-v2-multiple-response-types-1_0.html#ResponseModes) | MUST | An unsupported `response_mode` value must produce `invalid_request`. | `wave5_unsupported_response_mode_is_rejected` <br/><sub>tests/compliance_wave5.rs:321</sub> |
+
+## OpenID Connect Dynamic Client Registration 1.0
+
+| Status | Section | Level | Requirement | Test |
+|---|---|---|---|---|
+| ✅ | [§2](https://openid.net/specs/openid-connect-registration-1_0.html#ClientMetadata) | MUST | Registration must accept and round-trip OIDC client metadata (contacts, *_uri fields, response_types). | `oidc_metadata_preserved_in_registration` <br/><sub>tests/phase2_rfc_compliance.rs:933</sub> |
+
+## OpenID Connect RP-Initiated Logout 1.0
+
+| Status | Section | Level | Requirement | Test |
+|---|---|---|---|---|
+| ✅ | [§3](https://openid.net/specs/openid-connect-rpinitiated-1_0.html#RPLogout) | MUST | Logout endpoint must reject `id_token_hint` whose `aud` does not match a registered client. | `logout_with_invalid_aud_id_token_hint_returns_error` <br/><sub>tests/rfc_compliance.rs:1578</sub> |
+| ✅ | [§3](https://openid.net/specs/openid-connect-rpinitiated-1_0.html#RPLogout) | MUST | Logout must accept post_logout_redirect_uri only when registered in post_logout_redirect_uris. | `wave6_logout_accepts_registered_post_logout_redirect_uri` <br/><sub>tests/compliance_wave6.rs:368</sub> |
+| ✅ | [§3](https://openid.net/specs/openid-connect-rpinitiated-1_0.html#RPLogout) | MUST | Logout must reject unregistered post_logout_redirect_uri values. | `wave6_logout_rejects_unregistered_post_logout_redirect_uri` <br/><sub>tests/compliance_wave6.rs:408</sub> |
+| ✅ | [§3](https://openid.net/specs/openid-connect-rpinitiated-1_0.html#RPLogout) | SHOULD | Logout endpoint must accept a simple GET (no id_token_hint, no redirect) and return 200. | `wave6_simple_logout_returns_ok` <br/><sub>tests/compliance_wave6.rs:651</sub> |
+
+## OpenID Connect Session Management 1.0
+
+| Status | Section | Level | Requirement | Test |
+|---|---|---|---|---|
+| ✅ | [§3](https://openid.net/specs/openid-connect-session-1_0.html#OPiframe) | MUST | check_session_iframe must return HTML with a postMessage handler. | `wave6_check_session_iframe_returns_html` <br/><sub>tests/compliance_wave6.rs:266</sub> |
+| ✅ | [§4](https://openid.net/specs/openid-connect-session-1_0.html#OPMetadata) | MUST | Discovery must advertise `check_session_iframe` for OIDC Session Management. | `wave6_discovery_includes_session_management_fields` <br/><sub>tests/compliance_wave6.rs:211</sub> |
+
+## OAuth 2.0 Token Status List (draft-ietf-oauth-status-list)
+
+| Status | Section | Level | Requirement | Test |
+|---|---|---|---|---|
+| ✅ | [§5](https://datatracker.ietf.org/doc/html/draft-ietf-oauth-status-list) | MUST | Token Status List discovery endpoint must return 200. | `wave4_token_status_list_returns_200` <br/><sub>tests/compliance_wave4.rs:267</sub> |
+| ✅ | [§5](https://datatracker.ietf.org/doc/html/draft-ietf-oauth-status-list) | MUST | Token Status List response must be valid JSON. | `wave4_token_status_list_returns_valid_json` <br/><sub>tests/compliance_wave4.rs:288</sub> |
 
 ---
 
-## RFC 9126 — Pushed Authorization Requests (PAR)
-
-Test file: [`tests/compliance_wave3.rs`](https://github.com/ianlintner/rust-oauth2-server/blob/main/tests/compliance_wave3.rs)
-
-| Section | Requirement | Test Function | Status |
-| ------- | ----------- | ------------- | ------ |
-| §2.2 | Public client with valid params receives `request_uri` and `expires_in: 60` | `rfc9126_par_public_client_returns_request_uri` | ✅ |
-| §2.1 | PAR request missing `response_type` is rejected | `rfc9126_par_missing_response_type_is_rejected` | ✅ |
-| §2.1 | PAR request with duplicate parameters is rejected | `rfc9126_par_duplicate_param_is_rejected` | ✅ |
-| §2.1 | Confidential client sending PAR without authentication is rejected | `rfc9126_par_confidential_client_no_secret_rejected` | ✅ |
-| §2.1 | Confidential client with valid Basic auth succeeds | `rfc9126_par_confidential_client_with_basic_auth_succeeds` | ✅ |
-
----
-
-## RFC 8707 — Resource Indicators for OAuth 2.0
-
-Test file: [`tests/compliance_wave3.rs`](https://github.com/ianlintner/rust-oauth2-server/blob/main/tests/compliance_wave3.rs)
-
-| Section | Requirement | Test Function | Status |
-| ------- | ----------- | ------------- | ------ |
-| §2 | `resource` parameter in client_credentials request is accepted and echoed in token `aud` | `rfc8707_resource_indicator_accepted_in_client_credentials` | ✅ |
-
----
-
-## RFC 9701 — JWT Response for OAuth Token Introspection
-
-Test file: [`tests/compliance_wave3.rs`](https://github.com/ianlintner/rust-oauth2-server/blob/main/tests/compliance_wave3.rs)
-
-| Section | Requirement | Test Function | Status |
-| ------- | ----------- | ------------- | ------ |
-| §4 | `Accept: application/token-introspection+jwt` triggers JWT response with matching `Content-Type` | `rfc9701_jwt_accept_header_returns_jwt_introspection_response` | ✅ |
-| §4 | Without the `Accept` header, introspection returns standard JSON | `rfc9701_standard_accept_returns_json_introspection_response` | ✅ |
-| §4 | JWT payload contains `token_introspection` claim with `active`, `scope`, `client_id` | `rfc9701_jwt_payload_contains_token_introspection_claim` | ✅ |
-
----
-
-## RFC 7591 — OAuth 2.0 Dynamic Client Registration
-
-Test file: [`tests/phase2_rfc_compliance.rs`](https://github.com/ianlintner/rust-oauth2-server/blob/main/tests/phase2_rfc_compliance.rs)
-
-| Section | Requirement | Test Function | Status |
-| ------- | ----------- | ------------- | ------ |
-| §3.1 | Dynamic registration returns `client_id` and `registration_access_token` | `rfc7591_dynamic_registration_success` | ✅ |
-| §3.2 | Defaults for `grant_types` and `response_types` are applied when omitted | `rfc7591_defaults_grant_and_response_types` | ✅ |
-| §2 | Public client registered with `token_endpoint_auth_method: none` | `rfc7591_public_client_no_secret` | ✅ |
-| §3.1 | Registration with invalid `redirect_uris` is rejected | `rfc7591_rejects_invalid_redirect_uris` | ✅ |
-| §3.2 | `jwks` and `jwks_uri` are mutually exclusive | `rfc7591_jwks_and_jwks_uri_mutually_exclusive` | ✅ |
-| §3.2 | `private_key_jwt` registration requires `jwks` or `jwks_uri` | `rfc7591_private_key_jwt_requires_jwks` | ✅ |
-
----
-
-## RFC 7592 — OAuth 2.0 Dynamic Client Registration Management
-
-Test file: [`tests/phase2_rfc_compliance.rs`](https://github.com/ianlintner/rust-oauth2-server/blob/main/tests/phase2_rfc_compliance.rs)
-
-| Section | Requirement | Test Function | Status |
-| ------- | ----------- | ------------- | ------ |
-| §2 | `GET /connect/register/{id}` returns client configuration | `rfc7592_read_client_configuration` | ✅ |
-| §2 | `PUT /connect/register/{id}` updates client metadata | `rfc7592_update_client_configuration` | ✅ |
-| §2 | `DELETE /connect/register/{id}` removes the client | `rfc7592_delete_client` | ✅ |
-
----
-
-## RFC 7523 — JSON Web Token (JWT) Profile for Client Authentication
-
-Test file: [`tests/phase2_rfc_compliance.rs`](https://github.com/ianlintner/rust-oauth2-server/blob/main/tests/phase2_rfc_compliance.rs)
-
-| Section | Requirement | Test Function | Status |
-| ------- | ----------- | ------------- | ------ |
-| §2.2 | `client_secret_jwt` assertion with correct HMAC secret succeeds | `rfc7523_client_secret_jwt_authentication` | ✅ |
-| §2.2 | `client_secret_jwt` assertion with wrong secret fails | `rfc7523_client_secret_jwt_wrong_secret_fails` | ✅ |
-| §2.2 | `private_key_jwt` assertion with RSA key pair succeeds | `rfc7523_private_key_jwt_authentication` | ✅ |
-| §2 | OIDC registration metadata is preserved after registration | `oidc_metadata_preserved_in_registration` | ✅ |
-
----
-
-## Wave 4 — DPoP, mTLS, Token Exchange, RAR, Step-Up, Protected Resource Metadata
-
-Test file: [`tests/compliance_wave4.rs`](https://github.com/ianlintner/rust-oauth2-server/blob/main/tests/compliance_wave4.rs)
-
-| Feature | RFC | Requirement | Test Function | Status |
-| ------- | --- | ----------- | ------------- | ------ |
-| DPoP | RFC 9449 | Discovery advertises `dpop_signing_alg_values_supported` including `ES256` | `wave4_rfc9449_dpop_signing_alg_values_supported_advertised` | ✅ |
-| mTLS | RFC 8705 | Discovery advertises `tls_client_certificate_bound_access_tokens: true` | `wave4_rfc8705_mtls_advertised_in_discovery` | ✅ |
-| Token Exchange | RFC 8693 | Discovery includes `urn:ietf:params:oauth:grant-type:token-exchange` in `grant_types_supported` | `wave4_rfc8693_token_exchange_grant_type_in_discovery` | ✅ |
-| RAR | RFC 9396 | Discovery advertises `authorization_details_types_supported` | `wave4_rfc9396_rar_advertised_in_discovery` | ✅ |
-| Step-Up Auth | RFC 9470 | Discovery advertises `acr_values_supported` | `wave4_rfc9470_acr_values_supported_advertised` | ✅ |
-| Protected Resource Metadata | RFC 9728 | `/.well-known/oauth-protected-resource` returns 200 | `wave4_rfc9728_protected_resource_metadata_returns_200` | ✅ |
-| Protected Resource Metadata | RFC 9728 | Response includes `resource` field | `wave4_rfc9728_protected_resource_metadata_has_resource_field` | ✅ |
-| Protected Resource Metadata | RFC 9728 | Response includes `authorization_servers` field | `wave4_rfc9728_protected_resource_metadata_has_authorization_servers` | ✅ |
-| Token Status List | Draft | `/.well-known/oauth-authorization-server/status` returns 200 | `wave4_token_status_list_returns_200` | ✅ |
-| Token Status List | Draft | Response is valid JSON | `wave4_token_status_list_returns_valid_json` | ✅ |
-| OIDC Claims Request | OIDC Core §5.5 | Discovery advertises `acr` and `auth_time` in `claims_supported` | `wave4_oidc_claims_request_acr_auth_time_in_claims_supported` | ✅ |
+Legend:  ✅ passing test &middot; ❌ failing test &middot; ⚠️ ignored / pending &middot; · status unknown (no test results provided)

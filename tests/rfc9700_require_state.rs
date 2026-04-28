@@ -140,6 +140,13 @@ async fn run_authorize(require_state: bool, send_state: bool) -> u16 {
     resp.status().as_u16()
 }
 
+/// RFC 9700 §4.7: With `require_state=false`, authorize must accept requests without `state`.
+///
+/// @rfc 9700
+/// @section 4.7
+/// @requirement Default `require_state=false` must allow authorize requests without a `state` parameter.
+/// @level MAY
+/// @url https://datatracker.ietf.org/doc/html/rfc9700#section-4.7
 #[actix_web::test]
 async fn require_state_off_accepts_missing_state() {
     let status = run_authorize(false, false).await;
@@ -149,6 +156,13 @@ async fn require_state_off_accepts_missing_state() {
     );
 }
 
+/// RFC 9700 §4.7: With `require_state=true`, authorize must reject requests missing `state`.
+///
+/// @rfc 9700
+/// @section 4.7
+/// @requirement `require_state=true` must reject authorize requests missing a `state` parameter.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc9700#section-4.7
 #[actix_web::test]
 async fn require_state_on_rejects_missing_state() {
     let status = run_authorize(true, false).await;
@@ -158,6 +172,13 @@ async fn require_state_on_rejects_missing_state() {
     );
 }
 
+/// RFC 9700 §4.7: With `require_state=true`, authorize must accept requests where `state` is present.
+///
+/// @rfc 9700
+/// @section 4.7
+/// @requirement `require_state=true` must accept authorize requests when `state` is provided.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc9700#section-4.7
 #[actix_web::test]
 async fn require_state_on_accepts_present_state() {
     let status = run_authorize(true, true).await;

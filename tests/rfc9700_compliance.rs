@@ -148,6 +148,12 @@ async fn setup_rfc9700_context(
 // ---------------------------------------------------------------------------
 
 /// RFC 9700 §2.1.1: PKCE `plain` method MUST be rejected.
+///
+/// @rfc 9700
+/// @section 2.1.1
+/// @requirement PKCE `plain` method must be rejected; only S256 is acceptable.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc9700#section-2.1.1
 #[actix_web::test]
 async fn test_vector_a_plain_pkce_rejected() {
     let client = Client::new(
@@ -213,6 +219,12 @@ async fn test_vector_a_plain_pkce_rejected() {
 // ---------------------------------------------------------------------------
 
 /// RFC 9700 §2.1.1: Public clients MUST supply PKCE.
+///
+/// @rfc 9700
+/// @section 2.1.1
+/// @requirement Public clients must supply PKCE on the authorization-code flow.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc9700#section-2.1.1
 #[actix_web::test]
 async fn test_vector_b_public_client_missing_pkce() {
     let mut client = Client::new(
@@ -283,6 +295,12 @@ async fn test_vector_b_public_client_missing_pkce() {
 // ---------------------------------------------------------------------------
 
 /// RFC 9700 §2.1.5: replaying an authorization code MUST revoke the entire token family.
+///
+/// @rfc 9700
+/// @section 2.1.5
+/// @requirement Authorization-code replay must revoke the entire issued token family.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc9700#section-2.1.5
 #[actix_web::test]
 #[ignore = "Awaits bead 6.1: token family revocation on code replay"]
 async fn test_vector_c_authorization_code_replay() {
@@ -295,6 +313,12 @@ async fn test_vector_c_authorization_code_replay() {
 // ---------------------------------------------------------------------------
 
 /// RFC 9700 §2.1.5: replaying a rotated refresh token MUST revoke the entire family.
+///
+/// @rfc 9700
+/// @section 2.1.5
+/// @requirement Replaying a rotated refresh token must revoke the entire token family.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc9700#section-2.1.5
 #[actix_web::test]
 #[ignore = "Awaits bead 6.1: token family revocation on refresh replay"]
 async fn test_vector_d_refresh_token_replay() {
@@ -307,6 +331,12 @@ async fn test_vector_d_refresh_token_replay() {
 // ---------------------------------------------------------------------------
 
 /// RFC 9207 + RFC 9700 §4.8: every authorization response (success and error) MUST include `iss`.
+///
+/// @rfc 9207
+/// @section 2
+/// @requirement Authorization response (success or error) must include the `iss` parameter.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc9207#section-2
 #[actix_web::test]
 async fn test_vector_e_iss_in_authorization_response() {
     const ISSUER: &str = "https://auth.example.com";
@@ -405,6 +435,12 @@ async fn test_vector_e_iss_in_authorization_response() {
 // ---------------------------------------------------------------------------
 
 /// RFC 9700 §4.1: `redirect_uri` must match registered URI exactly (no normalization).
+///
+/// @rfc 9700
+/// @section 4.1
+/// @requirement redirect_uri must be matched byte-for-byte; trailing-slash differences must be rejected.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc9700#section-4.1
 #[actix_web::test]
 async fn test_vector_f_redirect_uri_trailing_slash() {
     let client = Client::new(
@@ -478,6 +514,12 @@ async fn test_vector_f_redirect_uri_trailing_slash() {
 // ---------------------------------------------------------------------------
 
 /// RFC 9700 §4.1: `redirect_uri` with extra query parameters must be rejected.
+///
+/// @rfc 9700
+/// @section 4.1
+/// @requirement redirect_uri carrying additional query parameters must be rejected.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc9700#section-4.1
 #[actix_web::test]
 async fn test_vector_g_redirect_uri_extra_query_param() {
     let client = Client::new(
@@ -551,6 +593,12 @@ async fn test_vector_g_redirect_uri_extra_query_param() {
 // ---------------------------------------------------------------------------
 
 /// RFC 9700 §4.11: login form POST should redirect with 303 See Other, not 302.
+///
+/// @rfc 9700
+/// @section 4.11
+/// @requirement Login form POST handler should redirect with 303 See Other (not 302).
+/// @level SHOULD
+/// @url https://datatracker.ietf.org/doc/html/rfc9700#section-4.11
 #[actix_web::test]
 #[ignore = "Awaits bead 6.7: 302 → 303 See Other for login redirects"]
 async fn test_vector_h_login_redirect_303() {
@@ -563,6 +611,12 @@ async fn test_vector_h_login_redirect_303() {
 // ---------------------------------------------------------------------------
 
 /// RFC 9700 §2.3: token responses MUST include `Cache-Control: no-store`.
+///
+/// @rfc 9700
+/// @section 2.3
+/// @requirement Token endpoint responses must include `Cache-Control: no-store`.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc9700#section-2.3
 #[actix_web::test]
 async fn test_vector_i_token_cache_control_no_store() {
     let client = Client::new(
@@ -625,6 +679,12 @@ async fn test_vector_i_token_cache_control_no_store() {
 // ---------------------------------------------------------------------------
 
 /// RFC 9700 §4.12: `/authorize` and `/consent` MUST include X-Frame-Options: DENY or CSP frame-ancestors 'none'.
+///
+/// @rfc 9700
+/// @section 4.12
+/// @requirement /authorize and /consent must set X-Frame-Options: DENY or CSP frame-ancestors 'none'.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc9700#section-4.12
 #[actix_web::test]
 async fn test_vector_j_authorize_security_headers() {
     let client = Client::new(
@@ -711,6 +771,12 @@ async fn test_vector_j_authorize_security_headers() {
 /// - `grant_types_supported` excludes `password`
 /// - `response_types_supported` excludes `token`
 /// - `authorization_response_iss_parameter_supported=true`
+///
+/// @rfc 9700
+/// @section 4
+/// @requirement Discovery doc must satisfy RFC 9700 BCP constraints (S256-only, no password, no implicit, iss param).
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc9700#section-4
 #[actix_web::test]
 async fn test_vector_k_discovery_json_constraints() {
     let (_, _, _, _, _, oidc_config) =
@@ -766,6 +832,12 @@ async fn test_vector_k_discovery_json_constraints() {
 // ---------------------------------------------------------------------------
 
 /// RFC 9700 §2.5: replaying a client assertion with the same `jti` within its exp window MUST be rejected.
+///
+/// @rfc 9700
+/// @section 2.5
+/// @requirement A replayed client assertion (same `jti` within exp window) must be rejected.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc9700#section-2.5
 #[actix_web::test]
 #[ignore = "Awaits bead 6.5: JWT client-assertion jti replay store"]
 async fn test_vector_l_client_assertion_jti_replay() {
@@ -778,6 +850,12 @@ async fn test_vector_l_client_assertion_jti_replay() {
 // ---------------------------------------------------------------------------
 
 /// RFC 9700 §2.3 + RFC 8707: token request with `resource` parameter MUST populate `aud` claim.
+///
+/// @rfc 8707
+/// @section 2
+/// @requirement Token request `resource` parameter must populate the issued token's `aud` claim.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc8707#section-2
 #[actix_web::test]
 async fn test_vector_m_resource_to_aud_claim() {
     let client = Client::new(
@@ -856,6 +934,12 @@ async fn test_vector_m_resource_to_aud_claim() {
 // ---------------------------------------------------------------------------
 
 /// RFC 9449 §4: DPoP proof with invalid typ header → 400 invalid_dpop_proof
+///
+/// @rfc 9449
+/// @section 4
+/// @requirement DPoP proof with invalid `typ` JOSE header must be rejected with `invalid_dpop_proof`.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc9449#section-4
 #[actix_web::test]
 async fn test_vector_n_dpop_invalid_typ() {
     use oauth2_actix::handlers::dpop::{validate_dpop_proof, DpopReplayStore};
@@ -878,6 +962,12 @@ async fn test_vector_n_dpop_invalid_typ() {
 }
 
 /// RFC 9449 §4: DPoP proof jti replay → 400 invalid_dpop_proof
+///
+/// @rfc 9449
+/// @section 4
+/// @requirement Replayed DPoP proof (same `jti`) must be rejected with `invalid_dpop_proof`.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc9449#section-4
 #[actix_web::test]
 async fn test_vector_o_dpop_jti_replay() {
     use oauth2_actix::handlers::dpop::DpopReplayStore;
@@ -903,6 +993,12 @@ async fn test_vector_o_dpop_jti_replay() {
 // ---------------------------------------------------------------------------
 
 /// RFC 8705 §2.1: tls_client_auth requires certificate Subject DN match
+///
+/// @rfc 8705
+/// @section 2.1
+/// @requirement `tls_client_auth` must validate the client certificate Subject DN against the registered value.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc8705#section-2.1
 #[actix_web::test]
 async fn test_vector_p_mtls_subject_dn_validation() {
     use oauth2_actix::handlers::oauth;
@@ -984,6 +1080,12 @@ async fn test_vector_p_mtls_subject_dn_validation() {
 // ---------------------------------------------------------------------------
 
 /// RFC 9101 §4: JAR implementation verified via oauth.rs lines 713-778
+///
+/// @rfc 9101
+/// @section 4
+/// @requirement Authorization endpoint must accept and process the JAR `request` parameter.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc9101#section-4
 #[actix_web::test]
 async fn test_vector_q_jar_request_parameter_integration() {
     use jsonwebtoken::{encode, Algorithm, EncodingKey, Header as JwtHeader};
@@ -1150,6 +1252,12 @@ async fn test_vector_q_jar_request_parameter_integration() {
 }
 
 /// RFC 9101 §4: JAR with private_key_jwt requires JWKS resolution
+///
+/// @rfc 9101
+/// @section 4
+/// @requirement JAR signed via `private_key_jwt` must be verified using the client's resolved JWKS.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc9101#section-4
 #[actix_web::test]
 async fn test_vector_r_jar_private_key_jwt_jwks_cache() {
     use base64::{engine::general_purpose, Engine as _};

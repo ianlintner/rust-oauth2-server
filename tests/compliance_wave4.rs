@@ -65,6 +65,12 @@ async fn discovery_body(oidc_config: OidcConfig) -> Value {
 // ---------------------------------------------------------------------------
 
 /// RFC 9449 §5: Discovery document MUST advertise `dpop_signing_alg_values_supported`.
+///
+/// @rfc 9449
+/// @section 5
+/// @requirement Discovery metadata must advertise `dpop_signing_alg_values_supported`.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc9449#section-5
 #[actix_web::test]
 async fn wave4_rfc9449_dpop_signing_alg_values_supported_advertised() {
     let body = discovery_body(oidc_config()).await;
@@ -88,6 +94,12 @@ async fn wave4_rfc9449_dpop_signing_alg_values_supported_advertised() {
 
 /// RFC 8705 §3: Discovery document MUST advertise
 /// `tls_client_certificate_bound_access_tokens: true`.
+///
+/// @rfc 8705
+/// @section 3
+/// @requirement Discovery metadata must advertise `tls_client_certificate_bound_access_tokens: true`.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc8705#section-3
 #[actix_web::test]
 async fn wave4_rfc8705_mtls_advertised_in_discovery() {
     let body = discovery_body(oidc_config()).await;
@@ -104,6 +116,12 @@ async fn wave4_rfc8705_mtls_advertised_in_discovery() {
 
 /// RFC 8693 §2.1: Token Exchange grant type MUST appear in
 /// `grant_types_supported`.
+///
+/// @rfc 8693
+/// @section 2.1
+/// @requirement Discovery metadata must include `urn:ietf:params:oauth:grant-type:token-exchange` in grant_types_supported.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc8693#section-2.1
 #[actix_web::test]
 async fn wave4_rfc8693_token_exchange_grant_type_in_discovery() {
     let body = discovery_body(oidc_config()).await;
@@ -124,6 +142,12 @@ async fn wave4_rfc8693_token_exchange_grant_type_in_discovery() {
 
 /// RFC 9396 §7: Discovery document MUST advertise
 /// `authorization_details_types_supported`.
+///
+/// @rfc 9396
+/// @section 7
+/// @requirement Discovery metadata must advertise `authorization_details_types_supported`.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc9396#section-7
 #[actix_web::test]
 async fn wave4_rfc9396_rar_advertised_in_discovery() {
     let body = discovery_body(oidc_config()).await;
@@ -141,6 +165,12 @@ async fn wave4_rfc9396_rar_advertised_in_discovery() {
 // ---------------------------------------------------------------------------
 
 /// RFC 9470 §4: Discovery document MUST advertise `acr_values_supported`.
+///
+/// @rfc 9470
+/// @section 4
+/// @requirement Discovery metadata must advertise `acr_values_supported`.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc9470#section-4
 #[actix_web::test]
 async fn wave4_rfc9470_acr_values_supported_advertised() {
     let body = discovery_body(oidc_config()).await;
@@ -155,6 +185,12 @@ async fn wave4_rfc9470_acr_values_supported_advertised() {
 // ---------------------------------------------------------------------------
 
 /// RFC 9728 §3: GET /.well-known/oauth-protected-resource MUST return 200.
+///
+/// @rfc 9728
+/// @section 3
+/// @requirement /.well-known/oauth-protected-resource must return 200.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc9728#section-3
 #[actix_web::test]
 async fn wave4_rfc9728_protected_resource_metadata_returns_200() {
     let app = discovery_app!(oidc_config());
@@ -170,6 +206,12 @@ async fn wave4_rfc9728_protected_resource_metadata_returns_200() {
 }
 
 /// RFC 9728 §3: Protected resource metadata MUST include a `resource` field.
+///
+/// @rfc 9728
+/// @section 3
+/// @requirement Protected resource metadata must include a `resource` field.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc9728#section-3
 #[actix_web::test]
 async fn wave4_rfc9728_protected_resource_metadata_has_resource_field() {
     let app = discovery_app!(oidc_config());
@@ -186,6 +228,12 @@ async fn wave4_rfc9728_protected_resource_metadata_has_resource_field() {
 
 /// RFC 9728 §3: Protected resource metadata MUST include
 /// `authorization_servers`.
+///
+/// @rfc 9728
+/// @section 3
+/// @requirement Protected resource metadata must include an `authorization_servers` array.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc9728#section-3
 #[actix_web::test]
 async fn wave4_rfc9728_protected_resource_metadata_has_authorization_servers() {
     let app = discovery_app!(oidc_config());
@@ -209,6 +257,12 @@ async fn wave4_rfc9728_protected_resource_metadata_has_authorization_servers() {
 
 /// Token Status List: GET /.well-known/oauth-authorization-server/status MUST
 /// return 200.
+///
+/// @rfc draft-ietf-oauth-status-list
+/// @section 5
+/// @requirement Token Status List discovery endpoint must return 200.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/draft-ietf-oauth-status-list
 #[actix_web::test]
 async fn wave4_token_status_list_returns_200() {
     let app = discovery_app!(oidc_config());
@@ -224,6 +278,12 @@ async fn wave4_token_status_list_returns_200() {
 }
 
 /// Token Status List: Response must be valid JSON.
+///
+/// @rfc draft-ietf-oauth-status-list
+/// @section 5
+/// @requirement Token Status List response must be valid JSON.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/draft-ietf-oauth-status-list
 #[actix_web::test]
 async fn wave4_token_status_list_returns_valid_json() {
     let app = discovery_app!(oidc_config());
@@ -241,6 +301,12 @@ async fn wave4_token_status_list_returns_valid_json() {
 
 /// OIDC Core §5.5: Discovery document MUST include `acr` and `auth_time` in
 /// `claims_supported` to advertise support for Claims Request parameter.
+///
+/// @rfc oidc-core-1.0
+/// @section 5.5
+/// @requirement Discovery `claims_supported` must advertise `acr` and `auth_time` to indicate Claims Request support.
+/// @level MUST
+/// @url https://openid.net/specs/openid-connect-core-1_0.html#ClaimsParameter
 #[actix_web::test]
 async fn wave4_oidc_claims_request_acr_auth_time_in_claims_supported() {
     let body = discovery_body(oidc_config()).await;

@@ -972,6 +972,8 @@ pub async fn run() -> std::io::Result<()> {
         for _ in 0..shard_count {
             let shard = if let Some(ref event_bus) = event_bus {
                 let eb = event_bus.clone();
+                #[allow(clippy::clone_on_copy)]
+                // Option<()> when redis-cache off; real clone otherwise
                 let cache_redis = cache_redis_manager.clone();
                 actix::Actor::create(|ctx| {
                     ctx.set_mailbox_capacity(ACTOR_MAILBOX_CAPACITY);
@@ -987,6 +989,8 @@ pub async fn run() -> std::io::Result<()> {
                     attach_token_cache(actor, &cache_redis)
                 })
             } else {
+                #[allow(clippy::clone_on_copy)]
+                // Option<()> when redis-cache off; real clone otherwise
                 let cache_redis = cache_redis_manager.clone();
                 actix::Actor::create(|ctx| {
                     ctx.set_mailbox_capacity(ACTOR_MAILBOX_CAPACITY);
@@ -1008,6 +1012,7 @@ pub async fn run() -> std::io::Result<()> {
     tracing::info!(shards = shard_count, "TokenActorPool started");
 
     let client_actor = if let Some(ref event_bus) = event_bus {
+        #[allow(clippy::clone_on_copy)] // Option<()> when redis-cache off; real clone otherwise
         let cache_redis = cache_redis_manager.clone();
         actix::Actor::create(|ctx| {
             ctx.set_mailbox_capacity(ACTOR_MAILBOX_CAPACITY);
@@ -1016,6 +1021,7 @@ pub async fn run() -> std::io::Result<()> {
             attach_client_cache(actor, &cache_redis)
         })
     } else {
+        #[allow(clippy::clone_on_copy)] // Option<()> when redis-cache off; real clone otherwise
         let cache_redis = cache_redis_manager.clone();
         actix::Actor::create(|ctx| {
             ctx.set_mailbox_capacity(ACTOR_MAILBOX_CAPACITY);

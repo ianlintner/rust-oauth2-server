@@ -197,6 +197,12 @@ macro_rules! app {
 // ---------------------------------------------------------------------------
 
 /// RFC 7662 §2.2: Introspection of an active token must return `active: true`.
+///
+/// @rfc 7662
+/// @section 2.2
+/// @requirement Introspection of an active token must yield `active: true`.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc7662#section-2.2
 #[actix_web::test]
 async fn rfc7662_s2_2_introspect_active_token_returns_true() {
     let client = Client::new(
@@ -235,6 +241,12 @@ async fn rfc7662_s2_2_introspect_active_token_returns_true() {
 
 /// RFC 7662 §2.2: Introspection must return `active: false` for an unknown or
 /// garbage token string.
+///
+/// @rfc 7662
+/// @section 2.2
+/// @requirement Introspection must return `active: false` for an invalid or unknown token.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc7662#section-2.2
 #[actix_web::test]
 async fn rfc7662_s2_2_introspect_invalid_token_returns_false() {
     let client = Client::new(
@@ -272,6 +284,12 @@ async fn rfc7662_s2_2_introspect_invalid_token_returns_false() {
 
 /// RFC 7662 §2.1: The introspect endpoint must require client authentication
 /// (when public introspection is disabled).
+///
+/// @rfc 7662
+/// @section 2.1
+/// @requirement Introspection endpoint must require client authentication.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc7662#section-2.1
 #[actix_web::test]
 async fn rfc7662_s2_1_introspect_requires_client_auth() {
     let client = Client::new(
@@ -309,6 +327,12 @@ async fn rfc7662_s2_1_introspect_requires_client_auth() {
 
 /// RFC 7662 §2.2: Introspection response must include `scope`, `client_id`,
 /// and `token_type` fields for an active token.
+///
+/// @rfc 7662
+/// @section 2.2
+/// @requirement Introspection response for an active token must include scope, client_id, and token_type.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc7662#section-2.2
 #[actix_web::test]
 async fn rfc7662_s2_2_introspect_response_includes_required_fields() {
     let client = Client::new(
@@ -357,6 +381,12 @@ async fn rfc7662_s2_2_introspect_response_includes_required_fields() {
 
 /// RFC 7662 §2.2: Introspection must return `active: false` for a token that
 /// belongs to a different client (cross-client isolation).
+///
+/// @rfc 7662
+/// @section 2.2
+/// @requirement Introspection must report a token belonging to a different client as inactive.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc7662#section-2.2
 #[actix_web::test]
 async fn rfc7662_s2_2_introspect_cross_client_returns_inactive() {
     let client_a = Client::new(
@@ -409,6 +439,12 @@ async fn rfc7662_s2_2_introspect_cross_client_returns_inactive() {
 }
 
 /// RFC 7662 §2.1: Introspect endpoint must accept client auth via Basic header.
+///
+/// @rfc 7662
+/// @section 2.1
+/// @requirement Introspection endpoint must accept HTTP Basic client authentication.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc7662#section-2.1
 #[actix_web::test]
 async fn rfc7662_s2_1_introspect_accepts_basic_auth() {
     let client = Client::new(
@@ -450,6 +486,12 @@ async fn rfc7662_s2_1_introspect_accepts_basic_auth() {
 // ---------------------------------------------------------------------------
 
 /// RFC 7009 §2.2: Successful revocation must return 200 OK.
+///
+/// @rfc 7009
+/// @section 2.2
+/// @requirement Successful token revocation must return HTTP 200.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc7009#section-2.2
 #[actix_web::test]
 async fn rfc7009_s2_2_revoke_valid_token_returns_200() {
     let client = Client::new(
@@ -486,6 +528,12 @@ async fn rfc7009_s2_2_revoke_valid_token_returns_200() {
 
 /// RFC 7009 §2.2: Revocation of an unknown (never-issued) token must also
 /// return 200 OK per the spec ("error-free" behavior for unknown tokens).
+///
+/// @rfc 7009
+/// @section 2.2
+/// @requirement Revocation of an unknown token must still return HTTP 200.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc7009#section-2.2
 #[actix_web::test]
 async fn rfc7009_s2_2_revoke_unknown_token_returns_200() {
     let client = Client::new(
@@ -524,6 +572,12 @@ async fn rfc7009_s2_2_revoke_unknown_token_returns_200() {
 }
 
 /// RFC 7009 §2.1: Token revocation must require client authentication.
+///
+/// @rfc 7009
+/// @section 2.1
+/// @requirement Token revocation endpoint must require client authentication.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc7009#section-2.1
 #[actix_web::test]
 async fn rfc7009_s2_1_revoke_requires_client_auth() {
     let client = Client::new(
@@ -560,6 +614,12 @@ async fn rfc7009_s2_1_revoke_requires_client_auth() {
 
 /// RFC 7009 §2 + RFC 7662 §2.2: After revocation, introspecting the token
 /// must return `active: false`.
+///
+/// @rfc 7009
+/// @section 2
+/// @requirement A revoked token must subsequently be reported as inactive by introspection.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc7009#section-2
 #[actix_web::test]
 async fn rfc7009_s2_token_inactive_after_revoke() {
     let client = Client::new(

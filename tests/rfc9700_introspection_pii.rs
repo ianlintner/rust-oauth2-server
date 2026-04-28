@@ -18,6 +18,12 @@ use oauth2_observability::Metrics;
 
 /// Anonymous caller (public_introspection=true) gets lifecycle claims but
 /// NOT the token subject's identity fields.
+///
+/// @rfc 7662
+/// @section 5
+/// @requirement Anonymous introspection must strip subject identity fields (username, sub) while keeping lifecycle claims.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc7662#section-5
 #[actix_web::test]
 async fn rfc9700_anonymous_introspection_strips_username_and_sub() {
     const ISSUER: &str = "https://auth.example.com";
@@ -153,6 +159,12 @@ async fn rfc9700_anonymous_introspection_strips_username_and_sub() {
 /// response including PII. Token_client_credentials grant has no user, so
 /// we exercise this via authorization_code elsewhere; here we assert the
 /// owner simply gets `username` populated when it exists on the token.
+///
+/// @rfc 7662
+/// @section 5
+/// @requirement Authenticated owner introspection must still return identity claims (sub, client_id) for the token's owner.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc7662#section-5
 #[actix_web::test]
 async fn rfc9700_owner_introspection_still_returns_pii() {
     const ISSUER: &str = "https://auth.example.com";

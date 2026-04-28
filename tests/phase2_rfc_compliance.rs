@@ -90,6 +90,12 @@ async fn setup_phase2_context(
 
 /// RFC 7591 §3.1: successful dynamic registration returns a 201 with full
 /// client information response including registration_access_token.
+///
+/// @rfc 7591
+/// @section 3.1
+/// @requirement Successful dynamic client registration must return 201 with full client info plus registration_access_token.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc7591#section-3.1
 #[actix_web::test]
 async fn rfc7591_dynamic_registration_success() {
     const ISSUER: &str = "https://auth.example.com";
@@ -170,6 +176,12 @@ async fn rfc7591_dynamic_registration_success() {
 
 /// RFC 7591 §3.1: defaults — when `grant_types` and `response_types` are
 /// omitted, the server MUST default to `authorization_code` / `code`.
+///
+/// @rfc 7591
+/// @section 3.1
+/// @requirement Registration must default `grant_types`/`response_types` to `authorization_code`/`code` when omitted.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc7591#section-3.1
 #[actix_web::test]
 async fn rfc7591_defaults_grant_and_response_types() {
     const ISSUER: &str = "https://auth.example.com";
@@ -216,6 +228,12 @@ async fn rfc7591_defaults_grant_and_response_types() {
 
 /// RFC 7591 §3.1: public client registration (token_endpoint_auth_method=none)
 /// must NOT return a client_secret.
+///
+/// @rfc 7591
+/// @section 3.1
+/// @requirement Public-client registration must omit `client_secret` from the registration response.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc7591#section-3.1
 #[actix_web::test]
 async fn rfc7591_public_client_no_secret() {
     const ISSUER: &str = "https://auth.example.com";
@@ -268,6 +286,12 @@ async fn rfc7591_public_client_no_secret() {
 }
 
 /// RFC 7591: registration rejects invalid redirect_uris.
+///
+/// @rfc 7591
+/// @section 2
+/// @requirement Registration must reject invalid `redirect_uris` (malformed/non-absolute/etc).
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc7591#section-2
 #[actix_web::test]
 async fn rfc7591_rejects_invalid_redirect_uris() {
     const ISSUER: &str = "https://auth.example.com";
@@ -345,6 +369,12 @@ macro_rules! register_test_client {
 
 /// RFC 7592 §2.1: GET /connect/register/{client_id} with a valid
 /// registration_access_token returns the client configuration.
+///
+/// @rfc 7592
+/// @section 2.1
+/// @requirement GET on the client configuration endpoint must return the client config when authenticated with the registration access token.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc7592#section-2.1
 #[actix_web::test]
 async fn rfc7592_read_client_configuration() {
     const ISSUER: &str = "https://auth.example.com";
@@ -411,6 +441,12 @@ async fn rfc7592_read_client_configuration() {
 }
 
 /// RFC 7592 §2.2: PUT /connect/register/{client_id} updates the client.
+///
+/// @rfc 7592
+/// @section 2.2
+/// @requirement PUT on the client configuration endpoint must update the client metadata.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc7592#section-2.2
 #[actix_web::test]
 async fn rfc7592_update_client_configuration() {
     const ISSUER: &str = "https://auth.example.com";
@@ -475,6 +511,12 @@ async fn rfc7592_update_client_configuration() {
 }
 
 /// RFC 7592 §2.3: DELETE /connect/register/{client_id} deletes the client.
+///
+/// @rfc 7592
+/// @section 2.3
+/// @requirement DELETE on the client configuration endpoint must remove the client.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc7592#section-2.3
 #[actix_web::test]
 async fn rfc7592_delete_client() {
     const ISSUER: &str = "https://auth.example.com";
@@ -543,6 +585,12 @@ async fn rfc7592_delete_client() {
 
 /// RFC 7523 §2.2 — client_secret_jwt: token endpoint authenticates client
 /// using an HS256 JWT signed with the client's secret.
+///
+/// @rfc 7523
+/// @section 2.2
+/// @requirement Token endpoint must accept `client_secret_jwt` (HS256 JWT signed with client_secret).
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc7523#section-2.2
 #[actix_web::test]
 async fn rfc7523_client_secret_jwt_authentication() {
     const ISSUER: &str = "https://auth.example.com";
@@ -613,6 +661,12 @@ async fn rfc7523_client_secret_jwt_authentication() {
 }
 
 /// RFC 7523: client_secret_jwt with wrong secret must fail.
+///
+/// @rfc 7523
+/// @section 2.2
+/// @requirement A client_secret_jwt assertion signed with the wrong secret must be rejected.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc7523#section-2.2
 #[actix_web::test]
 async fn rfc7523_client_secret_jwt_wrong_secret_fails() {
     const ISSUER: &str = "https://auth.example.com";
@@ -684,6 +738,12 @@ async fn rfc7523_client_secret_jwt_wrong_secret_fails() {
 /// RFC 7523 §2.2 — private_key_jwt: token endpoint authenticates client
 /// using an RS256 JWT signed with the client's private key, verified against
 /// the registered JWKS.
+///
+/// @rfc 7523
+/// @section 2.2
+/// @requirement Token endpoint must accept `private_key_jwt` (RS256 JWT verified against registered JWKS).
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc7523#section-2.2
 #[actix_web::test]
 async fn rfc7523_private_key_jwt_authentication() {
     use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
@@ -787,6 +847,12 @@ async fn rfc7523_private_key_jwt_authentication() {
 
 /// RFC 8414 §2: the discovery document MUST reflect the new auth methods
 /// and registration endpoint.
+///
+/// @rfc 8414
+/// @section 2
+/// @requirement Discovery doc must reflect supported client auth methods (incl. client_secret_jwt, private_key_jwt) and registration endpoint.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc8414#section-2
 #[actix_web::test]
 async fn rfc8414_discovery_reflects_phase2() {
     const ISSUER: &str = "https://auth.example.com";
@@ -857,6 +923,12 @@ async fn rfc8414_discovery_reflects_phase2() {
 /// OIDC Core: client registration should accept and preserve full OIDC
 /// metadata fields (contacts, logo_uri, client_uri, policy_uri, tos_uri,
 /// response_types).
+///
+/// @rfc oidc-registration-1.0
+/// @section 2
+/// @requirement Registration must accept and round-trip OIDC client metadata (contacts, *_uri fields, response_types).
+/// @level MUST
+/// @url https://openid.net/specs/openid-connect-registration-1_0.html#ClientMetadata
 #[actix_web::test]
 async fn oidc_metadata_preserved_in_registration() {
     const ISSUER: &str = "https://auth.example.com";
@@ -940,6 +1012,12 @@ async fn oidc_metadata_preserved_in_registration() {
 }
 
 /// RFC 7591: private_key_jwt registration requires jwks or jwks_uri.
+///
+/// @rfc 7591
+/// @section 2
+/// @requirement Registering with `token_endpoint_auth_method=private_key_jwt` must require `jwks` or `jwks_uri`.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc7591#section-2
 #[actix_web::test]
 async fn rfc7591_private_key_jwt_requires_jwks() {
     const ISSUER: &str = "https://auth.example.com";
@@ -1001,6 +1079,12 @@ async fn rfc7591_private_key_jwt_requires_jwks() {
 }
 
 /// RFC 7591 §2: jwks and jwks_uri MUST NOT both be present.
+///
+/// @rfc 7591
+/// @section 2
+/// @requirement Registration request must not contain both `jwks` and `jwks_uri`.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc7591#section-2
 #[actix_web::test]
 async fn rfc7591_jwks_and_jwks_uri_mutually_exclusive() {
     const ISSUER: &str = "https://auth.example.com";

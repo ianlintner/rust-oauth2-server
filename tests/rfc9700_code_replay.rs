@@ -43,6 +43,13 @@ fn session_cookie(
         .to_string()
 }
 
+/// RFC 9700 §2.1.1: Replaying an authorization code must revoke all tokens previously issued from it.
+///
+/// @rfc 9700
+/// @section 2.1.1
+/// @requirement Authorization-code replay must cascade-revoke every access/refresh token issued from the original exchange.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc9700#section-2.1.1
 #[actix_web::test]
 async fn rfc9700_authorization_code_replay_revokes_issued_tokens() {
     const ISSUER: &str = "https://auth.example.com";

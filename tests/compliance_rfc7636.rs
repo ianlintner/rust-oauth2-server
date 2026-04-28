@@ -180,6 +180,12 @@ macro_rules! app {
 
 /// RFC 7636 §4.1 + §4.3: PKCE is required for public authorization-code
 /// clients; an authorize request without a code_challenge must be rejected.
+///
+/// @rfc 7636
+/// @section 4.1
+/// @requirement Public clients using authorization_code must include code_challenge in the authorize request.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc7636#section-4.1
 #[actix_web::test]
 async fn rfc7636_s4_1_pkce_required_for_authorization_code() {
     let client = Client::new(
@@ -220,6 +226,12 @@ async fn rfc7636_s4_1_pkce_required_for_authorization_code() {
 
 /// RFC 7636 §4.1: `code_verifier` minimum length is 43 characters (ASCII
 /// unreserved characters).  Shorter verifiers must be rejected at token exchange.
+///
+/// @rfc 7636
+/// @section 4.1
+/// @requirement code_verifier shorter than 43 characters must be rejected.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc7636#section-4.1
 #[actix_web::test]
 async fn rfc7636_s4_1_verifier_min_length_43() {
     let client = Client::new(
@@ -269,6 +281,12 @@ async fn rfc7636_s4_1_verifier_min_length_43() {
 
 /// RFC 7636 §4.1: `code_verifier` maximum length is 128 characters.
 /// Verifiers exceeding this limit must be rejected.
+///
+/// @rfc 7636
+/// @section 4.1
+/// @requirement code_verifier longer than 128 characters must be rejected.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc7636#section-4.1
 #[actix_web::test]
 async fn rfc7636_s4_1_verifier_max_length_128() {
     let client = Client::new(
@@ -320,6 +338,12 @@ async fn rfc7636_s4_1_verifier_max_length_128() {
 // ---------------------------------------------------------------------------
 
 /// RFC 7636 §4.2: The `S256` code challenge method must be accepted.
+///
+/// @rfc 7636
+/// @section 4.2
+/// @requirement Servers must support the S256 code_challenge_method.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc7636#section-4.2
 #[actix_web::test]
 async fn rfc7636_s4_2_s256_challenge_method_is_accepted() {
     let client = Client::new(
@@ -364,6 +388,12 @@ async fn rfc7636_s4_2_s256_challenge_method_is_accepted() {
 
 /// RFC 7636 §4.2: The `plain` code challenge method must NOT be accepted
 /// (this server enforces S256-only per best practice).
+///
+/// @rfc 7636
+/// @section 4.2
+/// @requirement The plain code_challenge_method must be rejected (S256-only enforcement).
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc7636#section-4.2
 #[actix_web::test]
 async fn rfc7636_s4_2_plain_method_is_rejected() {
     let client = Client::new(
@@ -417,6 +447,12 @@ async fn rfc7636_s4_2_plain_method_is_rejected() {
 
 /// RFC 7636 §4.2: Providing a `code_challenge_method` without a
 /// `code_challenge` must be rejected.
+///
+/// @rfc 7636
+/// @section 4.2
+/// @requirement code_challenge_method without code_challenge must be rejected.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc7636#section-4.2
 #[actix_web::test]
 async fn rfc7636_s4_2_method_without_challenge_rejected() {
     let client = Client::new(
@@ -456,6 +492,12 @@ async fn rfc7636_s4_2_method_without_challenge_rejected() {
 // ---------------------------------------------------------------------------
 
 /// RFC 7636 §4.3: Exchanging a code with the correct verifier must succeed.
+///
+/// @rfc 7636
+/// @section 4.3
+/// @requirement A correct PKCE code_verifier must be accepted at the token endpoint.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc7636#section-4.3
 #[actix_web::test]
 async fn rfc7636_s4_3_valid_verifier_exchanges_code() {
     let client = Client::new(
@@ -500,6 +542,12 @@ async fn rfc7636_s4_3_valid_verifier_exchanges_code() {
 
 /// RFC 7636 §4.3: Exchanging a code with a wrong verifier must return
 /// `invalid_grant`.
+///
+/// @rfc 7636
+/// @section 4.3
+/// @requirement An incorrect PKCE code_verifier must yield invalid_grant at the token endpoint.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc7636#section-4.3
 #[actix_web::test]
 async fn rfc7636_s4_3_wrong_verifier_is_rejected() {
     let client = Client::new(
@@ -545,6 +593,12 @@ async fn rfc7636_s4_3_wrong_verifier_is_rejected() {
 
 /// RFC 7636 §4.3: Missing verifier when a challenge was registered must
 /// return `invalid_grant`.
+///
+/// @rfc 7636
+/// @section 4.3
+/// @requirement Missing code_verifier when challenge was registered must yield invalid_grant.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc7636#section-4.3
 #[actix_web::test]
 async fn rfc7636_s4_3_missing_verifier_rejects_pkce_code() {
     let client = Client::new(
@@ -593,6 +647,12 @@ async fn rfc7636_s4_3_missing_verifier_rejects_pkce_code() {
 
 /// RFC 7636 §4.3: Sending the verifier *value* as the challenge (i.e.,
 /// `challenge == verifier` instead of `challenge == S256(verifier)`) must fail.
+///
+/// @rfc 7636
+/// @section 4.3
+/// @requirement Verifier-as-challenge (plain-style) misuse must be rejected when S256 is required.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc7636#section-4.3
 #[actix_web::test]
 async fn rfc7636_s4_3_sending_verifier_as_challenge_rejected() {
     let client = Client::new(
