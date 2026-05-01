@@ -38,12 +38,12 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 # Configuration (override via environment)
 # ---------------------------------------------------------------------------
-ISSUER_URL="${ISSUER_URL:-https://roauth2.cat-herding.net}"
+ISSUER_URL="${ISSUER_URL:-https://oauth.example.com}"
 CLIENT_ID="${CLIENT_ID:-secure-subdomain-client}"
 # Read client secret from K8s secret if not provided
 CLIENT_SECRET="${CLIENT_SECRET:-}"
-REDIRECT_URI="${REDIRECT_URI:-https://profile.cat-herding.net/_oauth2/callback}"
-PROFILE_URL="${PROFILE_URL:-https://profile.cat-herding.net}"
+REDIRECT_URI="${REDIRECT_URI:-https://profile.example.com/_oauth2/callback}"
+PROFILE_URL="${PROFILE_URL:-https://profile.example.com}"
 SCOPES="${SCOPES:-openid profile email}"
 TEST_USERNAME="${TEST_USERNAME:-admin}"
 TEST_PASSWORD="${TEST_PASSWORD:-changeme}"
