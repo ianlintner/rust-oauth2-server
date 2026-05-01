@@ -226,8 +226,12 @@ mod tests {
     #[test]
     fn malformed_nonce_rejected() {
         let issuer = make_issuer();
-        assert!(issuer.verify("not-base64-!!!").is_err());
-        assert!(issuer.verify("YWJj").is_err()); // valid b64 but wrong length
+        // Test with invalid base64 characters
+        let invalid_base64 = String::from("not-base64-!!!");
+        assert!(issuer.verify(&invalid_base64).is_err());
+        // Test with valid base64 but wrong length (decodes to "abc", only 3 bytes)
+        let wrong_length = String::from("YWJj");
+        assert!(issuer.verify(&wrong_length).is_err());
     }
 
     #[test]
