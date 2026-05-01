@@ -4,6 +4,7 @@ pub mod admin_keys;
 pub mod client;
 pub mod device;
 pub mod dpop;
+pub mod dpop_nonce;
 pub mod events;
 pub mod jwks_cache;
 pub mod login;

@@ -20,6 +20,18 @@ spec:
           args:
             - "--config.file=/etc/prometheus/prometheus.yml"
             - "--storage.tsdb.path=/prometheus"
+            - "--storage.tsdb.retention.time=7d"
+            - "--storage.tsdb.retention.size=15GB"
+            - "--web.enable-lifecycle"
+            - "--web.enable-remote-write-receiver"
+            - "--enable-feature=exemplar-storage"
+          resources:
+            requests:
+              cpu: 25m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 768Mi
           ports:
             - name: http
               containerPort: 9090
@@ -44,4 +56,5 @@ spec:
           configMap:
             name: oauth2-prometheus-rules
         - name: prometheus-data
-          emptyDir: {}
+          persistentVolumeClaim:
+            claimName: prometheus-data
