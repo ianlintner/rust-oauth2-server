@@ -16,7 +16,10 @@ use crate::actors::{
     MarkAuthorizationCodeUsed, StorePARRequest, TokenActorPool, ValidateAuthorizationCode,
     ValidateRefreshToken,
 };
-use crate::handlers::dpop::{build_request_url_bounded, validate_dpop_proof, DpopReplayStore};
+use crate::handlers::dpop::{
+    build_request_url_bounded, enforce_dpop_nonce, validate_dpop_proof, DpopReplayStore,
+};
+use crate::handlers::dpop_nonce::{use_dpop_nonce_response, DpopNonceIssuer};
 use crate::handlers::jwks_cache::JwksCache;
 use crate::handlers::wellknown::OidcConfig;
 use oauth2_core::{IdTokenClaims, OAuth2Error, TokenResponse};
@@ -1377,6 +1380,7 @@ pub async fn token(
     >,
     jwks_cache: Option<web::Data<JwksCache>>,
     dpop_replay_store: Option<web::Data<DpopReplayStore>>,
+    dpop_nonce_issuer: Option<web::Data<DpopNonceIssuer>>,
 ) -> Result<HttpResponse, OAuth2Error> {
     // OAuch: reject duplicate parameters (prevents parser differentials / smuggling).
     ensure_no_duplicate_query_params(&req)?;
@@ -1447,7 +1451,7 @@ pub async fn token(
     };
 
     // RFC 9449: DPoP — fully validate the DPoP proof and extract JWK Thumbprint.
-    let dpop_jkt: Option<String> = if let Some(dpop_header) = req.headers().get("DPoP") {
+    let dpop_validated = if let Some(dpop_header) = req.headers().get("DPoP") {
         let dpop_str = dpop_header
             .to_str()
             .map_err(|_| OAuth2Error::invalid_request("DPoP header is not valid UTF-8"))?;
@@ -1466,13 +1470,48 @@ pub async fn token(
                 &default_store
             }
         };
-        match validate_dpop_proof(dpop_str, method, &token_url, replay_store) {
-            Ok(jkt) => Some(jkt),
-            Err(e) => return Err(e),
-        }
+        Some(validate_dpop_proof(
+            dpop_str,
+            method,
+            &token_url,
+            replay_store,
+        )?)
     } else {
         None
     };
+    let dpop_jkt: Option<String> = dpop_validated.as_ref().map(|v| v.jkt.clone());
+
+    // RFC 9449 §§8, 9: per-client nonce enforcement. When the calling
+    // client has `dpop_nonce_required = true`, the DPoP proof must carry
+    // a fresh server-issued `nonce`; otherwise we respond with
+    // `error: use_dpop_nonce` and a `DPoP-Nonce` header so the client can
+    // retry. Skipped when no proof is presented (DPoP itself is optional).
+    if let (Some(validated), Some(issuer_data)) = (&dpop_validated, &dpop_nonce_issuer) {
+        let issuer = issuer_data.as_ref();
+        let lookup = client_actor
+            .send(GetClient {
+                client_id: form.client_id.clone(),
+                span: tracing::Span::current(),
+            })
+            .await
+            .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))?;
+        if let Ok(client) = lookup {
+            if client.dpop_nonce_required {
+                match enforce_dpop_nonce(validated, issuer) {
+                    Ok(()) => {}
+                    Err(e) if e.error == "use_dpop_nonce" => {
+                        return Ok(use_dpop_nonce_response(
+                            issuer,
+                            e.error_description.as_deref(),
+                        ));
+                    }
+                    Err(e) => return Err(e),
+                }
+            }
+        }
+        // If lookup returned an error (unknown client), fall through —
+        // the per-grant handler will produce the proper `invalid_client`.
+    }
 
     // RFC 8705: mTLS certificate-bound tokens — trust the reverse proxy thumbprint header.
     let mtls_thumbprint: Option<String> = req

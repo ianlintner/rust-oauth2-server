@@ -28,6 +28,13 @@ spec:
             - name: otel-config
               mountPath: /etc/otelcol
               readOnly: true
+          resources:
+            requests:
+              cpu: 10m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
           securityContext:
             allowPrivilegeEscalation: false
             runAsNonRoot: true

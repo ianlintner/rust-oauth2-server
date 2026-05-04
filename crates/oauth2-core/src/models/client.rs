@@ -98,6 +98,13 @@ pub struct Client {
     #[serde(default = "default_empty_string")]
     #[cfg_attr(feature = "sqlx", sqlx(default))]
     pub tls_client_certificate_subject_dn: String,
+    /// RFC 9449 §§8, 9: when `true`, the AS rejects DPoP proofs without a
+    /// valid server-issued nonce and returns `error: use_dpop_nonce` with a
+    /// fresh `DPoP-Nonce` response header. Defaults to `false` so existing
+    /// clients continue to work; operators opt in per-client.
+    #[serde(default)]
+    #[cfg_attr(feature = "sqlx", sqlx(default))]
+    pub dpop_nonce_required: bool,
 }
 
 fn default_true() -> bool {
@@ -143,6 +150,7 @@ impl Client {
             enabled: true,
             require_state: false,
             tls_client_certificate_subject_dn: String::new(),
+            dpop_nonce_required: false,
         }
     }
 

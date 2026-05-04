@@ -1255,6 +1255,15 @@ pub async fn run() -> std::io::Result<()> {
             oauth2_actix::handlers::dpop::DpopReplayStore::new(),
         ));
 
+        // RFC 9449 §§8, 9: DPoP nonce issuer. Stateless time-bucketed HMAC
+        // so it works across multiple AS instances without shared state.
+        // Operators set `OAUTH2_DPOP_NONCE_SECRET` (32 bytes) explicitly
+        // for multi-instance deploys; otherwise we generate a per-process
+        // secret at startup, which forces clients to refresh on restart.
+        app = app.app_data(web::Data::new(
+            oauth2_actix::handlers::dpop_nonce::DpopNonceIssuer::from_env(),
+        ));
+
         app
             // Root route
             .route(

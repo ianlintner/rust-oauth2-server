@@ -249,8 +249,9 @@ pub async fn introspect(
                                 &introspect_url,
                                 replay_store,
                             ) {
-                                Ok(proof_jkt) => {
+                                Ok(validated) => {
                                     // Verify the proof's JWK thumbprint matches the token's cnf.jkt.
+                                    let proof_jkt = validated.jkt;
                                     if proof_jkt != *token_jkt {
                                         tracing::warn!(
                                             token_jkt = %token_jkt,

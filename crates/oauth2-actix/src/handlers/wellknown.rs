@@ -16,7 +16,7 @@ use oauth2_ports::DynStorage;
 /// Shared OIDC / server configuration injected as `web::Data<OidcConfig>`.
 #[derive(Debug, Clone)]
 pub struct OidcConfig {
-    /// The public issuer URL (e.g. `https://roauth2.cat-herding.net`).
+    /// The public issuer URL (e.g. `https://oauth.example.com`).
     pub issuer: String,
     /// The HMAC secret used for signing JWTs (HS256).
     pub jwt_secret: String,
