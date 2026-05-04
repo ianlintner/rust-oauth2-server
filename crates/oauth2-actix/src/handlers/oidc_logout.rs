@@ -75,6 +75,9 @@ fn extract_audiences(claims: &serde_json::Value) -> Vec<String> {
 
 /// Build an OIDC Back-Channel Logout Token (JWT) per
 /// https://openid.net/specs/openid-connect-backchannel-1_0.html#LogoutToken
+///
+/// Returns `Err` if neither `sub` nor `sid` is provided — the spec (§2.5)
+/// requires at least one to be present for the token to be valid.
 fn build_logout_token(
     issuer: &str,
     audience: &str,
@@ -84,6 +87,14 @@ fn build_logout_token(
 ) -> Result<String, OAuth2Error> {
     use jsonwebtoken::{encode, EncodingKey, Header};
     use std::collections::HashMap;
+
+    if sub.is_none() && sid.is_none() {
+        return Err(OAuth2Error::new(
+            "server_error",
+            Some("logout token requires at least one of sub or sid"),
+        ));
+    }
+
     let now = chrono::Utc::now().timestamp();
     let jti = uuid::Uuid::new_v4().to_string();
 
@@ -91,6 +102,7 @@ fn build_logout_token(
     claims.insert("iss".into(), json!(issuer));
     claims.insert("aud".into(), json!(audience));
     claims.insert("iat".into(), json!(now));
+    claims.insert("exp".into(), json!(now + 120)); // 2-minute validity window
     claims.insert("jti".into(), json!(jti));
     // Back-Channel Logout §2.4: events claim with the logout event URI.
     claims.insert(
@@ -106,7 +118,11 @@ fn build_logout_token(
         claims.insert("sid".into(), json!(sid));
     }
 
-    let header = Header::default(); // HS256
+    // §2.4: typ MUST be "logout+JWT"
+    let header = Header {
+        typ: Some("logout+JWT".to_string()),
+        ..Default::default()
+    };
     let key = EncodingKey::from_secret(jwt_secret.as_bytes());
     encode(&header, &claims, &key)
         .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))
@@ -121,6 +137,11 @@ async fn send_backchannel_logout_tokens(
     sid: Option<&str>,
     jwt_secret: &str,
 ) {
+    // Per spec §2.5, a valid logout token requires at least one of sub or sid.
+    if sub.is_none() && sid.is_none() {
+        return;
+    }
+
     let clients = match storage.list_all_clients().await {
         Ok(c) => c,
         Err(_) => return,

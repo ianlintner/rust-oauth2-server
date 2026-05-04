@@ -70,3 +70,4 @@ admin-*.png
 
 # Claude Code agent worktrees (local only)
 .claude/worktrees/
+.worktrees/

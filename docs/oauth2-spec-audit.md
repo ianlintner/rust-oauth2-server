@@ -459,7 +459,7 @@ Items marked ✅ have been implemented; remaining items are ordered by priority.
 | **Phase 2 items**   | ✅ Done       | main           | Full RFC 7591/7592, private_key_jwt, client_secret_jwt                                                        |
 | **Phase 3 items**   | ✅ Done       | main           | PAR, JAR, Resource Indicators, form_post, Hybrid Flow, JWT Introspection                                      |
 | **Phase 4 items**   | ✅ Done       | main           | DPoP, mTLS, Token Exchange, RAR, Step-Up, Protected Resource Metadata, Token Status List, OIDC Claims Request |
-| **Phase 5 items**   | ⚠️ Partial    | main           | 5.1 JAR inline, 5.2 Hybrid Flow, 5.3 fragment, 5.6 client_secret_jwt, 5.7 private_key_jwt done; 5.4, 5.5, 5.8–5.15 open |
+| **Phase 5 items**   | ⚠️ Partial    | main           | 5.1 JAR inline, 5.2 Hybrid Flow, 5.3 fragment, 5.6 client_secret_jwt, 5.7 private_key_jwt, 5.8 RFC8252, 5.10 state, 5.11 check_session, 5.12 front-channel logout, 5.13 back-channel logout done; 5.4, 5.5, 5.9, 5.14, 5.15 open |
 | **Phase 6 items**   | ⏳ In progress | —              | RFC 9700 hardening (see §9)                                                                                    |
 
 ### Phase 1 Chunk Status
@@ -588,21 +588,26 @@ All items are independently mergeable.
 
 #### Chunk 5.D — OIDC Session & Logout (Low priority)
 
-- [ ] **5.13** OIDC Back-Channel Logout
+- [x] **5.13** OIDC Back-Channel Logout
   - File: `crates/oauth2-actix/src/handlers/oidc_logout.rs`
   - On logout, POST a signed `logout_token` JWT to each registered `backchannel_logout_uri`
-  - Store `backchannel_logout_uri` field in `Client` model (migration required)
-  - Discovery: `backchannel_logout_supported: true`
+  - `backchannel_logout_uri` / `backchannel_logout_session_required` stored in `Client` (migration V16)
+  - Logout token: `typ: "logout+JWT"`, `exp` (2-min window), `iss`, `aud`, `iat`, `jti`, `events`, `sub`/`sid`
+  - Guard: send is skipped when neither `sub` nor `sid` are present (invalid token per §2.5)
+  - Discovery: `backchannel_logout_supported: true`, `backchannel_logout_session_supported: true`
+  - Test: `wave6_backchannel_logout_posts_valid_token` (httpmock, verifies delivery + claims)
 
-- [ ] **5.12** OIDC Front-Channel Logout
-  - On logout, render iframes pointing to registered `frontchannel_logout_uri` endpoints
-  - Store `frontchannel_logout_uri` field in `Client` model
-  - Discovery: `frontchannel_logout_supported: true`
+- [x] **5.12** OIDC Front-Channel Logout
+  - On logout, renders HTML page with iframes pointing to `frontchannel_logout_uri` per client
+  - `frontchannel_logout_uri` / `frontchannel_logout_session_required` stored in `Client` (migration V16)
+  - Iframes include `iss=` param; `sid=` added when `frontchannel_logout_session_required=true`
+  - Discovery: `frontchannel_logout_supported: true`, `frontchannel_logout_session_supported: true`
+  - Test: `wave6_logout_renders_frontchannel_iframes`
 
-- [ ] **5.11** OIDC Session Management (check_session_iframe)
-  - Add `GET /oauth/check_session` endpoint that renders the RP-embeddable iframe
-  - Manage session state change cookies to notify RPs of logout
-  - Discovery: `check_session_iframe` URL
+- [x] **5.11** OIDC Session Management (check_session_iframe)
+  - `GET /oauth/check_session` returns HTML with postMessage handler (SHA-256 session state)
+  - Discovery: `check_session_iframe` URL advertised
+  - Test: `wave6_check_session_iframe_returns_html`
 
 ---
 

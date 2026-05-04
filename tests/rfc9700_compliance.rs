@@ -8,17 +8,17 @@
 /// |--------|---------------|--------|
 /// | (a) `code_challenge_method=plain` → 400 | `test_vector_a_plain_pkce_rejected` | Active |
 /// | (b) Public client missing `code_challenge` → 400 | `test_vector_b_public_client_missing_pkce` | Active |
-/// | (c) Code replay → 400 + family revoked | `test_vector_c_authorization_code_replay` | Ignored (bead 6.1) |
-/// | (d) Refresh replay → 400 + family revoked | `test_vector_d_refresh_token_replay` | Ignored (bead 6.1) |
+/// | (c) Code replay → 400 + family revoked | `test_vector_c_authorization_code_replay` | Active |
+/// | (d) Refresh replay → 400 + family revoked | `test_vector_d_refresh_token_replay` | Active |
 /// | (e) Authorization response includes `iss` | `test_vector_e_iss_in_authorization_response` | Active |
 /// | (f) `redirect_uri` trailing-slash mismatch | `test_vector_f_redirect_uri_trailing_slash` | Active |
 /// | (g) `redirect_uri` extra query param | `test_vector_g_redirect_uri_extra_query_param` | Active |
-/// | (h) Login redirect → 303 See Other | `test_vector_h_login_redirect_303` | Ignored (bead 6.7) |
+/// | (h) Login redirect → 303 See Other | `test_vector_h_login_redirect_303` | Active |
 /// | (i) Token response `Cache-Control: no-store` | `test_vector_i_token_cache_control_no_store` | Active |
 /// | (j) `/authorize` + `/consent` security headers | `test_vector_j_authorize_security_headers` | Active |
 /// | (k) Discovery JSON constraints | `test_vector_k_discovery_json_constraints` | Active |
-/// | (l) Client assertion `jti` replay → 400 | `test_vector_l_client_assertion_jti_replay` | Ignored (bead 6.5) |
-/// | (m) `resource` → `aud` claim | `test_vector_m_resource_to_aud_claim` | Ignored (bead 6.3) |
+/// | (l) Client assertion `jti` replay → 401 | `test_vector_l_client_assertion_jti_replay` | Active |
+/// | (m) `resource` → `aud` claim | `test_vector_m_resource_to_aud_claim` | Active |
 use actix::{Actor, Addr};
 use actix_session::{storage::CookieSessionStore, Session, SessionMiddleware};
 use actix_web::{cookie::Key, test, web, App, HttpResponse};
@@ -27,7 +27,7 @@ use tokio::sync::RwLock;
 
 use oauth2_actix::actors::TokenActorPool;
 use oauth2_actix::handlers::wellknown::OidcConfig;
-use oauth2_core::{Client, OAuth2Error, User};
+use oauth2_core::{Client, IntrospectionResponse, OAuth2Error, TokenResponse, User};
 use oauth2_observability::Metrics;
 
 // ---------------------------------------------------------------------------
@@ -291,7 +291,7 @@ async fn test_vector_b_public_client_missing_pkce() {
 }
 
 // ---------------------------------------------------------------------------
-// Vector (c): Code replay → 400 + family revoked (IGNORED — bead 6.1)
+// Vector (c): Code replay → 400 + family revoked
 // ---------------------------------------------------------------------------
 
 /// RFC 9700 §2.1.5: replaying an authorization code MUST revoke the entire token family.
@@ -302,14 +302,192 @@ async fn test_vector_b_public_client_missing_pkce() {
 /// @level MUST
 /// @url https://datatracker.ietf.org/doc/html/rfc9700#section-2.1.5
 #[actix_web::test]
-#[ignore = "Awaits bead 6.1: token family revocation on code replay"]
 async fn test_vector_c_authorization_code_replay() {
-    // TODO(6.1): implement token family tracking + cascade revocation on code replay
-    todo!("Bead 6.1: revoke token family on authorization-code replay");
+    const ISSUER: &str = "https://auth.example.com";
+    const VERIFIER: &str = "verifier-replay-abcdefghijklmnopqrstuvwxyz1234567890";
+
+    let client = Client::new(
+        "client_c".to_string(),
+        "secret_c".to_string(),
+        vec!["https://app.example/cb".to_string()],
+        vec![
+            "authorization_code".to_string(),
+            "refresh_token".to_string(),
+        ],
+        "read".to_string(),
+        "test".to_string(),
+    );
+
+    let storage = oauth2_storage_factory::create_storage("sqlite::memory:")
+        .await
+        .expect("storage");
+    storage.init().await.expect("init");
+    storage.save_client(&client).await.expect("save_client");
+
+    let now = chrono::Utc::now();
+    let user = User {
+        id: "user_rfc".to_string(),
+        username: "user_rfc".to_string(),
+        password_hash: "unused".to_string(),
+        email: "user_rfc@example.test".to_string(),
+        enabled: true,
+        role: "user".to_string(),
+        created_at: now,
+        updated_at: now,
+    };
+    storage.save_user(&user).await.expect("save_user");
+
+    let jwt_secret = "rfc9700_test_jwt_secret_at_least_32_chars".to_string();
+    let metrics = Metrics::new().expect("metrics");
+    let token_actor = oauth2_actix::actors::TokenActor::new(
+        storage.clone(),
+        jwt_secret.clone(),
+        ISSUER.to_string(),
+    )
+    .start();
+    let token_pool = TokenActorPool::new(vec![token_actor]);
+    let client_actor = oauth2_actix::actors::ClientActor::new(storage.clone()).start();
+    let auth_actor = oauth2_actix::actors::AuthActor::new(storage).start();
+    let oidc_config = OidcConfig {
+        issuer: ISSUER.to_string(),
+        jwt_secret: jwt_secret.clone(),
+        id_token_alg: "HS256".to_string(),
+        id_token_kid: None,
+        id_token_private_key_pem: None,
+    };
+    let keyset = Arc::new(RwLock::new(oauth2_core::models::key_set::KeySet::default()));
+    let config = {
+        let mut c = oauth2_config::Config::default();
+        c.jwt.secret = jwt_secret.clone();
+        c.jwt.public_introspection = false;
+        c
+    };
+
+    let app = test::init_service(
+        App::new()
+            .wrap(SessionMiddleware::new(
+                CookieSessionStore::default(),
+                Key::generate(),
+            ))
+            .route("/test/login", web::get().to(test_set_session))
+            .app_data(web::Data::new(token_pool))
+            .app_data(web::Data::new(client_actor))
+            .app_data(web::Data::new(auth_actor))
+            .app_data(web::Data::new(jwt_secret))
+            .app_data(web::Data::new(metrics))
+            .app_data(web::Data::new(oidc_config))
+            .app_data(web::Data::new(keyset))
+            .app_data(web::Data::new(false))
+            .app_data(web::Data::new(config))
+            .service(
+                web::scope("/oauth")
+                    .route(
+                        "/authorize",
+                        web::get().to(oauth2_actix::handlers::oauth::authorize),
+                    )
+                    .route(
+                        "/token",
+                        web::post().to(oauth2_actix::handlers::oauth::token),
+                    )
+                    .route(
+                        "/introspect",
+                        web::post().to(oauth2_actix::handlers::token::introspect),
+                    ),
+            ),
+    )
+    .await;
+
+    let login_resp = test::call_service(
+        &app,
+        test::TestRequest::get().uri("/test/login").to_request(),
+    )
+    .await;
+    let cookie = extract_session_cookie(&login_resp);
+
+    let auth_resp = test::call_service(
+        &app,
+        test::TestRequest::get()
+            .uri(&format!(
+                "/oauth/authorize?response_type=code&client_id=client_c\
+                 &redirect_uri=https%3A%2F%2Fapp.example%2Fcb&scope=read\
+                 &code_challenge={}&code_challenge_method=S256&state=xyz",
+                s256(VERIFIER)
+            ))
+            .insert_header(("Cookie", cookie.as_str()))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(auth_resp.status(), 302);
+    let location = auth_resp
+        .headers()
+        .get(actix_web::http::header::LOCATION)
+        .and_then(|h| h.to_str().ok())
+        .expect("Location");
+    let code = extract_query_param(location, "code").expect("code");
+
+    // First exchange — must succeed
+    let token_resp: TokenResponse = test::read_body_json(
+        test::call_service(
+            &app,
+            test::TestRequest::post()
+                .uri("/oauth/token")
+                .set_form([
+                    ("grant_type", "authorization_code"),
+                    ("code", code.as_str()),
+                    ("client_id", "client_c"),
+                    ("client_secret", "secret_c"),
+                    ("redirect_uri", "https://app.example/cb"),
+                    ("code_verifier", VERIFIER),
+                ])
+                .to_request(),
+        )
+        .await,
+    )
+    .await;
+    let access_token = token_resp.access_token;
+
+    // Replay the same code — must fail
+    let replay = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri("/oauth/token")
+            .set_form([
+                ("grant_type", "authorization_code"),
+                ("code", code.as_str()),
+                ("client_id", "client_c"),
+                ("client_secret", "secret_c"),
+                ("redirect_uri", "https://app.example/cb"),
+                ("code_verifier", VERIFIER),
+            ])
+            .to_request(),
+    )
+    .await;
+    assert_eq!(replay.status(), 400, "code replay must be rejected");
+
+    // RFC 9700 §2.1.5: the originally-issued access token MUST now be revoked
+    let intro: IntrospectionResponse = test::read_body_json(
+        test::call_service(
+            &app,
+            test::TestRequest::post()
+                .uri("/oauth/introspect")
+                .set_form([
+                    ("token", access_token.as_str()),
+                    ("client_id", "client_c"),
+                    ("client_secret", "secret_c"),
+                ])
+                .to_request(),
+        )
+        .await,
+    )
+    .await;
+    assert!(
+        !intro.active,
+        "RFC 9700 §2.1.5: token from replayed auth code MUST be revoked"
+    );
 }
 
 // ---------------------------------------------------------------------------
-// Vector (d): Refresh token replay → 400 + family revoked (IGNORED — bead 6.1)
+// Vector (d): Refresh token replay → 400 + family revoked
 // ---------------------------------------------------------------------------
 
 /// RFC 9700 §2.1.5: replaying a rotated refresh token MUST revoke the entire family.
@@ -320,10 +498,215 @@ async fn test_vector_c_authorization_code_replay() {
 /// @level MUST
 /// @url https://datatracker.ietf.org/doc/html/rfc9700#section-2.1.5
 #[actix_web::test]
-#[ignore = "Awaits bead 6.1: token family revocation on refresh replay"]
 async fn test_vector_d_refresh_token_replay() {
-    // TODO(6.1): implement refresh token rotation + family revocation on replay
-    todo!("Bead 6.1: revoke token family on refresh-token replay");
+    const ISSUER: &str = "https://auth.example.com";
+    const VERIFIER: &str = "verifier-refresh-replay-abcdefghijklmnopqrs";
+
+    let client = Client::new(
+        "client_d".to_string(),
+        "secret_d".to_string(),
+        vec!["https://app.example/cb".to_string()],
+        vec![
+            "authorization_code".to_string(),
+            "refresh_token".to_string(),
+        ],
+        "read".to_string(),
+        "test".to_string(),
+    );
+
+    let storage = oauth2_storage_factory::create_storage("sqlite::memory:")
+        .await
+        .expect("storage");
+    storage.init().await.expect("init");
+    storage.save_client(&client).await.expect("save_client");
+
+    let now = chrono::Utc::now();
+    let user = User {
+        id: "user_rfc".to_string(),
+        username: "user_rfc".to_string(),
+        password_hash: "unused".to_string(),
+        email: "user_rfc@example.test".to_string(),
+        enabled: true,
+        role: "user".to_string(),
+        created_at: now,
+        updated_at: now,
+    };
+    storage.save_user(&user).await.expect("save_user");
+
+    let jwt_secret = "rfc9700_test_jwt_secret_at_least_32_chars".to_string();
+    let metrics = Metrics::new().expect("metrics");
+    let token_actor = oauth2_actix::actors::TokenActor::new(
+        storage.clone(),
+        jwt_secret.clone(),
+        ISSUER.to_string(),
+    )
+    .start();
+    let token_pool = TokenActorPool::new(vec![token_actor]);
+    let client_actor = oauth2_actix::actors::ClientActor::new(storage.clone()).start();
+    let auth_actor = oauth2_actix::actors::AuthActor::new(storage).start();
+    let oidc_config = OidcConfig {
+        issuer: ISSUER.to_string(),
+        jwt_secret: jwt_secret.clone(),
+        id_token_alg: "HS256".to_string(),
+        id_token_kid: None,
+        id_token_private_key_pem: None,
+    };
+    let keyset = Arc::new(RwLock::new(oauth2_core::models::key_set::KeySet::default()));
+    let config = {
+        let mut c = oauth2_config::Config::default();
+        c.jwt.secret = jwt_secret.clone();
+        c.jwt.public_introspection = false;
+        c
+    };
+
+    let app = test::init_service(
+        App::new()
+            .wrap(SessionMiddleware::new(
+                CookieSessionStore::default(),
+                Key::generate(),
+            ))
+            .route("/test/login", web::get().to(test_set_session))
+            .app_data(web::Data::new(token_pool))
+            .app_data(web::Data::new(client_actor))
+            .app_data(web::Data::new(auth_actor))
+            .app_data(web::Data::new(jwt_secret))
+            .app_data(web::Data::new(metrics))
+            .app_data(web::Data::new(oidc_config))
+            .app_data(web::Data::new(keyset))
+            .app_data(web::Data::new(false))
+            .app_data(web::Data::new(config))
+            .service(
+                web::scope("/oauth")
+                    .route(
+                        "/authorize",
+                        web::get().to(oauth2_actix::handlers::oauth::authorize),
+                    )
+                    .route(
+                        "/token",
+                        web::post().to(oauth2_actix::handlers::oauth::token),
+                    )
+                    .route(
+                        "/introspect",
+                        web::post().to(oauth2_actix::handlers::token::introspect),
+                    ),
+            ),
+    )
+    .await;
+
+    let login_resp = test::call_service(
+        &app,
+        test::TestRequest::get().uri("/test/login").to_request(),
+    )
+    .await;
+    let cookie = extract_session_cookie(&login_resp);
+
+    // Get an auth code and exchange it for access + refresh tokens
+    let auth_resp = test::call_service(
+        &app,
+        test::TestRequest::get()
+            .uri(&format!(
+                "/oauth/authorize?response_type=code&client_id=client_d\
+                 &redirect_uri=https%3A%2F%2Fapp.example%2Fcb&scope=read\
+                 &code_challenge={}&code_challenge_method=S256&state=xyz",
+                s256(VERIFIER)
+            ))
+            .insert_header(("Cookie", cookie.as_str()))
+            .to_request(),
+    )
+    .await;
+    assert_eq!(auth_resp.status(), 302);
+    let location = auth_resp
+        .headers()
+        .get(actix_web::http::header::LOCATION)
+        .and_then(|h| h.to_str().ok())
+        .expect("Location");
+    let code = extract_query_param(location, "code").expect("code");
+
+    let first: TokenResponse = test::read_body_json(
+        test::call_service(
+            &app,
+            test::TestRequest::post()
+                .uri("/oauth/token")
+                .set_form([
+                    ("grant_type", "authorization_code"),
+                    ("code", code.as_str()),
+                    ("client_id", "client_d"),
+                    ("client_secret", "secret_d"),
+                    ("redirect_uri", "https://app.example/cb"),
+                    ("code_verifier", VERIFIER),
+                ])
+                .to_request(),
+        )
+        .await,
+    )
+    .await;
+    let original_refresh = first
+        .refresh_token
+        .expect("refresh_token from first exchange");
+    let original_access = first.access_token;
+
+    // Use the refresh token once — rotates it (original is now consumed)
+    let rotated: TokenResponse = test::read_body_json(
+        test::call_service(
+            &app,
+            test::TestRequest::post()
+                .uri("/oauth/token")
+                .set_form([
+                    ("grant_type", "refresh_token"),
+                    ("refresh_token", original_refresh.as_str()),
+                    ("client_id", "client_d"),
+                    ("client_secret", "secret_d"),
+                ])
+                .to_request(),
+        )
+        .await,
+    )
+    .await;
+    let new_access = rotated.access_token;
+
+    // Replay the old (consumed) refresh token — must fail AND cascade-revoke
+    let replay = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri("/oauth/token")
+            .set_form([
+                ("grant_type", "refresh_token"),
+                ("refresh_token", original_refresh.as_str()),
+                ("client_id", "client_d"),
+                ("client_secret", "secret_d"),
+            ])
+            .to_request(),
+    )
+    .await;
+    assert_eq!(
+        replay.status(),
+        400,
+        "refresh token replay must be rejected"
+    );
+
+    // RFC 9700 §4.14: the entire family must be revoked — both the new token
+    // (issued after rotation) and the original access token must be inactive.
+    for (label, token) in [("original", &original_access), ("rotated", &new_access)] {
+        let intro: IntrospectionResponse = test::read_body_json(
+            test::call_service(
+                &app,
+                test::TestRequest::post()
+                    .uri("/oauth/introspect")
+                    .set_form([
+                        ("token", token.as_str()),
+                        ("client_id", "client_d"),
+                        ("client_secret", "secret_d"),
+                    ])
+                    .to_request(),
+            )
+            .await,
+        )
+        .await;
+        assert!(
+            !intro.active,
+            "RFC 9700 §4.14: {label} access token must be revoked after refresh replay"
+        );
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -589,7 +972,7 @@ async fn test_vector_g_redirect_uri_extra_query_param() {
 }
 
 // ---------------------------------------------------------------------------
-// Vector (h): Login redirect → 303 See Other (IGNORED — bead 6.7)
+// Vector (h): Login redirect → 303 See Other
 // ---------------------------------------------------------------------------
 
 /// RFC 9700 §4.11: login form POST should redirect with 303 See Other, not 302.
@@ -600,10 +983,61 @@ async fn test_vector_g_redirect_uri_extra_query_param() {
 /// @level SHOULD
 /// @url https://datatracker.ietf.org/doc/html/rfc9700#section-4.11
 #[actix_web::test]
-#[ignore = "Awaits bead 6.7: 302 → 303 See Other for login redirects"]
 async fn test_vector_h_login_redirect_303() {
-    // TODO(6.7): change login form POST redirect from 302 to 303
-    todo!("Bead 6.7: login redirect must use 303 See Other");
+    let storage = oauth2_storage_factory::create_storage("sqlite::memory:")
+        .await
+        .expect("storage");
+    storage.init().await.expect("init");
+
+    // user_rfc with password "test" (argon2id hash from setup_rfc9700_context)
+    let now = chrono::Utc::now();
+    let user = User {
+        id: "user_rfc".to_string(),
+        username: "user_rfc".to_string(),
+        password_hash:
+            "$argon2id$v=19$m=19456,t=2,p=1$VE0rWbJBKKaUUC4g7kAChQ$ut8jRoii8yfgSu9IGptwMKxcbH3T1Ra+OAOuXhts0xE"
+                .to_string(),
+        email: "user_rfc@example.test".to_string(),
+        enabled: true,
+        role: "user".to_string(),
+        created_at: now,
+        updated_at: now,
+    };
+    storage.save_user(&user).await.expect("save_user");
+
+    let metrics = Metrics::new().expect("metrics");
+    let dyn_storage: oauth2_ports::DynStorage = storage;
+
+    let app = test::init_service(
+        App::new()
+            .wrap(SessionMiddleware::new(
+                CookieSessionStore::default(),
+                Key::generate(),
+            ))
+            .app_data(web::Data::new(dyn_storage))
+            .app_data(web::Data::new(metrics))
+            .service(web::scope("/auth").route(
+                "/login",
+                web::post().to(oauth2_actix::handlers::login::login_submit),
+            )),
+    )
+    .await;
+
+    let resp = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri("/auth/login")
+            .set_form([("username", "user_rfc"), ("password", "test")])
+            .to_request(),
+    )
+    .await;
+
+    assert_eq!(
+        resp.status().as_u16(),
+        303,
+        "RFC 9700 §4.11: successful login POST must redirect with 303 See Other, got {}",
+        resp.status()
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -828,7 +1262,7 @@ async fn test_vector_k_discovery_json_constraints() {
 }
 
 // ---------------------------------------------------------------------------
-// Vector (l): Client assertion jti replay → 400 (IGNORED — bead 6.5)
+// Vector (l): Client assertion jti replay → 401 invalid_client
 // ---------------------------------------------------------------------------
 
 /// RFC 9700 §2.5: replaying a client assertion with the same `jti` within its exp window MUST be rejected.
@@ -839,10 +1273,108 @@ async fn test_vector_k_discovery_json_constraints() {
 /// @level MUST
 /// @url https://datatracker.ietf.org/doc/html/rfc9700#section-2.5
 #[actix_web::test]
-#[ignore = "Awaits bead 6.5: JWT client-assertion jti replay store"]
 async fn test_vector_l_client_assertion_jti_replay() {
-    // TODO(6.5): implement jti replay cache for client assertions
-    todo!("Bead 6.5: reject replayed client assertion jti");
+    use jsonwebtoken::{encode, EncodingKey, Header};
+
+    const ISSUER: &str = "https://auth.example.com";
+    const TOKEN_ENDPOINT: &str = "https://auth.example.com/oauth/token";
+
+    let mut client = Client::new(
+        "client_l".to_string(),
+        "shared-l-jti-test-secret-minimum-32-chars".to_string(),
+        vec!["https://unused/cb".to_string()],
+        vec!["client_credentials".to_string()],
+        "read".to_string(),
+        "test".to_string(),
+    );
+    client.token_endpoint_auth_method = "client_secret_jwt".to_string();
+
+    let (token_actor, client_actor, auth_actor, jwt_secret, metrics, oidc_config) =
+        setup_rfc9700_context(vec![client.clone()], ISSUER).await;
+    let keyset = Arc::new(RwLock::new(oauth2_core::models::key_set::KeySet::default()));
+
+    let app = test::init_service(
+        App::new()
+            .app_data(web::Data::new(token_actor))
+            .app_data(web::Data::new(client_actor))
+            .app_data(web::Data::new(auth_actor))
+            .app_data(web::Data::new(jwt_secret))
+            .app_data(web::Data::new(metrics))
+            .app_data(web::Data::new(oidc_config))
+            .app_data(web::Data::new(keyset))
+            .app_data(web::Data::new(false))
+            .service(web::scope("/oauth").route(
+                "/token",
+                web::post().to(oauth2_actix::handlers::oauth::token),
+            )),
+    )
+    .await;
+
+    let now = chrono::Utc::now().timestamp();
+    let claims = serde_json::json!({
+        "iss": "client_l",
+        "sub": "client_l",
+        "aud": TOKEN_ENDPOINT,
+        "exp": now + 60,
+        "iat": now,
+        "jti": "jti-vector-l-unique-001",
+    });
+    let assertion = encode(
+        &Header::new(jsonwebtoken::Algorithm::HS256),
+        &claims,
+        &EncodingKey::from_secret(client.client_secret.as_bytes()),
+    )
+    .expect("encode HS256 assertion");
+
+    // First exchange — must succeed
+    let first = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri("/oauth/token")
+            .set_form([
+                ("grant_type", "client_credentials"),
+                ("client_id", "client_l"),
+                ("scope", "read"),
+                (
+                    "client_assertion_type",
+                    "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
+                ),
+                ("client_assertion", assertion.as_str()),
+            ])
+            .to_request(),
+    )
+    .await;
+    assert_eq!(first.status(), 200, "first assertion exchange must succeed");
+
+    // Replay — same assertion, same jti, within validity window → must fail
+    let replay = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri("/oauth/token")
+            .set_form([
+                ("grant_type", "client_credentials"),
+                ("client_id", "client_l"),
+                ("scope", "read"),
+                (
+                    "client_assertion_type",
+                    "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
+                ),
+                ("client_assertion", assertion.as_str()),
+            ])
+            .to_request(),
+    )
+    .await;
+    assert_eq!(
+        replay.status(),
+        401,
+        "RFC 9700 §2.5: replayed jti must be rejected with invalid_client"
+    );
+    let body = test::read_body(replay).await;
+    let body_str = std::str::from_utf8(&body).unwrap();
+    assert!(
+        body_str.contains("invalid_client"),
+        "error must be invalid_client — got: {body_str}"
+    );
 }
 
 // ---------------------------------------------------------------------------
