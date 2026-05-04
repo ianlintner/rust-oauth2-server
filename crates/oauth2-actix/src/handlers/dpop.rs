@@ -16,6 +16,8 @@ use oauth2_core::OAuth2Error;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
+use crate::handlers::dpop_nonce::DpopNonceIssuer;
+
 /// In-memory DPoP proof replay store.
 ///
 /// Keyed by `jti`; value is the expiry time (`iat` + acceptance window).
@@ -100,15 +102,59 @@ struct DpopClaims {
     htu: String,
     iat: i64,
     jti: String,
-    /// Optional nonce (RFC 9449 §8.1) — stored but not enforced here yet.
-    #[allow(dead_code)]
+    /// RFC 9449 §8.1 — server-issued nonce. Optional in the proof; only
+    /// enforced when the client has `dpop_nonce_required = true`.
     #[serde(default)]
     nonce: Option<String>,
 }
 
+/// Outcome of a successful DPoP proof validation.
+#[derive(Debug, Clone)]
+pub struct DpopValidated {
+    /// JWK Thumbprint (RFC 7638) of the proof's public key.
+    pub jkt: String,
+    /// `nonce` claim from the proof, if present.
+    pub nonce: Option<String>,
+}
+
+/// RFC 9449 §§8, 9 — verify the proof's `nonce` against the server-issued
+/// nonce issuer. Returns `error: use_dpop_nonce` when the nonce is missing
+/// or stale (caller must include a fresh `DPoP-Nonce` response header) and
+/// `error: invalid_dpop_proof` when the nonce is forged.
+pub fn enforce_dpop_nonce(
+    validated: &DpopValidated,
+    issuer: &DpopNonceIssuer,
+) -> Result<(), OAuth2Error> {
+    let Some(nonce) = validated.nonce.as_deref() else {
+        return Err(OAuth2Error::new(
+            "use_dpop_nonce",
+            Some("DPoP proof must include a server-issued nonce"),
+        ));
+    };
+    match issuer.verify(nonce) {
+        Ok(()) => Ok(()),
+        Err(e) => {
+            // Distinguish "stale/missing" from "forged" so callers know
+            // whether to re-issue a nonce or to reject outright.
+            let desc = e.error_description.as_deref().unwrap_or("");
+            if desc.contains("expired") || desc.contains("not yet valid") {
+                Err(OAuth2Error::new(
+                    "use_dpop_nonce",
+                    Some("DPoP nonce is expired; retry with a fresh nonce"),
+                ))
+            } else {
+                Err(e)
+            }
+        }
+    }
+}
+
 /// Fully validate a DPoP proof JWT per RFC 9449 §4.2 / §4.3.
 ///
-/// Returns the JWK Thumbprint (`jkt`) of the proof's public key on success.
+/// Returns a [`DpopValidated`] carrying the JWK Thumbprint and the parsed
+/// `nonce` claim (if any). Nonce **enforcement** is deferred to
+/// [`enforce_dpop_nonce`] so the handler can look up the client's
+/// per-client `dpop_nonce_required` policy first.
 ///
 /// # Parameters
 /// - `dpop_proof`: raw value of the `DPoP` HTTP header
@@ -120,7 +166,7 @@ pub fn validate_dpop_proof(
     method: &str,
     url: &str,
     replay_store: &DpopReplayStore,
-) -> Result<String, OAuth2Error> {
+) -> Result<DpopValidated, OAuth2Error> {
     // ── Step 1: decode the JOSE header ──────────────────────────────────────
     let header = jsonwebtoken::decode_header(dpop_proof).map_err(|_| {
         OAuth2Error::new("invalid_dpop_proof", Some("DPoP proof header is malformed"))
@@ -186,7 +232,10 @@ pub fn validate_dpop_proof(
     let expiry = Instant::now() + Duration::from_secs((DPOP_IAT_SKEW_SECS * 2 + 60) as u64);
     replay_store.check_and_insert(&claims.jti, expiry)?;
 
-    Ok(jkt)
+    Ok(DpopValidated {
+        jkt,
+        nonce: claims.nonce,
+    })
 }
 
 /// Compute the RFC 7638 JWK Thumbprint as a base64url-encoded SHA-256 hash.

@@ -25,6 +25,13 @@ spec:
               containerPort: 16686
             - name: otlp-grpc
               containerPort: 4317
+          resources:
+            requests:
+              cpu: 10m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 384Mi
           securityContext:
             allowPrivilegeEscalation: false
             runAsNonRoot: true

@@ -3900,6 +3900,7 @@ dependencies = [
  "base64 0.22.1",
  "chrono",
  "futures",
+ "hmac",
  "jsonwebtoken",
  "lru",
  "oauth2-config",

@@ -39,6 +39,13 @@ spec:
             - name: grafana-dashboards
               mountPath: /var/lib/grafana/dashboards
               readOnly: true
+          resources:
+            requests:
+              cpu: 10m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
           securityContext:
             allowPrivilegeEscalation: false
             runAsNonRoot: true
