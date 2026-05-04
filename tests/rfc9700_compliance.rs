@@ -640,7 +640,9 @@ async fn test_vector_d_refresh_token_replay() {
         .await,
     )
     .await;
-    let original_refresh = first.refresh_token.expect("refresh_token from first exchange");
+    let original_refresh = first
+        .refresh_token
+        .expect("refresh_token from first exchange");
     let original_access = first.access_token;
 
     // Use the refresh token once — rotates it (original is now consumed)
@@ -676,7 +678,11 @@ async fn test_vector_d_refresh_token_replay() {
             .to_request(),
     )
     .await;
-    assert_eq!(replay.status(), 400, "refresh token replay must be rejected");
+    assert_eq!(
+        replay.status(),
+        400,
+        "refresh token replay must be rejected"
+    );
 
     // RFC 9700 §4.14: the entire family must be revoked — both the new token
     // (issued after rotation) and the original access token must be inactive.
