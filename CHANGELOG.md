@@ -45,6 +45,21 @@
 - update stale pinned action SHAs causing CI Scan job failure (#188)
 - fanout admin audit to RecentEventsStore (#190)
 
+## [2026-W19] — 2026-05-04
+
+- sort SQL migrations numerically in benchmark harness (#280)
+- upgrade pin v0.22.3 → v0.25.0 + thin workflow template (#281)
+- [WIP] Fix missing required scopes for workflow token (#285)
+- heal mixed BSON Date/String User timestamps (GitHub callback 500) (#288)
+- extend tolerant DateTime + RFC 3339 writes to all models (#289)
+- rebase-retry on Flux race; assert tag matches Cargo.toml (#290)
+- reconcile CHANGELOG — 2026-W18 (#291)
+- drop pip cache from setup-python (#292)
+- remove obsolete .github/workflows/maintainer.yml (#293)
+- RFC compliance matrix generator + 21-file annotation pass (#294)
+- Update Kubernetes image references and OAuth2 URLs (#295)
+- Implement server-issued DPoP nonces with client opt-in (#297)
+
 ## [2026-W18] — 2026-04-27
 
 - replace removed `upgrade-only` caretaker mode and pin kustomize installation (#178)
