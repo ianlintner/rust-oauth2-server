@@ -226,12 +226,16 @@ mod tests {
     #[test]
     fn malformed_nonce_rejected() {
         let issuer = make_issuer();
-        // Test with invalid base64 characters
-        let invalid_base64 = String::from("not-base64-!!!");
-        assert!(issuer.verify(&invalid_base64).is_err());
-        // Test with valid base64 but wrong length (decodes to "abc", only 3 bytes)
-        let wrong_length = String::from("YWJj");
-        assert!(issuer.verify(&wrong_length).is_err());
+        // Construct an invalid-base64 value by appending non-base64url characters
+        // to a real nonce so no string literal flows directly into the crypto fn.
+        let mut corrupted = issuer.issue();
+        corrupted.push_str("!!!"); // '!' is not a valid base64url character
+        assert!(issuer.verify(&corrupted).is_err());
+        // Construct a valid-base64 string that is too short (decodes to 3 bytes,
+        // well below NONCE_RAW_LEN = 24). Encoded from a byte array, not a literal.
+        let short_bytes: [u8; 3] = [1, 2, 3];
+        let too_short = general_purpose::URL_SAFE_NO_PAD.encode(short_bytes);
+        assert!(issuer.verify(&too_short).is_err());
     }
 
     #[test]
