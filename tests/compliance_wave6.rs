@@ -570,6 +570,144 @@ async fn wave6_prompt_select_account_forces_reauth() {
     );
 }
 
+/// OIDC Back-Channel Logout 1.0 §2.4/§2.5: The logout endpoint must POST a
+/// correctly structured logout_token JWT to every client with a registered
+/// backchannel_logout_uri.  The token must carry typ=logout+JWT, exp, iss,
+/// aud, iat, jti, events, and at least one of sub or sid.
+///
+/// @rfc oidc-backchannel-1.0
+/// @section 2.4
+/// @requirement logout_token must have typ=logout+JWT, exp, and required claims.
+/// @level MUST
+/// @url https://openid.net/specs/openid-connect-backchannel-1_0.html#LogoutToken
+#[actix_web::test]
+async fn wave6_backchannel_logout_posts_valid_token() {
+    use httpmock::prelude::*;
+    use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
+    use std::sync::{Arc, Mutex};
+
+    // Shared capture of the raw request body.
+    let captured: Arc<Mutex<String>> = Arc::new(Mutex::new(String::new()));
+    let captured_clone = Arc::clone(&captured);
+
+    let mock_server = MockServer::start();
+    let bc_mock = mock_server.mock(|when, then| {
+        when.method(POST)
+            .path("/bc-logout")
+            .header("Content-Type", "application/x-www-form-urlencoded")
+            .is_true(move |req| {
+                let body = req.body_string();
+                *captured_clone.lock().unwrap() = body.clone();
+                body.starts_with("logout_token=")
+            });
+        then.status(200);
+    });
+
+    let mut client = Client::new(
+        "bc_deliver_client".to_string(),
+        "bc_secret_deliver".to_string(),
+        vec!["https://example.com/callback".to_string()],
+        vec!["authorization_code".to_string()],
+        "openid".to_string(),
+        "test".to_string(),
+    );
+    client.backchannel_logout_uri = format!("{}/bc-logout", mock_server.base_url());
+    client.backchannel_logout_session_required = false;
+
+    let (token_actor, client_actor, auth_actor, storage, jwt_secret, metrics, oidc_config) =
+        setup_context(client).await;
+    let app = logout_app!(
+        token_actor,
+        client_actor,
+        auth_actor,
+        storage,
+        jwt_secret,
+        metrics,
+        oidc_config
+    );
+
+    // Establish a session so the handler can derive sub.
+    let login_req = test::TestRequest::get().uri("/test/login").to_request();
+    let login_resp = test::call_service(&app, login_req).await;
+    let cookie = extract_session_cookie(&login_resp);
+
+    // Build an id_token_hint signed with the test secret so the handler can extract sub.
+    let now = chrono::Utc::now().timestamp();
+    let id_token_claims = serde_json::json!({
+        "iss": "http://localhost",
+        "sub": "user_123",
+        "aud": "bc_deliver_client",
+        "exp": now + 3600,
+        "iat": now,
+    });
+    let id_token = jsonwebtoken::encode(
+        &jsonwebtoken::Header::default(),
+        &id_token_claims,
+        &jsonwebtoken::EncodingKey::from_secret(b"test_jwt_secret"),
+    )
+    .unwrap();
+
+    let req = test::TestRequest::get()
+        .uri(&format!("/oauth/logout?id_token_hint={}", id_token))
+        .insert_header(("Cookie", cookie))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert!(
+        resp.status().is_success() || resp.status().is_redirection(),
+        "logout should succeed, got {}",
+        resp.status()
+    );
+
+    // Verify exactly one POST was made with the correct body prefix.
+    bc_mock.assert_calls(1);
+
+    // Extract the JWT from the captured body (form-encoded: logout_token=<jwt>).
+    let raw = captured.lock().unwrap().clone();
+    let token_str = raw
+        .strip_prefix("logout_token=")
+        .expect("body must start with logout_token=");
+    // The value is URL-percent-encoded in form bodies; dots and base64url chars
+    // survive unencoded, but we decode defensively.
+    let token_str = percent_encoding::percent_decode_str(token_str)
+        .decode_utf8()
+        .expect("valid UTF-8")
+        .into_owned();
+
+    // §2.4: JOSE header must have typ=logout+JWT.
+    let header = jsonwebtoken::decode_header(&token_str).expect("valid JWT header");
+    assert_eq!(
+        header.typ.as_deref(),
+        Some("logout+JWT"),
+        "logout token header must have typ=logout+JWT"
+    );
+
+    // Decode claims without signature verification (we trust the test secret).
+    let mut validation = Validation::new(Algorithm::HS256);
+    validation.validate_exp = false;
+    validation.validate_aud = false;
+    let claims: serde_json::Value = decode(
+        &token_str,
+        &DecodingKey::from_secret(b"test_jwt_secret"),
+        &validation,
+    )
+    .expect("token must be decodable")
+    .claims;
+
+    assert_eq!(claims["iss"], "http://localhost", "iss must match issuer");
+    assert_eq!(claims["aud"], "bc_deliver_client", "aud must be client_id");
+    assert!(claims["iat"].is_number(), "iat must be present");
+    assert!(claims["exp"].is_number(), "exp must be present");
+    assert!(claims["jti"].is_string(), "jti must be present");
+    assert!(
+        claims["events"]["http://schemas.openid.net/event/backchannel-logout"].is_object(),
+        "events claim must contain the backchannel-logout URI"
+    );
+    assert_eq!(
+        claims["sub"], "user_123",
+        "sub must match the authenticated user"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Client registration: logout fields
 // ---------------------------------------------------------------------------
