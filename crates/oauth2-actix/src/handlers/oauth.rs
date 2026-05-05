@@ -1566,6 +1566,7 @@ pub async fn token(
                 token_actor,
                 client_actor,
                 auth_actor,
+                storage.clone(),
                 metrics,
                 oidc_config,
                 jwks_cache.clone(),
@@ -1796,13 +1797,35 @@ async fn handle_device_code_grant(
 
     let mut response = TokenResponse::from(token.clone());
     if device_auth.scope.split_whitespace().any(|s| s == "openid") {
-        let id_claims = IdTokenClaims::new(
+        let mut id_claims = IdTokenClaims::new(
             &oidc_config.issuer,
-            user_id,
+            user_id.clone(),
             req.client_id,
             3600,
             Some(&token.access_token),
         );
+
+        // OIDC Core §5.4: populate email/preferred_username when requested scope grants it.
+        let scope_set: std::collections::HashSet<&str> =
+            device_auth.scope.split_whitespace().collect();
+        if (scope_set.contains("email") || scope_set.contains("profile")) && !user_id.is_empty() {
+            match storage.get_user_by_id(&user_id).await {
+                Ok(Some(user)) => {
+                    if scope_set.contains("email") {
+                        id_claims.email = Some(user.email.clone());
+                    }
+                    if scope_set.contains("profile") {
+                        id_claims.preferred_username = Some(user.username.clone());
+                    }
+                }
+                Ok(None) => {
+                    tracing::warn!(user_id = %user_id, "User not found when populating id_token claims");
+                }
+                Err(e) => {
+                    tracing::error!(user_id = %user_id, error = %e, "Failed to fetch user for id_token claims");
+                }
+            }
+        }
 
         let id_token = if oidc_config.id_token_alg.eq_ignore_ascii_case("RS256") {
             let pem = oidc_config
@@ -1834,6 +1857,7 @@ async fn handle_authorization_code_grant(
     token_actor: web::Data<TokenActorPool>,
     client_actor: web::Data<Addr<ClientActor>>,
     auth_actor: web::Data<Addr<AuthActor>>,
+    storage: Option<web::Data<DynStorage>>,
     metrics: web::Data<Metrics>,
     oidc_config: web::Data<OidcConfig>,
     jwks_cache: Option<web::Data<JwksCache>>,
@@ -2008,7 +2032,7 @@ async fn handle_authorization_code_grant(
     if auth_code.scope.split_whitespace().any(|s| s == "openid") {
         let mut id_claims = IdTokenClaims::new(
             &oidc_config.issuer,
-            auth_code.user_id,
+            auth_code.user_id.clone(),
             auth_code.client_id,
             3600, // same lifetime as access token
             Some(&token.access_token),
@@ -2020,6 +2044,42 @@ async fn handle_authorization_code_grant(
             use sha2::{Digest, Sha256};
             let hash = Sha256::digest(auth_code.code.as_bytes());
             id_claims.c_hash = Some(general_purpose::URL_SAFE_NO_PAD.encode(&hash[..16]));
+        }
+
+        // OIDC Core §5.4: include email/preferred_username in the id_token when
+        // the corresponding scopes were requested. This lets oauth2-proxy (and
+        // other RP libraries) read the email claim directly from the id_token
+        // without a round-trip to the userinfo endpoint.
+        let scope_set: std::collections::HashSet<&str> =
+            auth_code.scope.split_whitespace().collect();
+        if (scope_set.contains("email") || scope_set.contains("profile"))
+            && !auth_code.user_id.is_empty()
+        {
+            if let Some(ref store) = storage {
+                match store.get_user_by_id(&auth_code.user_id).await {
+                    Ok(Some(user)) => {
+                        if scope_set.contains("email") {
+                            id_claims.email = Some(user.email.clone());
+                        }
+                        if scope_set.contains("profile") {
+                            id_claims.preferred_username = Some(user.username.clone());
+                        }
+                    }
+                    Ok(None) => {
+                        tracing::warn!(
+                            user_id = %auth_code.user_id,
+                            "User not found when populating id_token claims"
+                        );
+                    }
+                    Err(e) => {
+                        tracing::error!(
+                            user_id = %auth_code.user_id,
+                            error = %e,
+                            "Failed to fetch user for id_token claims"
+                        );
+                    }
+                }
+            }
         }
 
         let id_token = if oidc_config.id_token_alg.eq_ignore_ascii_case("RS256") {

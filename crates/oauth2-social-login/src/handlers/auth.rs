@@ -1,7 +1,8 @@
 use actix_session::Session;
 use actix_web::{web, HttpResponse, Result};
 use oauth2::{
-    AuthorizationCode, CsrfToken, PkceCodeChallenge, Scope, TokenResponse as OAuth2TokenResponse,
+    AuthorizationCode, CsrfToken, PkceCodeChallenge, PkceCodeVerifier, Scope,
+    TokenResponse as OAuth2TokenResponse,
 };
 use serde::Deserialize;
 use std::sync::Arc;
@@ -314,7 +315,7 @@ async fn handle_google_callback(
     code: &str,
     config: &SocialLoginConfig,
     social_svc: &SocialLoginService,
-    _session: &Session,
+    session: &Session,
 ) -> Result<SocialUserInfo, OAuth2Error> {
     let provider_config = config.google.as_ref().ok_or_else(|| {
         OAuth2Error::new("provider_not_configured", Some("Google not configured"))
@@ -322,11 +323,22 @@ async fn handle_google_callback(
 
     let client = SocialLoginService::get_google_client(provider_config)?;
 
+    // Retrieve the PKCE code verifier stored during login initiation.
+    let pkce_verifier_secret: Option<String> = session
+        .get("pkce_verifier")
+        .map_err(|e| OAuth2Error::new("session_error", Some(&e.to_string())))?;
+    let pkce_verifier = pkce_verifier_secret
+        .map(PkceCodeVerifier::new)
+        .ok_or_else(|| {
+            OAuth2Error::new("session_error", Some("PKCE verifier missing from session"))
+        })?;
+
     // oauth2 implements its async HTTP client trait for reqwest 0.12.
     // We standardize on reqwest 0.12 (rustls) here to keep cross-compilation (arm64) OpenSSL-free.
     let http_client = reqwest::Client::new();
     let token_result = client
         .exchange_code(AuthorizationCode::new(code.to_string()))
+        .set_pkce_verifier(pkce_verifier)
         .request_async(&http_client)
         .await
         .map_err(|e| OAuth2Error::new("token_exchange_failed", Some(&e.to_string())))?;

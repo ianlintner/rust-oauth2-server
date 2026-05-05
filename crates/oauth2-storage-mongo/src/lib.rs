@@ -343,6 +343,13 @@ impl Storage for MongoStorage {
             .map_err(Self::mongo_err_to_oauth)
     }
 
+    async fn get_user_by_id(&self, user_id: &str) -> Result<Option<User>, OAuth2Error> {
+        self.users
+            .find_one(doc! { "id": user_id })
+            .await
+            .map_err(Self::mongo_err_to_oauth)
+    }
+
     async fn save_token(&self, token: &Token) -> Result<(), OAuth2Error> {
         self.tokens
             .insert_one(token)
