@@ -1808,13 +1808,21 @@ async fn handle_device_code_grant(
         // OIDC Core §5.4: populate email/preferred_username when requested scope grants it.
         let scope_set: std::collections::HashSet<&str> =
             device_auth.scope.split_whitespace().collect();
-        if scope_set.contains("email") || scope_set.contains("profile") {
-            if let Ok(Some(user)) = storage.get_user_by_id(&user_id).await {
-                if scope_set.contains("email") {
-                    id_claims.email = Some(user.email.clone());
+        if (scope_set.contains("email") || scope_set.contains("profile")) && !user_id.is_empty() {
+            match storage.get_user_by_id(&user_id).await {
+                Ok(Some(user)) => {
+                    if scope_set.contains("email") {
+                        id_claims.email = Some(user.email.clone());
+                    }
+                    if scope_set.contains("profile") {
+                        id_claims.preferred_username = Some(user.username.clone());
+                    }
                 }
-                if scope_set.contains("profile") {
-                    id_claims.preferred_username = Some(user.username.clone());
+                Ok(None) => {
+                    tracing::warn!(user_id = %user_id, "User not found when populating id_token claims");
+                }
+                Err(e) => {
+                    tracing::error!(user_id = %user_id, error = %e, "Failed to fetch user for id_token claims");
                 }
             }
         }
@@ -2048,12 +2056,27 @@ async fn handle_authorization_code_grant(
             && !auth_code.user_id.is_empty()
         {
             if let Some(ref store) = storage {
-                if let Ok(Some(user)) = store.get_user_by_id(&auth_code.user_id).await {
-                    if scope_set.contains("email") {
-                        id_claims.email = Some(user.email.clone());
+                match store.get_user_by_id(&auth_code.user_id).await {
+                    Ok(Some(user)) => {
+                        if scope_set.contains("email") {
+                            id_claims.email = Some(user.email.clone());
+                        }
+                        if scope_set.contains("profile") {
+                            id_claims.preferred_username = Some(user.username.clone());
+                        }
                     }
-                    if scope_set.contains("profile") {
-                        id_claims.preferred_username = Some(user.username.clone());
+                    Ok(None) => {
+                        tracing::warn!(
+                            user_id = %auth_code.user_id,
+                            "User not found when populating id_token claims"
+                        );
+                    }
+                    Err(e) => {
+                        tracing::error!(
+                            user_id = %auth_code.user_id,
+                            error = %e,
+                            "Failed to fetch user for id_token claims"
+                        );
                     }
                 }
             }

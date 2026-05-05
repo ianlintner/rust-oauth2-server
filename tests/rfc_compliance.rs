@@ -1309,6 +1309,190 @@ async fn userinfo_returns_real_claims_for_auth_code_flow() {
     );
 }
 
+/// OIDC Core §5.4: id_token SHOULD include email/preferred_username when requested.
+///
+/// When the `email` or `profile` scope is granted, the server MAY populate
+/// the corresponding claims directly in the id_token (in addition to or instead
+/// of returning them from UserInfo). This test verifies that oauth2-proxy and
+/// similar RPs can read the email claim from the id_token without needing to
+/// call the UserInfo endpoint.
+///
+/// @rfc oidc-core-1.0
+/// @section 5.4
+/// @requirement id_token SHOULD include email/preferred_username when the corresponding scopes are granted.
+/// @level SHOULD
+/// @url https://openid.net/specs/openid-connect-core-1_0.html#ScopeClaims
+#[actix_web::test]
+async fn id_token_includes_email_and_preferred_username_when_scopes_granted() {
+    let client = Client::new(
+        "client_id_token_claims".to_string(),
+        "secret_id_token_claims".to_string(),
+        vec!["https://app.example/cb".to_string()],
+        vec!["authorization_code".to_string()],
+        "openid email profile".to_string(),
+        "test".to_string(),
+    );
+
+    let temp_dir = tempfile::tempdir().expect("create temp dir");
+    let db_path = temp_dir.path().join("oauth2_id_token_claims.db");
+    let storage = oauth2_storage_factory::create_storage(&format!("sqlite:{}", db_path.display()))
+        .await
+        .expect("create storage");
+    storage.init().await.expect("init");
+    storage.save_client(&client).await.expect("save client");
+
+    let now = chrono::Utc::now();
+    let user = User {
+        id: "user_rfc".to_string(), // Must match test_set_session
+        username: "test_user".to_string(),
+        password_hash: "unused".to_string(),
+        email: "testuser@example.com".to_string(),
+        enabled: true,
+        role: "user".to_string(),
+        created_at: now,
+        updated_at: now,
+    };
+    storage.save_user(&user).await.expect("save user");
+
+    let jwt_secret = "test_secret_at_least_32_characters_long".to_string();
+    let metrics = Metrics::new().expect("metrics");
+
+    let token_actor = oauth2_actix::actors::TokenActor::new(
+        storage.clone(),
+        jwt_secret.clone(),
+        "https://auth.example.com".to_string(),
+    )
+    .start();
+    let token_pool = TokenActorPool::new(vec![token_actor]);
+    let client_actor = oauth2_actix::actors::ClientActor::new(storage.clone()).start();
+    let auth_actor = oauth2_actix::actors::AuthActor::new(storage.clone()).start();
+
+    let oidc_config = OidcConfig {
+        issuer: "https://auth.example.com".to_string(),
+        jwt_secret: jwt_secret.clone(),
+        id_token_alg: "HS256".to_string(),
+        id_token_kid: None,
+        id_token_private_key_pem: None,
+    };
+    let keyset = Arc::new(RwLock::new(oauth2_core::models::key_set::KeySet::default()));
+    let dyn_storage: oauth2_ports::DynStorage = storage;
+
+    let app = test::init_service(
+        App::new()
+            .wrap(SessionMiddleware::new(
+                CookieSessionStore::default(),
+                Key::generate(),
+            ))
+            .route("/test/login", web::get().to(test_set_session))
+            .app_data(web::Data::new(token_pool))
+            .app_data(web::Data::new(client_actor))
+            .app_data(web::Data::new(auth_actor))
+            .app_data(web::Data::new(jwt_secret.clone()))
+            .app_data(web::Data::new(metrics))
+            .app_data(web::Data::new(oidc_config))
+            .app_data(web::Data::new(keyset))
+            .app_data(web::Data::new(false))
+            .app_data(web::Data::new(dyn_storage))
+            .service(
+                web::scope("/oauth")
+                    .route(
+                        "/authorize",
+                        web::get().to(oauth2_actix::handlers::oauth::authorize),
+                    )
+                    .route(
+                        "/token",
+                        web::post().to(oauth2_actix::handlers::oauth::token),
+                    ),
+            ),
+    )
+    .await;
+
+    // Set up a session
+    let req = test::TestRequest::get().uri("/test/login").to_request();
+    let resp = test::call_service(&app, req).await;
+    assert!(resp.status().is_success());
+    let cookie = extract_session_cookie(&resp);
+
+    let verifier = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk";
+    let challenge = s256(verifier);
+
+    // Authorize
+    let auth_req = test::TestRequest::get()
+        .uri(&format!(
+            "/oauth/authorize?response_type=code&client_id=client_id_token_claims&redirect_uri=https%3A%2F%2Fapp.example%2Fcb&scope=openid%20email%20profile&state=test_state&nonce=test_nonce&code_challenge={}&code_challenge_method=S256",
+            challenge
+        ))
+        .insert_header(("Cookie", cookie.as_str()))
+        .to_request();
+    let auth_resp = test::call_service(&app, auth_req).await;
+    assert!(
+        auth_resp.status().as_u16() == 302 || auth_resp.status().as_u16() == 303,
+        "authorize must redirect (got {})",
+        auth_resp.status().as_u16()
+    );
+
+    let location = auth_resp
+        .headers()
+        .get(actix_web::http::header::LOCATION)
+        .and_then(|h| h.to_str().ok())
+        .expect("location header");
+
+    // Check if there's an error in the redirect
+    if let Some(error) = extract_query_param(location, "error") {
+        panic!(
+            "authorize returned error: {} - location: {}",
+            error, location
+        );
+    }
+
+    let code = extract_query_param(location, "code")
+        .unwrap_or_else(|| panic!("authorization code not found in location: {}", location));
+
+    // Token exchange
+    let token_req = test::TestRequest::post()
+        .uri("/oauth/token")
+        .set_form([
+            ("grant_type", "authorization_code"),
+            ("code", &code),
+            ("client_id", "client_id_token_claims"),
+            ("client_secret", "secret_id_token_claims"),
+            ("redirect_uri", "https://app.example/cb"),
+            ("code_verifier", verifier),
+        ])
+        .to_request();
+    let token_resp = test::call_service(&app, token_req).await;
+    assert_eq!(
+        token_resp.status().as_u16(),
+        200,
+        "token exchange must succeed"
+    );
+
+    let body: TokenResponse = test::read_body_json(token_resp).await;
+    let id_token = body.id_token.expect("id_token must be present");
+
+    // Decode the id_token
+    use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
+    let mut validation = Validation::new(Algorithm::HS256);
+    validation.validate_exp = false;
+    validation.validate_aud = false;
+    let decoded = decode::<serde_json::Value>(
+        &id_token,
+        &DecodingKey::from_secret(jwt_secret.as_bytes()),
+        &validation,
+    )
+    .expect("decode id_token");
+
+    // Verify claims
+    assert_eq!(
+        decoded.claims["email"], "testuser@example.com",
+        "id_token must include email when email scope was granted"
+    );
+    assert_eq!(
+        decoded.claims["preferred_username"], "test_user",
+        "id_token must include preferred_username when profile scope was granted"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Chunk 1.D — OIDC prompt=none / prompt=login / max_age
 // ---------------------------------------------------------------------------
