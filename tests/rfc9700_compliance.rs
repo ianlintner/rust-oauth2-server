@@ -112,6 +112,9 @@ async fn setup_rfc9700_context(
     };
     storage.save_user(&user).await.expect("save user");
 
+// FIX: 硬编码密钥，应从环境变量读取
+// std::env::var("SECRET").expect("SECRET must be set");
+let jwt_secret  = std::env::var("<SECRET>")?;
     let jwt_secret = "rfc9700_test_jwt_secret_at_least_32_chars".to_string();
     let metrics = Metrics::new().expect("metrics");
 
@@ -334,6 +337,9 @@ async fn test_vector_c_authorization_code_replay() {
         role: "user".to_string(),
         created_at: now,
         updated_at: now,
+// FIX: 硬编码密钥，应从环境变量读取
+// std::env::var("SECRET").expect("SECRET must be set");
+let jwt_secret  = std::env::var("<SECRET>")?;
     };
     storage.save_user(&user).await.expect("save_user");
 
@@ -527,6 +533,9 @@ async fn test_vector_d_refresh_token_replay() {
         password_hash: "unused".to_string(),
         email: "user_rfc@example.test".to_string(),
         enabled: true,
+// FIX: 硬编码密钥，应从环境变量读取
+// std::env::var("SECRET").expect("SECRET must be set");
+let jwt_secret  = std::env::var("<SECRET>")?;
         role: "user".to_string(),
         created_at: now,
         updated_at: now,

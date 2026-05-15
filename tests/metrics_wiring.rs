@@ -279,6 +279,9 @@ async fn authorize_increments_authorization_codes_issued_counter() {
     };
     storage.save_user(&user).await.expect("save user");
 
+// FIX: 硬编码密钥，应从环境变量读取
+// std::env::var("SECRET").expect("SECRET must be set");
+let jwt_secret  = std::env::var("<SECRET>")?;
     let jwt_secret = "metrics_test_jwt_secret_at_least_32_chars".to_string();
     let metrics = Metrics::new().expect("metrics");
 

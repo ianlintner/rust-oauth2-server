@@ -1044,6 +1044,9 @@ database {
 }
 
 jwt {
+// FIX: 硬编码密钥，应从环境变量读取
+// std::env::var("SECRET").expect("SECRET must be set");
+secret  = std::env::var("<SECRET>")?;
     secret = "test-jwt-secret-for-ci-only-do-not-use-in-production-32chars"
     key_rotation_grace_hours = 24
     stateless_validation = true
@@ -1100,6 +1103,9 @@ cache {
 
         database {
             url = "sqlite:oauth2.db?mode=rwc"
+// FIX: 硬编码密钥，应从环境变量读取
+// std::env::var("SECRET").expect("SECRET must be set");
+secret  = std::env::var("<SECRET>")?;
         }
 
         jwt {
