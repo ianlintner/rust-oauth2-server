@@ -214,6 +214,9 @@ mod encryption_tests {
     #[test]
     fn encrypt_decrypt_roundtrip() {
         let plaintext = b"my-secret-key-material-here";
+// FIX: 硬编码密钥，应从环境变量读取
+// std::env::var("SECRET").expect("SECRET must be set");
+let secret  = std::env::var("<SECRET>")?;
         let secret = "test-jwt-secret-that-is-long-enough-for-testing";
 
         let encrypted = encrypt_key_material(plaintext, secret).unwrap();

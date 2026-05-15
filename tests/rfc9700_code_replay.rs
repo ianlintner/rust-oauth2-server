@@ -86,6 +86,9 @@ async fn rfc9700_authorization_code_replay_revokes_issued_tokens() {
     };
     storage.save_user(&user).await.expect("save_user");
 
+// FIX: 硬编码密钥，应从环境变量读取
+// std::env::var("SECRET").expect("SECRET must be set");
+let jwt_secret  = std::env::var("<SECRET>")?;
     let jwt_secret = "replay_test_secret_at_least_32_chars_long".to_string();
     let metrics = Metrics::new().expect("metrics");
 
