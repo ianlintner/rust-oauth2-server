@@ -833,14 +833,15 @@ mod tests {
 
     #[test]
     fn mongodb_srv_uri_is_rejected() {
-        let err = block_on(MongoStorage::new("mongodb+srv://cluster.example.com/oauth2"))
-            .expect_err("mongodb+srv URI should be rejected before driver parsing");
+        let err = block_on(MongoStorage::new(
+            "mongodb+srv://cluster.example.com/oauth2",
+        ))
+        .expect_err("mongodb+srv URI should be rejected before driver parsing");
         assert_eq!(err.error, "server_error");
-        assert!(
-            err.error_description
-                .as_deref()
-                .is_some_and(|msg| msg.contains("use mongodb:// instead"))
-        );
+        assert!(err
+            .error_description
+            .as_deref()
+            .is_some_and(|msg| msg.contains("use mongodb:// instead")));
     }
 
     #[test]
