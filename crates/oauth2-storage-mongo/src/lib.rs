@@ -26,6 +26,15 @@ pub struct MongoStorage {
 
 impl MongoStorage {
     pub async fn new(uri: &str) -> Result<Self, OAuth2Error> {
+        if uri.starts_with("mongodb+srv://") {
+            return Err(OAuth2Error::new(
+                "server_error",
+                Some(
+                    "mongodb+srv:// URIs are temporarily unsupported because the MongoDB driver's DNS resolver feature is disabled to avoid hickory-proto security advisories; use mongodb:// instead",
+                ),
+            ));
+        }
+
         let mut opts = ClientOptions::parse(uri)
             .await
             .map_err(Self::mongo_err_to_oauth)?;
@@ -819,7 +828,20 @@ impl Storage for MongoStorage {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use futures::executor::block_on;
     use mongodb::bson;
+
+    #[test]
+    fn mongodb_srv_uri_is_rejected() {
+        let err = block_on(MongoStorage::new("mongodb+srv://cluster.example.com/oauth2"))
+            .expect_err("mongodb+srv URI should be rejected before driver parsing");
+        assert_eq!(err.error, "server_error");
+        assert!(
+            err.error_description
+                .as_deref()
+                .is_some_and(|msg| msg.contains("use mongodb:// instead"))
+        );
+    }
 
     #[test]
     fn token_serde_omits_refresh_token_when_none() {

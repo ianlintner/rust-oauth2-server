@@ -21,23 +21,6 @@ ignore = [
   #         The default build does not include MongoDB.
   "RUSTSEC-2024-0421",
 
-  # RUSTSEC-2026-0119: CPU exhaustion in hickory-proto during message encoding
-  # Affected path: hickory-proto 0.25.2 ← mongodb 3.6.0 (with dns-resolver feature)
-  # Fix available in hickory-proto 0.26.1, but mongodb 3.6.0 constrains to 0.25.x
-  # Waiting for mongodb 3.7+ or alternate solution. Limited impact: DNS encoding
-  # only triggered by mongodb driver's internal DNS resolution, not user input.
-  # Review date: 2026-05-04
-  # Next review: Remove once mongodb updates to hickory-proto 0.26+
-  "RUSTSEC-2026-0119",
-
-  # RUSTSEC-2026-0118: NSEC3 validation loop in hickory-proto
-  # Affected path: hickory-proto 0.25.2 ← mongodb 3.6.0 (with dns-resolver feature)
-  # No fix available yet (advisory issued 2026-05-01). Limited impact: DNSSEC
-  # validation only affects NSEC3 records, not typical mongodb usage scenarios.
-  # Review date: 2026-05-04
-  # Next review: Remove once hickory-proto ships a fix and mongodb updates
-  "RUSTSEC-2026-0118",
-
   # RUSTSEC-2021-0153: `encoding` crate is unmaintained
   # Affected path: encoding 0.2.33 ← java-properties ← hocon ← oauth2-config
   # Status: Crate is unmaintained since 2021

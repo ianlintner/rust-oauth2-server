@@ -24,18 +24,6 @@ ignore = [
     # Re-evaluate monthly — remove this ignore once rsa ≥ 0.10 ships a fix.
     { id = "RUSTSEC-2023-0071", reason = "no upstream fix; tracked for ES256/EdDSA migration" },
 
-    # RUSTSEC-2026-0119: CPU exhaustion in hickory-proto during message encoding
-    # Affected path: hickory-proto 0.25.2 ← mongodb 3.6.0 (with dns-resolver feature)
-    # Fix available in hickory-proto 0.26.1, but mongodb 3.6.0 constrains to 0.25.x
-    # Waiting for mongodb 3.7+ or alternate solution. Limited impact: DNS encoding
-    # only triggered by mongodb driver's internal DNS resolution, not user input.
-    { id = "RUSTSEC-2026-0119", reason = "transitive via mongodb 3.6.0; awaiting mongodb update to hickory-proto 0.26+" },
-
-    # RUSTSEC-2026-0118: NSEC3 validation loop in hickory-proto
-    # Affected path: hickory-proto 0.25.2 ← mongodb 3.6.0 (with dns-resolver feature)
-    # No fix available yet (advisory issued 2026-05-01). Limited impact: DNSSEC
-    # validation only affects NSEC3 records, not typical mongodb usage scenarios.
-    { id = "RUSTSEC-2026-0118", reason = "transitive via mongodb 3.6.0; no upstream fix available; DNSSEC validation not critical for mongodb driver" },
 ]
 # Unsound advisories: only fail for workspace crates (transitive unsound is noisy).
 unsound = "workspace"

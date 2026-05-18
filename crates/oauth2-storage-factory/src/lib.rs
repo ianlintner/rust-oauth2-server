@@ -88,7 +88,9 @@ fn derive_db_span_attrs(database_url: &str) -> (Option<String>, Option<String>) 
 ///
 /// Supported:
 /// - `postgres://...` and `sqlite:...` -> SQLx backend
-/// - `mongodb://...` and `mongodb+srv://...` -> Mongo backend (requires `--features mongo`)
+/// - `mongodb://...` -> Mongo backend (requires `--features mongo`)
+/// - `mongodb+srv://...` currently returns an error because the MongoDB DNS
+///   resolver feature is disabled pending upstream hickory-proto fixes
 pub async fn create_storage(database_url: &str) -> Result<DynStorage, OAuth2Error> {
     create_storage_with_pool_config(database_url, None, None).await
 }
