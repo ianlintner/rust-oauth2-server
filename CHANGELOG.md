@@ -45,6 +45,10 @@
 - update stale pinned action SHAs causing CI Scan job failure (#188)
 - fanout admin audit to RecentEventsStore (#190)
 
+## [2026-W21] — 2026-05-20
+
+- Fix hickory-proto security findings in MongoDB dependency path (#316)
+
 ## [2026-W19] — 2026-05-04
 
 - sort SQL migrations numerically in benchmark harness (#280)
