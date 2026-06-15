@@ -32,7 +32,7 @@ tracing = "0.1"
 
 tokio = { version = "1.35", features = ["full"] }
 
-opentelemetry = { version = "0.31", features = ["trace", "metrics"], optional = true }
+opentelemetry = { version = "0.32", features = ["trace", "metrics"], optional = true }
 tracing-opentelemetry = { version = "0.32", optional = true }
 
 # Optional backends

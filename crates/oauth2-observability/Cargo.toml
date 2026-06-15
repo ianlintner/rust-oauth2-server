@@ -32,7 +32,7 @@ oauth2-ports = { path = "../oauth2-ports" }
 prometheus = "0.14"
 
 # Tracing / OpenTelemetry
-opentelemetry = { version = "0.31", features = ["trace", "metrics"], optional = true }
+opentelemetry = { version = "0.32", features = ["trace", "metrics"], optional = true }
 opentelemetry_sdk = { version = "0.31", features = ["rt-tokio"], optional = true }
 opentelemetry-otlp = { version = "0.31", default-features = false, features = ["grpc-tonic", "trace", "metrics"], optional = true }
 tracing = "0.1"
