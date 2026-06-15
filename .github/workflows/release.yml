@@ -186,7 +186,7 @@ jobs:
           install-system-deps: "true"
 
       - name: Install cross (for arm64 builds)
-        uses: taiki-e/install-action@055f5df8c3f65ea01cd41e9dc855becd88953486 # v2.75.18
+        uses: taiki-e/install-action@7a79fe8c3a13344501c80d99cae481c1c9085912 # v2.81.10
         with:
           tool: cross
 
