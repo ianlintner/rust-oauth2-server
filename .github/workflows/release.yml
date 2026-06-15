@@ -260,7 +260,7 @@ jobs:
 
       - name: Extract metadata (GHCR)
         id: meta_ghcr
-        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
+        uses: docker/metadata-action@80c7e94dd9b9319bd5eb7a0e0fe9291e23a2a2e9 # v6.1.0
         with:
           images: |
             ghcr.io/${{ github.repository_owner }}/oauth2-server
@@ -271,7 +271,7 @@ jobs:
 
       - name: Extract metadata (GHCR, mongo)
         id: meta_ghcr_mongo
-        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
+        uses: docker/metadata-action@80c7e94dd9b9319bd5eb7a0e0fe9291e23a2a2e9 # v6.1.0
         with:
           images: |
             ghcr.io/${{ github.repository_owner }}/oauth2-server
@@ -282,7 +282,7 @@ jobs:
 
       - name: Extract metadata (GHCR, mongo-only)
         id: meta_ghcr_mongo_only
-        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
+        uses: docker/metadata-action@80c7e94dd9b9319bd5eb7a0e0fe9291e23a2a2e9 # v6.1.0
         with:
           images: |
             ghcr.io/${{ github.repository_owner }}/oauth2-server
@@ -294,7 +294,7 @@ jobs:
       - name: Extract metadata (Docker Hub)
         if: steps.targets.outputs.dockerhub == 'true'
         id: meta_dockerhub
-        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
+        uses: docker/metadata-action@80c7e94dd9b9319bd5eb7a0e0fe9291e23a2a2e9 # v6.1.0
         with:
           images: |
             docker.io/${{ secrets.DOCKER_USERNAME }}/oauth2-server
@@ -306,7 +306,7 @@ jobs:
       - name: Extract metadata (Docker Hub, mongo)
         if: steps.targets.outputs.dockerhub == 'true'
         id: meta_dockerhub_mongo
-        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
+        uses: docker/metadata-action@80c7e94dd9b9319bd5eb7a0e0fe9291e23a2a2e9 # v6.1.0
         with:
           images: |
             docker.io/${{ secrets.DOCKER_USERNAME }}/oauth2-server
@@ -318,7 +318,7 @@ jobs:
       - name: Extract metadata (Docker Hub, mongo-only)
         if: steps.targets.outputs.dockerhub == 'true'
         id: meta_dockerhub_mongo_only
-        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
+        uses: docker/metadata-action@80c7e94dd9b9319bd5eb7a0e0fe9291e23a2a2e9 # v6.1.0
         with:
           images: |
             docker.io/${{ secrets.DOCKER_USERNAME }}/oauth2-server
