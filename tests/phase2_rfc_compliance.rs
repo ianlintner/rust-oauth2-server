@@ -31,6 +31,11 @@ async fn setup_phase2_context(
     Metrics,
     OidcConfig,
 ) {
+    // Enable the public RFC 7591 registration endpoint for these tests.
+    // Each tests/*.rs file is its own process, so this set is isolated to this
+    // binary and every registration test here wants the flag enabled.
+    std::env::set_var("OAUTH2_DYNAMIC_REGISTRATION_ENABLED", "true");
+
     let storage = oauth2_storage_factory::create_storage("sqlite::memory:")
         .await
         .expect("create storage");

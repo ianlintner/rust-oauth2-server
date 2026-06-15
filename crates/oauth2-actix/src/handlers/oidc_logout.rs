@@ -185,7 +185,6 @@ fn build_frontchannel_logout_page(
     issuer: &str,
     sid: Option<&str>,
     post_logout_redirect: Option<&str>,
-    state: Option<&str>,
 ) -> String {
     let mut iframes = String::new();
     for client in storage_clients {
@@ -211,14 +210,13 @@ fn build_frontchannel_logout_page(
     }
 
     let redirect_script = if let Some(redirect_uri) = post_logout_redirect {
-        let mut url = redirect_uri.to_string();
-        if let Some(s) = state {
-            let sep = if url.contains('?') { '&' } else { '?' };
-            url = format!("{}{}state={}", url, sep, s);
-        }
+        // The caller has already validated this URI against registered values and
+        // appended any `state`. JSON-encode it into a safe JS string literal so a
+        // quote/backslash cannot break out of the <script> context.
+        let url_js = serde_json::to_string(redirect_uri).unwrap_or_else(|_| "\"\"".to_string());
         format!(
-            r#"<script>setTimeout(function(){{ window.location.href = "{}"; }}, 2000);</script>"#,
-            url
+            r#"<script>setTimeout(function(){{ window.location.href = {}; }}, 2000);</script>"#,
+            url_js
         )
     } else {
         String::new()
@@ -345,12 +343,30 @@ pub async fn logout(
         .any(|c| !c.frontchannel_logout_uri.is_empty());
 
     if has_frontchannel {
+        // Validate post_logout_redirect_uri the SAME way the standard branch does,
+        // BEFORE rendering it — the previous code skipped this, enabling an open
+        // redirect and reflected XSS. Bake any `state` into the validated URL here.
+        let redirect_target: Option<String> = match query.post_logout_redirect_uri.as_deref() {
+            Some(uri) => {
+                let mut parsed = validate_post_logout_redirect_uri_shape(uri)?;
+                if !is_registered_post_logout_redirect(storage.get_ref(), uri).await? {
+                    return Err(OAuth2Error::invalid_request(
+                        "Unregistered post_logout_redirect_uri",
+                    ));
+                }
+                if let Some(state) = query.state.as_deref() {
+                    parsed.query_pairs_mut().append_pair("state", state);
+                }
+                Some(parsed.to_string())
+            }
+            None => None,
+        };
+
         let html = build_frontchannel_logout_page(
             &clients,
             &oidc.issuer,
             sid.as_deref(),
-            query.post_logout_redirect_uri.as_deref(),
-            query.state.as_deref(),
+            redirect_target.as_deref(),
         );
         return Ok(HttpResponse::Ok()
             .content_type("text/html; charset=utf-8")
@@ -380,4 +396,44 @@ pub async fn logout(
     }
 
     Ok(HttpResponse::Ok().json(json!({ "status": "logged_out" })))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn client_with_frontchannel(uri: &str) -> oauth2_core::Client {
+        let mut c = oauth2_core::Client::new(
+            "rp".to_string(),
+            "secret".to_string(),
+            vec!["https://rp.example/cb".to_string()],
+            vec!["authorization_code".to_string()],
+            "openid".to_string(),
+            "test".to_string(),
+        );
+        c.frontchannel_logout_uri = uri.to_string();
+        c
+    }
+
+    #[test]
+    fn redirect_url_is_json_encoded_not_raw() {
+        let clients = vec![client_with_frontchannel("https://rp.example/fc")];
+        // A value containing a double-quote must not break out of the JS string.
+        let html = build_frontchannel_logout_page(
+            &clients,
+            "https://issuer.example",
+            None,
+            Some(r#"https://rp.example/done?x="+alert(1)+""#),
+        );
+        // No raw breakout: the quote must be backslash-escaped by JSON encoding.
+        assert!(!html.contains(r#"href = "https://rp.example/done?x="+alert(1)+"";"#));
+        assert!(html.contains(r#"\"+alert(1)+\""#));
+    }
+
+    #[test]
+    fn no_redirect_script_when_absent() {
+        let clients = vec![client_with_frontchannel("https://rp.example/fc")];
+        let html = build_frontchannel_logout_page(&clients, "https://issuer.example", None, None);
+        assert!(!html.contains("window.location.href"));
+    }
 }

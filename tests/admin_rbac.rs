@@ -16,6 +16,10 @@ use oauth2_actix::middleware::admin_guard::AdminGuard;
 use oauth2_core::{Client, Token};
 use oauth2_ports::DynStorage;
 
+/// Serializes tests that mutate the process-global OAUTH2_ADMIN_CLIENT_IDS env
+/// var so they cannot race each other on a multi-threaded test runtime.
+static ADMIN_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 async fn setup_storage() -> DynStorage {
     let tmp = tempfile::NamedTempFile::new().expect("tempfile");
     let url = format!("sqlite://{}", tmp.path().display());
@@ -272,8 +276,16 @@ async fn bearer_token_without_admin_scope_is_403() {
     assert_eq!(body["error"], "insufficient_scope");
 }
 
+// Holds ADMIN_ENV_LOCK across .await to serialize the process-global
+// OAUTH2_ADMIN_CLIENT_IDS env var; safe because actix_web::test uses a
+// single-threaded runtime so the guard never crosses threads.
+#[allow(clippy::await_holding_lock)]
 #[actix_web::test]
 async fn bearer_token_with_admin_scope_passes() {
+    // AdminGuard now also requires the token's client_id to be in the
+    // OAUTH2_ADMIN_CLIENT_IDS allow-list (fail-closed). Trust this client.
+    let _env_guard = ADMIN_ENV_LOCK.lock().unwrap();
+    std::env::set_var("OAUTH2_ADMIN_CLIENT_IDS", "machine-admin");
     let storage = setup_storage().await;
     let client = Client::new(
         "machine-admin".to_string(),
@@ -321,6 +333,71 @@ async fn bearer_token_with_admin_scope_passes() {
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 201);
+    std::env::remove_var("OAUTH2_ADMIN_CLIENT_IDS");
+}
+
+// Holds ADMIN_ENV_LOCK across .await to serialize the process-global
+// OAUTH2_ADMIN_CLIENT_IDS env var; safe because actix_web::test uses a
+// single-threaded runtime so the guard never crosses threads.
+#[allow(clippy::await_holding_lock)]
+#[actix_web::test]
+async fn bearer_token_admin_scope_non_allowlisted_client_is_403() {
+    // Security boundary: a token carrying `admin` scope must still be denied
+    // when its client_id is NOT in the OAUTH2_ADMIN_CLIENT_IDS allow-list.
+    let _env_guard = ADMIN_ENV_LOCK.lock().unwrap();
+    std::env::set_var("OAUTH2_ADMIN_CLIENT_IDS", "some-other-client");
+    let storage = setup_storage().await;
+    let client = Client::new(
+        "attacker-client".to_string(),
+        "secret".to_string(),
+        vec![],
+        vec!["client_credentials".to_string()],
+        "admin".to_string(),
+        "Machine".to_string(),
+    );
+    storage.save_client(&client).await.unwrap();
+
+    let token = Token::new(
+        "attacker-admin-scope-token".to_string(),
+        None,
+        client.client_id.clone(),
+        None,
+        "admin read".to_string(),
+        3600,
+        None,
+    );
+    storage.save_token(&token).await.unwrap();
+
+    let app = test::init_service(
+        App::new()
+            .wrap(SessionMiddleware::new(
+                CookieSessionStore::default(),
+                session_key(),
+            ))
+            .app_data(web::Data::new(storage))
+            .app_data(web::Data::new(RecentEventsStore::new(16)))
+            .service(web::scope("/admin").wrap(AdminGuard).service(
+                web::scope("/api").route("/denylist", web::post().to(admin_extra::add_denylist)),
+            )),
+    )
+    .await;
+
+    let req = test::TestRequest::post()
+        .uri("/admin/api/denylist")
+        .insert_header(("Authorization", "Bearer attacker-admin-scope-token"))
+        .set_json(json!({
+            "kind": "ip",
+            "value": "198.51.100.201",
+            "reason": "test"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(
+        resp.status(),
+        403,
+        "admin-scope token from a non-allowlisted client must be denied"
+    );
+    std::env::remove_var("OAUTH2_ADMIN_CLIENT_IDS");
 }
 
 #[actix_web::test]

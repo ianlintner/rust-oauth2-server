@@ -722,6 +722,10 @@ async fn wave6_backchannel_logout_posts_valid_token() {
 /// @url https://openid.net/specs/openid-connect-backchannel-1_0.html#ClientMetadata
 #[actix_web::test]
 async fn wave6_client_registration_includes_logout_fields() {
+    // Enable the public RFC 7591 registration endpoint for this test (process-local
+    // to this test binary).
+    std::env::set_var("OAUTH2_DYNAMIC_REGISTRATION_ENABLED", "true");
+
     let storage = oauth2_storage_factory::create_storage("sqlite::memory:")
         .await
         .expect("storage");

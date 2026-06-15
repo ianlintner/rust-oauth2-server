@@ -109,6 +109,35 @@ fn validate_token_endpoint_auth_method(
     Ok(())
 }
 
+/// Parse the dynamic-registration enable flag. Defaults to `false` (disabled)
+/// for any absent or non-`"true"` value, so open registration is opt-in.
+fn parse_registration_enabled(val: Option<&str>) -> bool {
+    val.and_then(|v| v.parse::<bool>().ok()).unwrap_or(false)
+}
+
+/// Whether the public RFC 7591 `POST /connect/register` endpoint is enabled.
+/// Controlled by `OAUTH2_DYNAMIC_REGISTRATION_ENABLED` (trusted env var).
+fn dynamic_registration_enabled() -> bool {
+    parse_registration_enabled(
+        std::env::var("OAUTH2_DYNAMIC_REGISTRATION_ENABLED")
+            .ok()
+            .as_deref(),
+    )
+}
+
+/// Scopes that confer elevated authority and must never be self-assigned via
+/// the public RFC 7591 registration or RFC 7592 update endpoints. Operators can
+/// still grant them deliberately through the admin endpoint.
+const PRIVILEGED_SCOPES: &[&str] = &["admin", "write"];
+
+/// True if any space-delimited token in `scope` is a privileged scope
+/// (case-insensitive, exact-token match — `"administrator"` does not match).
+fn scope_contains_privileged(scope: &str) -> bool {
+    scope
+        .split_whitespace()
+        .any(|s| PRIVILEGED_SCOPES.iter().any(|p| p.eq_ignore_ascii_case(s)))
+}
+
 /// Common validation for a `ClientRegistration`, shared between the admin
 /// endpoint and the RFC 7591 public endpoint.
 fn validate_registration(reg: &ClientRegistration) -> Result<(), OAuth2Error> {
@@ -120,6 +149,12 @@ fn validate_registration(reg: &ClientRegistration) -> Result<(), OAuth2Error> {
     };
     validate_grant_types(&grant_types)?;
     validate_token_endpoint_auth_method(&reg.token_endpoint_auth_method, &grant_types)?;
+
+    if scope_contains_privileged(&reg.scope) {
+        return Err(OAuth2Error::invalid_request(
+            "requested scope includes a privileged scope that may not be self-registered",
+        ));
+    }
 
     if reg.redirect_uris.is_empty() {
         return Err(OAuth2Error::invalid_request(
@@ -215,6 +250,11 @@ pub async fn dynamic_register(
     client_actor: web::Data<Addr<ClientActor>>,
     oidc_config: web::Data<OidcConfig>,
 ) -> Result<HttpResponse, OAuth2Error> {
+    if !dynamic_registration_enabled() {
+        return Err(OAuth2Error::access_denied(
+            "Dynamic client registration is disabled",
+        ));
+    }
     normalise_registration(&mut registration);
     validate_registration(&registration)?;
 
@@ -373,4 +413,36 @@ pub async fn delete_client_configuration(
         .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))??;
 
     Ok(HttpResponse::NoContent().finish())
+}
+
+#[cfg(test)]
+mod registration_security_tests {
+    use super::*;
+
+    #[test]
+    fn registration_disabled_by_default() {
+        assert!(!parse_registration_enabled(None));
+    }
+
+    #[test]
+    fn registration_enabled_only_for_true() {
+        assert!(parse_registration_enabled(Some("true")));
+        assert!(!parse_registration_enabled(Some("false")));
+        assert!(!parse_registration_enabled(Some("1")));
+        assert!(!parse_registration_enabled(Some("garbage")));
+    }
+
+    #[test]
+    fn rejects_privileged_scopes() {
+        assert!(scope_contains_privileged("openid admin"));
+        assert!(scope_contains_privileged("write"));
+        assert!(scope_contains_privileged("ADMIN")); // case-insensitive
+    }
+
+    #[test]
+    fn allows_normal_scopes() {
+        assert!(!scope_contains_privileged("openid profile email read"));
+        assert!(!scope_contains_privileged("")); // empty handled elsewhere
+        assert!(!scope_contains_privileged("administrator")); // not an exact token match
+    }
 }

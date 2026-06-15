@@ -111,6 +111,13 @@ These are worth calling out because startup and auth flows depend on them.
 | `OAUTH2_JWT_STATELESS_VALIDATION` | Skips DB-backed introspection checks for higher throughput. |
 | `OAUTH2_ACCESS_TOKENS_OPAQUE`    | Issue opaque (reference-style) access tokens instead of JWTs. Default `false`. |
 | `OAUTH2_PUBLIC_INTROSPECTION`     | Allows unauthenticated callers to use introspection. Default `false`. |
+| `OAUTH2_DYNAMIC_REGISTRATION_ENABLED` | Enables the public RFC 7591 endpoint `POST /connect/register`. Default `false`; when not `true` that endpoint returns `403`. Create clients through the admin endpoint `POST /admin/clients/register` instead. |
+| `OAUTH2_ADMIN_CLIENT_IDS`         | Comma-separated `client_id`s whose bearer tokens (carrying the `admin` scope) may access `/admin/*`. Default empty, meaning no machine client is treated as admin. Set this to your MCP/automation `client_id` to grant machine-to-machine admin access. |
+
+Privileged scopes (`admin`, `write`) cannot be requested through the public
+RFC 7591 registration or RFC 7592 update endpoints; such requests are rejected
+with an error, and these scopes may only be granted via
+`POST /admin/clients/register`.
 
 ## Social login
 

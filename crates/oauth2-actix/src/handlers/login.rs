@@ -283,7 +283,7 @@ pub fn hash_password(password: &str) -> Result<String, argon2::password_hash::Er
 }
 
 /// Minimal HTML entity escaping to prevent XSS in server-injected content.
-fn html_escape(s: &str) -> String {
+pub(crate) fn html_escape(s: &str) -> String {
     s.replace('&', "&amp;")
         .replace('<', "&lt;")
         .replace('>', "&gt;")

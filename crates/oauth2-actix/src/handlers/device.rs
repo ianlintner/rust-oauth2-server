@@ -4,6 +4,7 @@ use actix_web::{web, HttpRequest, HttpResponse, Result};
 use serde::Deserialize;
 
 use crate::actors::{ClientActor, GetClient};
+use crate::handlers::login::html_escape;
 use crate::handlers::oauth::{client_secret_matches, parse_client_basic_auth};
 use crate::handlers::wellknown::OidcConfig;
 use oauth2_core::{DeviceAuthorization, DeviceAuthorizationResponse, OAuth2Error};
@@ -149,6 +150,28 @@ pub async fn device_authorization(
     Ok(HttpResponse::Ok().json(response))
 }
 
+/// Render the device verification page, HTML-escaping the user-controlled
+/// `user_code` to prevent reflected XSS.
+fn render_device_verify_page(user_code: &str) -> String {
+    let value = html_escape(user_code);
+    format!(
+        r#"<!DOCTYPE html>
+<html>
+<head><title>Device Verification</title></head>
+<body>
+  <h1>Authorize Device</h1>
+  <p>Enter the code shown on your device.</p>
+  <form method="post" action="/oauth/device/verify">
+    <label for="user_code">User code</label>
+    <input id="user_code" name="user_code" value="{value}" required />
+    <button type="submit" name="action" value="approve">Approve</button>
+    <button type="submit" name="action" value="deny">Deny</button>
+  </form>
+</body>
+</html>"#
+    )
+}
+
 pub async fn verify_page(
     query: web::Query<DeviceVerifyQuery>,
     session: Session,
@@ -173,22 +196,7 @@ pub async fn verify_page(
     }
 
     let value = query.user_code.clone().unwrap_or_default();
-    let html = format!(
-        r#"<!DOCTYPE html>
-<html>
-<head><title>Device Verification</title></head>
-<body>
-  <h1>Authorize Device</h1>
-  <p>Enter the code shown on your device.</p>
-  <form method="post" action="/oauth/device/verify">
-    <label for="user_code">User code</label>
-    <input id="user_code" name="user_code" value="{value}" required />
-    <button type="submit" name="action" value="approve">Approve</button>
-    <button type="submit" name="action" value="deny">Deny</button>
-  </form>
-</body>
-</html>"#
-    );
+    let html = render_device_verify_page(&value);
 
     Ok(HttpResponse::Ok()
         .content_type("text/html; charset=utf-8")
@@ -231,4 +239,26 @@ pub async fn verify_submit(
     Ok(HttpResponse::Ok()
         .content_type("text/html; charset=utf-8")
         .body("<h1>Device authorized. You can return to your device.</h1>"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn user_code_is_html_escaped() {
+        let html = render_device_verify_page(r#""><script>alert(1)</script>"#);
+        // The raw breakout sequence must not appear.
+        assert!(!html.contains("<script>alert(1)</script>"));
+        assert!(!html.contains(r#"value=""><"#));
+        // The escaped form must appear inside the value attribute.
+        assert!(html.contains("&lt;script&gt;"));
+        assert!(html.contains("&quot;&gt;"));
+    }
+
+    #[test]
+    fn normal_user_code_is_preserved() {
+        let html = render_device_verify_page("WDJB-MJHT");
+        assert!(html.contains(r#"value="WDJB-MJHT""#));
+    }
 }

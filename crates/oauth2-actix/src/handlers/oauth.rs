@@ -2245,8 +2245,13 @@ async fn handle_token_exchange_grant(
         .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))??
         .ok_or_else(|| OAuth2Error::invalid_grant("subject_token not found or expired"))?;
 
-    if subject_tok.revoked {
-        return Err(OAuth2Error::invalid_grant("subject_token has been revoked"));
+    // Reject revoked OR expired subject tokens. The previous code checked only
+    // `revoked`, so an expired (but still-persisted) token could be exchanged
+    // for a fresh one. `is_valid()` mirrors the ValidateToken path.
+    if !subject_tok.is_valid() {
+        return Err(OAuth2Error::invalid_grant(
+            "subject_token is expired or revoked",
+        ));
     }
 
     // Build `act` claim when an actor_token is provided (delegation / impersonation).

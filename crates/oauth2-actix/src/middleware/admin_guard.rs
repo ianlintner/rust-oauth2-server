@@ -2,7 +2,8 @@
 //!
 //! Accepts two auth mechanisms:
 //!
-//! 1. **Bearer token** — `Authorization: Bearer <token>` with `admin` scope.
+//! 1. **Bearer token** — `Authorization: Bearer <token>` with `admin` scope
+//!    AND a `client_id` present in `OAUTH2_ADMIN_CLIENT_IDS` (fail-closed).
 //!    Checked first; intended for machine-to-machine callers (e.g. MCP server).
 //! 2. **Session cookie** — `role == "admin"` in the session, or the user's
 //!    email matches `OAUTH2_ADMIN_EMAILS`. Intended for browser dashboard access.
@@ -61,6 +62,26 @@ fn is_admin_email(email: &str) -> bool {
     false
 }
 
+/// True if `client_id` is an exact, trimmed entry in the comma-separated
+/// `allowlist`. Empty/whitespace allowlist denies all (fail-closed).
+fn client_id_in_allowlist(client_id: &str, allowlist: &str) -> bool {
+    allowlist
+        .split(',')
+        .map(str::trim)
+        .filter(|e| !e.is_empty())
+        .any(|e| e == client_id)
+}
+
+/// Whether the given bearer-token client_id is permitted to assume admin
+/// authority. Controlled by `OAUTH2_ADMIN_CLIENT_IDS` (trusted env var).
+/// Fail-closed: when the env var is unset, no machine client is admin.
+fn is_admin_client(client_id: &str) -> bool {
+    match std::env::var("OAUTH2_ADMIN_CLIENT_IDS") {
+        Ok(list) => client_id_in_allowlist(client_id, &list),
+        Err(_) => false,
+    }
+}
+
 impl<S, B> Service<ServiceRequest> for AdminGuardService<S>
 where
     S: Service<ServiceRequest, Response = ServiceResponse<B>, Error = Error> + 'static,
@@ -87,7 +108,14 @@ where
                                 Ok(Some(token)) if token.is_valid() => {
                                     let scopes: Vec<&str> =
                                         token.scope.split_whitespace().collect();
-                                    if scopes.contains(&"admin") {
+                                    // Both conditions required: the token must carry the
+                                    // `admin` scope AND be issued to a client that the
+                                    // operator explicitly trusts for admin (env allow-list).
+                                    // This blocks self-registered clients that obtain the
+                                    // `admin` scope from reaching admin routes.
+                                    if scopes.contains(&"admin")
+                                        && is_admin_client(&token.client_id)
+                                    {
                                         let res = svc.call(req).await?;
                                         return Ok(res.map_into_left_body());
                                     }
@@ -160,5 +188,24 @@ where
             let res = svc.call(req).await?;
             Ok(res.map_into_left_body())
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn empty_allowlist_denies_all() {
+        assert!(!client_id_in_allowlist("mcp", ""));
+        assert!(!client_id_in_allowlist("mcp", "   "));
+    }
+
+    #[test]
+    fn matches_exact_trimmed_entry() {
+        assert!(client_id_in_allowlist("mcp", "mcp"));
+        assert!(client_id_in_allowlist("mcp", " other , mcp , third "));
+        assert!(!client_id_in_allowlist("mcp", "mcp_evil,other"));
+        assert!(!client_id_in_allowlist("attacker", "mcp,other"));
     }
 }
