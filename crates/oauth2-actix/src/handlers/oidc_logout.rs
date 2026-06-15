@@ -212,8 +212,14 @@ fn build_frontchannel_logout_page(
     let redirect_script = if let Some(redirect_uri) = post_logout_redirect {
         // The caller has already validated this URI against registered values and
         // appended any `state`. JSON-encode it into a safe JS string literal so a
-        // quote/backslash cannot break out of the <script> context.
-        let url_js = serde_json::to_string(redirect_uri).unwrap_or_else(|_| "\"\"".to_string());
+        // quote/backslash cannot break out of the <script> context. serde_json
+        // does NOT escape `<` or `/`, so additionally neutralize the script-closing
+        // sequence (`</script>`) by escaping those characters to their JS unicode
+        // form — otherwise a URL containing `</script>` could close the element.
+        let url_js = serde_json::to_string(redirect_uri)
+            .unwrap_or_else(|_| "\"\"".to_string())
+            .replace('<', "\\u003C")
+            .replace('/', "\\/");
         format!(
             r#"<script>setTimeout(function(){{ window.location.href = {}; }}, 2000);</script>"#,
             url_js
@@ -428,6 +434,25 @@ mod tests {
         // No raw breakout: the quote must be backslash-escaped by JSON encoding.
         assert!(!html.contains(r#"href = "https://rp.example/done?x="+alert(1)+"";"#));
         assert!(html.contains(r#"\"+alert(1)+\""#));
+    }
+
+    #[test]
+    fn redirect_url_does_not_allow_script_breakout() {
+        let clients = vec![client_with_frontchannel("https://rp.example/fc")];
+        // serde_json escapes `"` and `\` but NOT `<` or `/`, so a redirect URI
+        // containing the literal `</script>` could otherwise close the <script>
+        // element and inject markup.
+        let html = build_frontchannel_logout_page(
+            &clients,
+            "https://issuer.example",
+            None,
+            Some("https://rp.example/done?x=</script><script>alert(1)</script>"),
+        );
+        // The only literal </script> must be our own closing tag — the redirect
+        // URL's </script> must be neutralized, not break out of the element.
+        assert_eq!(html.matches("</script>").count(), 1);
+        // The injected opening tag must not appear raw either.
+        assert!(!html.contains("<script>alert(1)"));
     }
 
     #[test]
