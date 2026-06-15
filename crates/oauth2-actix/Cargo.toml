@@ -37,7 +37,7 @@ subtle = "2.5"
 lru = "0.16"
 
 sha2 = "0.10"
-hmac = "0.12"
+hmac = "0.13"
 base64 = "0.22"
 jsonwebtoken = { version = "10.3", features = ["rust_crypto"] }
 
