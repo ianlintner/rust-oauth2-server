@@ -137,7 +137,7 @@ impl DpopNonceIssuer {
 
     fn tag_for_bucket(&self, bucket: u64) -> [u8; TAG_LEN] {
         let mut mac =
-            HmacSha256::new_from_slice(&self.secret).expect("HMAC accepts any key length");
+            <HmacSha256 as Mac>::new_from_slice(&self.secret).expect("HMAC accepts any key length");
         mac.update(&bucket.to_be_bytes());
         let full = mac.finalize().into_bytes();
         let mut tag = [0u8; TAG_LEN];
