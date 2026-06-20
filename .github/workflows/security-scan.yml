@@ -37,7 +37,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v6.0.3 # v6
+      - uses: actions/checkout@v7.0.0 # v6
 
       - name: Install kustomize
         shell: bash
@@ -113,7 +113,7 @@ jobs:
       RUST_BACKTRACE: 1
       OAUTH2_JWT_SECRET: "test-jwt-secret-for-ci-only-do-not-use-in-production-32chars"
     steps:
-      - uses: actions/checkout@v6.0.3 # v6
+      - uses: actions/checkout@v7.0.0 # v6
 
       - name: Rust toolchain + cache
         uses: ./.github/actions/rust-setup

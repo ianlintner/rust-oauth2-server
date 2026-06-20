@@ -51,7 +51,7 @@ jobs:
       KUBECONFIG: ${{ github.workspace }}/.kubeconfig-kind-oauth2
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6.0.3 # v6
+        uses: actions/checkout@v7.0.0 # v6
 
       - name: Rust toolchain + cache
         if: ${{ !inputs.use_prebuilt_binaries }}

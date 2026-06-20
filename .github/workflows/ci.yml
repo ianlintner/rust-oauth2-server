@@ -42,7 +42,7 @@ jobs:
     outputs:
       code: ${{ steps.filter.outputs.code }}
     steps:
-      - uses: actions/checkout@v6.0.3 # v6
+      - uses: actions/checkout@v7.0.0 # v6
       - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
         id: filter
         with:
@@ -72,7 +72,7 @@ jobs:
     needs: [changes]
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v6.0.3 # v6
+      - uses: actions/checkout@v7.0.0 # v6
 
       - name: Rust toolchain + cache
         if: needs.changes.outputs.code == 'true'
@@ -139,7 +139,7 @@ jobs:
     if: needs.changes.outputs.code == 'true'
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v6.0.3 # v6
+      - uses: actions/checkout@v7.0.0 # v6
 
       - name: Rust toolchain + cache
         uses: ./.github/actions/rust-setup
@@ -228,7 +228,7 @@ jobs:
     needs: [changes]
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v6.0.3 # v6
+      - uses: actions/checkout@v7.0.0 # v6
 
       - name: Rust toolchain + cache
         if: needs.changes.outputs.code == 'true'
@@ -285,7 +285,7 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     steps:
-      - uses: actions/checkout@v6.0.3 # v6
+      - uses: actions/checkout@v7.0.0 # v6
 
       - name: Rust toolchain + cache
         uses: ./.github/actions/rust-setup
@@ -355,7 +355,7 @@ jobs:
             binary_suffix: -mongo-only
             tag_suffix: -mongo-only
     steps:
-      - uses: actions/checkout@v6.0.3 # v6
+      - uses: actions/checkout@v7.0.0 # v6
 
       - name: Download prebuilt server binary (amd64)
         uses: actions/download-artifact@v7.0.0 # v7
@@ -521,7 +521,7 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - uses: actions/checkout@v6.0.3 # v6
+      - uses: actions/checkout@v7.0.0 # v6
 
       - name: Rust toolchain + cache
         uses: ./.github/actions/rust-setup
