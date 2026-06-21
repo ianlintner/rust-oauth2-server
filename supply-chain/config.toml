@@ -2658,6 +2658,10 @@ criteria = "safe-to-deploy"
 version = "1.0.2"
 criteria = "safe-to-deploy"
 
+[[exemptions.winnow]]
+version = "1.0.3"
+criteria = "safe-to-deploy"
+
 [[exemptions.writeable]]
 version = "0.6.3"
 criteria = "safe-to-deploy"
@@ -2674,12 +2678,28 @@ criteria = "safe-to-deploy"
 version = "0.17.0"
 criteria = "safe-to-deploy"
 
+[[exemptions.x509-parser]]
+version = "0.18.1"
+criteria = "safe-to-deploy"
+
+[[exemptions.xxhash-rust]]
+version = "0.8.15"
+criteria = "safe-to-deploy"
+
 [[exemptions.yaml-rust2]]
 version = "0.10.4"
 criteria = "safe-to-deploy"
 
+[[exemptions.yaml-rust2]]
+version = "0.11.0"
+criteria = "safe-to-deploy"
+
 [[exemptions.yoke]]
 version = "0.8.2"
+criteria = "safe-to-deploy"
+
+[[exemptions.yoke]]
+version = "0.8.3"
 criteria = "safe-to-deploy"
 
 [[exemptions.yoke-derive]]
@@ -2690,16 +2710,36 @@ criteria = "safe-to-deploy"
 version = "0.8.48"
 criteria = "safe-to-deploy"
 
+[[exemptions.zerocopy]]
+version = "0.8.52"
+criteria = "safe-to-deploy"
+
 [[exemptions.zerocopy-derive]]
 version = "0.8.48"
+criteria = "safe-to-deploy"
+
+[[exemptions.zerocopy-derive]]
+version = "0.8.52"
 criteria = "safe-to-deploy"
 
 [[exemptions.zerofrom]]
 version = "0.1.7"
 criteria = "safe-to-deploy"
 
+[[exemptions.zerofrom]]
+version = "0.1.8"
+criteria = "safe-to-deploy"
+
 [[exemptions.zerofrom-derive]]
 version = "0.1.7"
+criteria = "safe-to-deploy"
+
+[[exemptions.zeroize]]
+version = "1.9.0"
+criteria = "safe-to-deploy"
+
+[[exemptions.zeroize_derive]]
+version = "1.5.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.zerotrie]]
@@ -2732,4 +2772,8 @@ criteria = "safe-to-deploy"
 
 [[exemptions.zstd-safe]]
 version = "7.2.4"
+criteria = "safe-to-deploy"
+
+[[exemptions.zstd-sys]]
+version = "2.0.16+zstd.1.5.7"
 criteria = "safe-to-deploy"
