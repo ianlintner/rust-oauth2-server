@@ -1,3 +1,19 @@
+## [1.0.0] — 2026-06-21
+
+**Breaking changes — consolidates all Dependabot dependency upgrades into a single major release.**
+
+### Dependencies upgraded (breaking)
+- `redis` 0.27 → 1.2.3 — `AsyncCommands` single-key methods now require `ToSingleRedisArg` bound
+- `lapin` 2.5 → 4.10 — `exchange_declare`/`basic_publish` args changed from `&str` to `ShortString`
+- `sha2` 0.10 → 0.11 + `hmac` 0.12 → 0.13 — `digest` 0.11 coupling; `new_from_slice` moved to `KeyInit` trait
+- `opentelemetry` / `opentelemetry_sdk` / `opentelemetry-otlp` 0.31 → 0.32
+- `tracing-opentelemetry` 0.32 → 0.33 (bridges to otel 0.32)
+- `lru` 0.16 → 0.18
+- `cucumber` 0.22.1 → 0.23
+
+### Non-breaking upgrades (also included)
+- All minor and patch Dependabot bumps from PRs #318, #327, #332, #338–#346, #349
+
 ## [2026-W17] — 2026-04-20
 
 - weekly reconciliation 2026-04-13 — Wave 2/3/4 RFCs, opaque tokens, PAR, JWT introspection (#69)
