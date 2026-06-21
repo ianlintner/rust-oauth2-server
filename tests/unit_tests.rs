@@ -413,8 +413,14 @@ mod security_tests {
 
         // This simple example shows that hashing is deterministic and differs from plaintext
         let password = "test_password";
-        let hash1 = format!("{:x}", Sha256::digest(password.as_bytes()));
-        let hash2 = format!("{:x}", Sha256::digest(password.as_bytes()));
+        let hash1: String = Sha256::digest(password.as_bytes())
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        let hash2: String = Sha256::digest(password.as_bytes())
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
 
         // Same password should produce same hash
         assert_eq!(hash1, hash2);
