@@ -40,7 +40,7 @@ impl RabbitEventPublisher {
         // Ensure the exchange exists. Topic is flexible and common for event routing.
         channel
             .exchange_declare(
-                &exchange,
+                exchange.as_str().into(),
                 ExchangeKind::Topic,
                 ExchangeDeclareOptions {
                     durable: true,
@@ -86,8 +86,8 @@ impl EventPlugin for RabbitEventPublisher {
             // Best-effort publish. We still await server ack for immediate errors.
             self.channel
                 .basic_publish(
-                    &self.exchange,
-                    &self.routing_key,
+                    self.exchange.as_str().into(),
+                    self.routing_key.as_str().into(),
                     BasicPublishOptions::default(),
                     &payload,
                     BasicProperties::default()
