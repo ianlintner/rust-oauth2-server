@@ -16,7 +16,7 @@
 //! so that callers who don't need Redis do not pull the `redis` crate in.
 
 use redis::aio::ConnectionManager;
-use redis::{AsyncCommands, FromRedisValue, RedisResult, Script, ToRedisArgs};
+use redis::{AsyncCommands, FromRedisValue, RedisResult, Script, ToRedisArgs, ToSingleRedisArg};
 use tracing::{field, info_span, Instrument};
 
 use crate::telemetry::annotate_span_with_trace_ids;
@@ -76,7 +76,7 @@ impl TracedRedis {
     /// `GET key`.
     pub async fn get<K, V>(&mut self, key: K) -> RedisResult<V>
     where
-        K: ToRedisArgs + Send + Sync,
+        K: ToRedisArgs + ToSingleRedisArg + Send + Sync,
         V: FromRedisValue,
     {
         let span = self.span("GET");
@@ -123,7 +123,7 @@ impl TracedRedis {
     /// `LPUSH key value`.
     pub async fn lpush<K, V>(&mut self, key: K, value: V) -> RedisResult<()>
     where
-        K: ToRedisArgs + Send + Sync,
+        K: ToRedisArgs + ToSingleRedisArg + Send + Sync,
         V: ToRedisArgs + Send + Sync,
     {
         let span = self.span("LPUSH");
@@ -135,7 +135,7 @@ impl TracedRedis {
     /// `LTRIM key start stop`.
     pub async fn ltrim<K>(&mut self, key: K, start: isize, stop: isize) -> RedisResult<()>
     where
-        K: ToRedisArgs + Send + Sync,
+        K: ToRedisArgs + ToSingleRedisArg + Send + Sync,
     {
         let span = self.span("LTRIM");
         async { self.inner.ltrim(key, start, stop).await }
@@ -146,7 +146,7 @@ impl TracedRedis {
     /// `EXPIRE key seconds`.
     pub async fn expire<K>(&mut self, key: K, seconds: i64) -> RedisResult<()>
     where
-        K: ToRedisArgs + Send + Sync,
+        K: ToRedisArgs + ToSingleRedisArg + Send + Sync,
     {
         let span = self.span("EXPIRE");
         async { self.inner.expire(key, seconds).await }
@@ -157,7 +157,7 @@ impl TracedRedis {
     /// `LRANGE key start stop`.
     pub async fn lrange<K, V>(&mut self, key: K, start: isize, stop: isize) -> RedisResult<V>
     where
-        K: ToRedisArgs + Send + Sync,
+        K: ToRedisArgs + ToSingleRedisArg + Send + Sync,
         V: FromRedisValue,
     {
         let span = self.span("LRANGE");

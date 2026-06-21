@@ -32,12 +32,12 @@ oauth2-ports = { path = "../oauth2-ports" }
 prometheus = "0.14"
 
 # Tracing / OpenTelemetry
-opentelemetry = { version = "0.31", features = ["trace", "metrics"], optional = true }
-opentelemetry_sdk = { version = "0.31", features = ["rt-tokio"], optional = true }
-opentelemetry-otlp = { version = "0.31", default-features = false, features = ["grpc-tonic", "trace", "metrics"], optional = true }
+opentelemetry = { version = "0.32", features = ["trace", "metrics"], optional = true }
+opentelemetry_sdk = { version = "0.32", features = ["rt-tokio"], optional = true }
+opentelemetry-otlp = { version = "0.32", default-features = false, features = ["grpc-tonic", "trace", "metrics"], optional = true }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
-tracing-opentelemetry = { version = "0.32", optional = true }
+tracing-opentelemetry = { version = "0.33", optional = true }
 tracing-log = "0.2"
 
 # Actix integration (optional)
@@ -45,4 +45,4 @@ actix-web = { version = "4.4", optional = true }
 futures = { version = "0.3", optional = true }
 
 # Redis (optional) — only needed when callers want the `TracedRedis` wrapper.
-redis = { version = "0.27", features = ["tokio-comp", "connection-manager"], optional = true }
+redis = { version = "1.2.3", features = ["tokio-comp", "connection-manager"], optional = true }

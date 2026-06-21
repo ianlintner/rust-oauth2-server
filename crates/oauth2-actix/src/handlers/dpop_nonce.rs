@@ -14,7 +14,7 @@
 
 use actix_web::HttpResponse;
 use base64::{engine::general_purpose, Engine as _};
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use oauth2_core::OAuth2Error;
 use sha2::Sha256;
 use subtle::ConstantTimeEq;

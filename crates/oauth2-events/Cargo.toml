@@ -32,10 +32,10 @@ tracing = "0.1"
 
 tokio = { version = "1.35", features = ["full"] }
 
-opentelemetry = { version = "0.31", features = ["trace", "metrics"], optional = true }
-tracing-opentelemetry = { version = "0.32", optional = true }
+opentelemetry = { version = "0.32", features = ["trace", "metrics"], optional = true }
+tracing-opentelemetry = { version = "0.33", optional = true }
 
 # Optional backends
-redis = { version = "0.27", optional = true, features = ["tokio-comp", "connection-manager"] }
+redis = { version = "1.2.3", optional = true, features = ["tokio-comp", "connection-manager"] }
 rdkafka = { version = "0.38", optional = true }
-lapin = { version = "2.5", optional = true, default-features = false, features = ["rustls"] }
+lapin = { version = "4.10", optional = true, default-features = false, features = ["rustls"] }

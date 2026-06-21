@@ -19,7 +19,7 @@ uuid = { version = "1.6", features = ["v4", "serde"] }
 jsonwebtoken = { version = "10.3", features = ["rust_crypto"] }
 
 # Crypto / helpers used by PKCE and OIDC at_hash
-sha2 = "0.10"
+sha2 = "0.11"
 base64 = "0.22"
 aes-gcm = "0.10"
 rand = { version = "0.9.4", default-features = false, features = ["std", "std_rng", "os_rng"] }
