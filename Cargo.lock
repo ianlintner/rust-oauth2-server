@@ -5029,7 +5029,7 @@ dependencies = [
 
 [[package]]
 name = "rust_oauth2_server"
-version = "0.9.0"
+version = "1.0.0"
 dependencies = [
  "actix",
  "actix-cors",
