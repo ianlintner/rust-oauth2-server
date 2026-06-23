@@ -316,7 +316,12 @@ async fn find_or_create_social_user(
 /// Custom HTTP client adapter to bridge reqwest 0.13 and oauth2 5.0.0
 fn oauth2_request(
     request: oauth2::HttpRequest,
-) -> Pin<Box<dyn Future<Output = Result<oauth2::HttpResponse, oauth2::HttpClientError<reqwest::Error>>> + Send>> {
+) -> Pin<
+    Box<
+        dyn Future<Output = Result<oauth2::HttpResponse, oauth2::HttpClientError<reqwest::Error>>>
+            + Send,
+    >,
+> {
     Box::pin(async move {
         let client = reqwest::Client::new();
         let reqwest_req: reqwest::Request = request.try_into().map_err(Box::new)?;
