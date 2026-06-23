@@ -327,7 +327,7 @@ fn oauth2_request(
         let reqwest_req: reqwest::Request = request.try_into().map_err(Box::new)?;
         let response = client.execute(reqwest_req).await.map_err(Box::new)?;
 
-        let mut builder = oauth2::HttpResponse::builder().status(response.status());
+        let mut builder = oauth2::http::Response::builder().status(response.status().as_u16());
         for (name, value) in response.headers() {
             builder = builder.header(name, value);
         }
