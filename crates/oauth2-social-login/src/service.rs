@@ -21,13 +21,13 @@ type HttpClient = reqwest_middleware::ClientWithMiddleware;
 type HttpClient = reqwest::Client;
 
 fn build_http_client(timeout: Duration) -> HttpClient {
-    let inner = reqwest::Client::builder()
-        .timeout(timeout)
-        .build()
-        .expect("reqwest client");
-
     #[cfg(feature = "otel")]
     {
+        let inner = reqwest_0_13::Client::builder()
+            .timeout(timeout)
+            .build()
+            .expect("reqwest client");
+
         // reqwest-tracing 0.5.x only exposes opentelemetry features through
         // 0.30. It injects headers via `opentelemetry_0_30::global::get_text_map_propagator`,
         // which is a *different* global static from the workspace's OTEL 0.31
@@ -51,7 +51,10 @@ fn build_http_client(timeout: Duration) -> HttpClient {
     }
     #[cfg(not(feature = "otel"))]
     {
-        inner
+        reqwest::Client::builder()
+            .timeout(timeout)
+            .build()
+            .expect("reqwest client")
     }
 }
 
