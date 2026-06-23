@@ -15,7 +15,7 @@ actix-session = { version = "0.11", features = ["cookie-session"] }
 
 # OAuth2 + HTTP
 oauth2 = "5.0"
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
 
 # Optional: OTEL-aware HTTP middleware that injects W3C traceparent/tracestate
 # into outgoing requests and emits a CLIENT span per call. Gated behind `otel`.
