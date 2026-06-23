@@ -37,5 +37,5 @@ tracing-opentelemetry = { version = "0.33", optional = true }
 
 # Optional backends
 redis = { version = "1.2.3", optional = true, features = ["tokio-comp", "connection-manager"] }
-rdkafka = { version = "0.38", optional = true }
+rdkafka = { version = "0.39", optional = true }
 lapin = { version = "4.10", optional = true, default-features = false, features = ["rustls"] }

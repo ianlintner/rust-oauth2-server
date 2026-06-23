@@ -1683,7 +1683,7 @@ version = "0.11.9"
 criteria = "safe-to-deploy"
 
 [[exemptions.quinn-proto]]
-version = "0.11.14"
+version = "0.11.15"
 criteria = "safe-to-deploy"
 
 [[exemptions.r-efi]]
@@ -1708,6 +1708,10 @@ criteria = "safe-to-deploy"
 
 [[exemptions.rdkafka]]
 version = "0.38.0"
+criteria = "safe-to-deploy"
+
+[[exemptions.rdkafka]]
+version = "0.39.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.rdkafka-sys]]

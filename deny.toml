@@ -23,7 +23,10 @@ ignore = [
     # No fix available upstream yet. Tracked for migration to ES256/EdDSA.
     # Re-evaluate monthly — remove this ignore once rsa ≥ 0.10 ships a fix.
     { id = "RUSTSEC-2023-0071", reason = "no upstream fix; tracked for ES256/EdDSA migration" },
-
+    # RUSTSEC-2026-0173: proc-macro-error2 unmaintained advisory
+    # Affected path: proc-macro-error2 2.0.1 → defmt-macros 1.1.0 → defmt 1.1.0 → jiff 0.2.29 → env_logger 0.11.10 → oauth2-server 0.6.2
+    # Status: unmaintained advisory
+    { id = "RUSTSEC-2026-0173", reason = "transitive dependency through defmt/jiff; no clean replacement available yet" },
 ]
 # Unsound advisories: only fail for workspace crates (transitive unsound is noisy).
 unsound = "workspace"
