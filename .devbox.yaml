@@ -1,0 +1,23 @@
+# .devbox.yaml — toolchain config for openclaw's ephemeral devbox build/test Jobs.
+#
+# openclaw (the autonomous PR maintainer) reads this from the DEFAULT branch only
+# and runs the named commands in a throwaway Kubernetes Job to judge a PR before
+# merge. It is an advisory oracle — GitHub CI + branch protection remain the real
+# merge gate. The image must be on openclaw's allowlist (official toolchain images
+# or the cluster ACR); arbitrary images are rejected.
+image: rust:1.83-bookworm
+
+# The official rust image ships cargo/rustc but is built with `--profile minimal`,
+# so the clippy & rustfmt components must be added (~1s). The apt packages are
+# required to compile `rdkafka` (bundled librdkafka) under `--all-features`.
+setup: >-
+  export DEBIAN_FRONTEND=noninteractive &&
+  apt-get update -qq &&
+  apt-get install -y -qq cmake libsasl2-dev libssl-dev zlib1g-dev pkg-config &&
+  rustup component add clippy rustfmt
+
+commands:
+  fmt: cargo fmt --all -- --check
+  clippy: cargo clippy --all-targets --all-features --locked -- -D warnings
+  test: cargo test --all-features --locked
+  build: cargo build --release --locked
