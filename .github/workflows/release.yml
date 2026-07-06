@@ -186,7 +186,7 @@ jobs:
           install-system-deps: "true"
 
       - name: Install cross (for arm64 builds)
-        uses: taiki-e/install-action@9e1e5806d4a4822de933115878265be9aaa786d9 # v2.82.2
+        uses: taiki-e/install-action@4684b8405694ae9dd42c9f39ba901a70ae83f4a3 # v2.82.9
         with:
           tool: cross
 
@@ -228,7 +228,7 @@ jobs:
           path: target/release
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4.1.0 # v4
+        uses: docker/setup-buildx-action@v4.2.0 # v4
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v4
@@ -245,7 +245,7 @@ jobs:
           fi
 
       - name: Login to GitHub Container Registry (GHCR)
-        uses: docker/login-action@v4.2.0 # v4
+        uses: docker/login-action@v4.4.0 # v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -253,14 +253,14 @@ jobs:
 
       - name: Login to Docker Hub
         if: steps.targets.outputs.dockerhub == 'true'
-        uses: docker/login-action@v4.2.0 # v4
+        uses: docker/login-action@v4.4.0 # v4
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_TOKEN }}
 
       - name: Extract metadata (GHCR)
         id: meta_ghcr
-        uses: docker/metadata-action@v6.1.0 # v6
+        uses: docker/metadata-action@v6.2.0 # v6
         with:
           images: |
             ghcr.io/${{ github.repository_owner }}/oauth2-server
@@ -271,7 +271,7 @@ jobs:
 
       - name: Extract metadata (GHCR, mongo)
         id: meta_ghcr_mongo
-        uses: docker/metadata-action@v6.1.0 # v6
+        uses: docker/metadata-action@v6.2.0 # v6
         with:
           images: |
             ghcr.io/${{ github.repository_owner }}/oauth2-server
@@ -282,7 +282,7 @@ jobs:
 
       - name: Extract metadata (GHCR, mongo-only)
         id: meta_ghcr_mongo_only
-        uses: docker/metadata-action@v6.1.0 # v6
+        uses: docker/metadata-action@v6.2.0 # v6
         with:
           images: |
             ghcr.io/${{ github.repository_owner }}/oauth2-server
@@ -294,7 +294,7 @@ jobs:
       - name: Extract metadata (Docker Hub)
         if: steps.targets.outputs.dockerhub == 'true'
         id: meta_dockerhub
-        uses: docker/metadata-action@v6.1.0 # v6
+        uses: docker/metadata-action@v6.2.0 # v6
         with:
           images: |
             docker.io/${{ secrets.DOCKER_USERNAME }}/oauth2-server
@@ -306,7 +306,7 @@ jobs:
       - name: Extract metadata (Docker Hub, mongo)
         if: steps.targets.outputs.dockerhub == 'true'
         id: meta_dockerhub_mongo
-        uses: docker/metadata-action@v6.1.0 # v6
+        uses: docker/metadata-action@v6.2.0 # v6
         with:
           images: |
             docker.io/${{ secrets.DOCKER_USERNAME }}/oauth2-server
@@ -318,7 +318,7 @@ jobs:
       - name: Extract metadata (Docker Hub, mongo-only)
         if: steps.targets.outputs.dockerhub == 'true'
         id: meta_dockerhub_mongo_only
-        uses: docker/metadata-action@v6.1.0 # v6
+        uses: docker/metadata-action@v6.2.0 # v6
         with:
           images: |
             docker.io/${{ secrets.DOCKER_USERNAME }}/oauth2-server
@@ -328,7 +328,7 @@ jobs:
             type=raw,value=${{ env.IMAGE_VERSION }}-mongo-only
 
       - name: Build and Push (base image)
-        uses: docker/build-push-action@v7.2.0 # v7
+        uses: docker/build-push-action@v7.3.0 # v7
         with:
           context: .
           push: true
@@ -342,7 +342,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Build and Push (mongo image)
-        uses: docker/build-push-action@v7.2.0 # v7
+        uses: docker/build-push-action@v7.3.0 # v7
         with:
           context: .
           push: true
@@ -358,7 +358,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Build and Push (mongo-only image; no SQLx)
-        uses: docker/build-push-action@v7.2.0 # v7
+        uses: docker/build-push-action@v7.3.0 # v7
         with:
           context: .
           push: true
