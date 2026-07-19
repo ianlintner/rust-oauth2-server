@@ -466,6 +466,11 @@ criteria = "safe-to-deploy"
 version = "0.15.24"
 criteria = "safe-to-deploy"
 
+[[exemptions.config]]
+version = "0.15.25"
+criteria = "safe-to-deploy"
+suggest = false
+
 [[exemptions.console]]
 version = "0.16.3"
 criteria = "safe-to-run"
@@ -750,9 +755,19 @@ criteria = "safe-to-deploy"
 version = "1.0.1"
 criteria = "safe-to-deploy"
 
+[[exemptions.env_filter]]
+version = "2.0.0"
+criteria = "safe-to-deploy"
+suggest = false
+
 [[exemptions.env_logger]]
 version = "0.11.10"
 criteria = "safe-to-deploy"
+
+[[exemptions.env_logger]]
+version = "0.11.11"
+criteria = "safe-to-deploy"
+suggest = false
 
 [[exemptions.erased-serde]]
 version = "0.4.10"
@@ -1274,6 +1289,11 @@ criteria = "safe-to-deploy"
 version = "0.18.0"
 criteria = "safe-to-deploy"
 
+[[exemptions.lru]]
+version = "0.18.1"
+criteria = "safe-to-deploy"
+suggest = false
+
 [[exemptions.lru-slab]]
 version = "0.1.2"
 criteria = "safe-to-deploy"
@@ -1301,6 +1321,11 @@ criteria = "safe-to-deploy"
 [[exemptions.md-5]]
 version = "0.10.6"
 criteria = "safe-to-deploy"
+
+[[exemptions.md-5]]
+version = "0.11.0"
+criteria = "safe-to-deploy"
+suggest = false
 
 [[exemptions.memchr]]
 version = "2.8.0"
@@ -1334,10 +1359,20 @@ criteria = "safe-to-deploy"
 version = "0.3.2"
 criteria = "safe-to-deploy"
 
+[[exemptions.mongocrypt]]
+version = "0.4.0"
+criteria = "safe-to-deploy"
+suggest = false
+
 [[exemptions.mongocrypt-sys]]
 version = "0.1.5+1.15.1"
 criteria = "safe-to-deploy"
 
+[[exemptions.mongocrypt-sys]]
+version = "0.1.6+1.18.2"
+criteria = "safe-to-deploy"
+suggest = false
+
 [[exemptions.mongodb]]
 version = "3.6.0"
 criteria = "safe-to-deploy"
@@ -1346,6 +1381,11 @@ criteria = "safe-to-deploy"
 version = "3.7.0"
 criteria = "safe-to-deploy"
 
+[[exemptions.mongodb]]
+version = "3.8.0"
+criteria = "safe-to-deploy"
+suggest = false
+
 [[exemptions.mongodb-internal-macros]]
 version = "3.6.0"
 criteria = "safe-to-deploy"
@@ -1353,6 +1393,11 @@ criteria = "safe-to-deploy"
 [[exemptions.mongodb-internal-macros]]
 version = "3.7.0"
 criteria = "safe-to-deploy"
+
+[[exemptions.mongodb-internal-macros]]
+version = "3.8.0"
+criteria = "safe-to-deploy"
+suggest = false
 
 [[exemptions.mutually_exclusive_features]]
 version = "0.1.0"
@@ -1513,6 +1558,11 @@ criteria = "safe-to-deploy"
 [[exemptions.pbkdf2]]
 version = "0.12.2"
 criteria = "safe-to-deploy"
+
+[[exemptions.pbkdf2]]
+version = "0.13.0"
+criteria = "safe-to-deploy"
+suggest = false
 
 [[exemptions.peg]]
 version = "0.6.3"
@@ -2409,6 +2459,11 @@ criteria = "safe-to-deploy"
 [[exemptions.uuid]]
 version = "1.23.3"
 criteria = "safe-to-deploy"
+
+[[exemptions.uuid]]
+version = "1.24.0"
+criteria = "safe-to-deploy"
+suggest = false
 
 [[exemptions.v_htmlescape]]
 version = "0.15.8"
