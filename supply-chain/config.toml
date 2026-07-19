@@ -1145,6 +1145,11 @@ criteria = "safe-to-deploy"
 version = "2.14.0"
 criteria = "safe-to-deploy"
 
+[[exemptions.inout]]
+version = "0.2.2"
+criteria = "safe-to-deploy"
+suggest = false
+
 [[exemptions.inventory]]
 version = "0.3.24"
 criteria = "safe-to-run"
