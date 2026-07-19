@@ -152,8 +152,8 @@ impl KeySet {
 /// Returns `nonce || ciphertext` as a single byte vector.
 pub fn encrypt_key_material(plaintext: &[u8], jwt_secret: &str) -> Result<Vec<u8>, String> {
     use aes_gcm::{
-        aead::{Aead, KeyInit, OsRng},
-        AeadCore, Aes256Gcm,
+        aead::{Aead, Generate, KeyInit},
+        Aes256Gcm, Nonce,
     };
 
     // Derive a 32-byte key from the JWT secret via SHA-256
@@ -161,7 +161,7 @@ pub fn encrypt_key_material(plaintext: &[u8], jwt_secret: &str) -> Result<Vec<u8
     let cipher =
         Aes256Gcm::new_from_slice(&key_bytes).map_err(|e| format!("AES key init error: {e}"))?;
 
-    let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
+    let nonce = Nonce::generate();
     let ciphertext = cipher
         .encrypt(&nonce, plaintext)
         .map_err(|e| format!("Encryption error: {e}"))?;
