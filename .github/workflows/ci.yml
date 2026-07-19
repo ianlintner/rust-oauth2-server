@@ -41,6 +41,7 @@ jobs:
       pull-requests: read
     outputs:
       code: ${{ steps.filter.outputs.code }}
+      build_matrix: ${{ steps.build_matrix.outputs.matrix }}
     steps:
       - uses: actions/checkout@v7.0.0 # v6
       - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
@@ -66,6 +67,33 @@ jobs:
               - '.github/workflows/**'
               - '.github/actions/**'
 
+      # Decide which server binaries this run needs. PRs/develop build a single
+      # debug amd64 binary (only consumer: the single-arch e2e-kind image).
+      # Pushes to the default branch and tags build all release variants
+      # natively — arm64 on GitHub's free arm runners, no cross/QEMU.
+      - name: Compute binary build matrix
+        id: build_matrix
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_EVENT_NAME}" == "push" ]] && \
+             { [[ "${GITHUB_REF}" == "refs/heads/${{ github.event.repository.default_branch }}" ]] || \
+               [[ "${GITHUB_REF}" == refs/tags/* ]]; }; then
+            matrix='[
+              {"name":"base-amd64","runner":"ubuntu-latest","arch":"amd64","profile":"release","cargo_args":"","binary_suffix":"","artifact":"rust_oauth2_server-linux-amd64"},
+              {"name":"base-arm64","runner":"ubuntu-24.04-arm","arch":"arm64","profile":"release","cargo_args":"","binary_suffix":"","artifact":"rust_oauth2_server-linux-arm64"},
+              {"name":"mongo-amd64","runner":"ubuntu-latest","arch":"amd64","profile":"release","cargo_args":"--features mongo","binary_suffix":"-mongo","artifact":"rust_oauth2_server-mongo-linux-amd64"},
+              {"name":"mongo-arm64","runner":"ubuntu-24.04-arm","arch":"arm64","profile":"release","cargo_args":"--features mongo","binary_suffix":"-mongo","artifact":"rust_oauth2_server-mongo-linux-arm64"},
+              {"name":"mongo-only-amd64","runner":"ubuntu-latest","arch":"amd64","profile":"release","cargo_args":"--no-default-features --features mongo,otel","binary_suffix":"-mongo-only","artifact":"rust_oauth2_server-mongo-only-linux-amd64"},
+              {"name":"mongo-only-arm64","runner":"ubuntu-24.04-arm","arch":"arm64","profile":"release","cargo_args":"--no-default-features --features mongo,otel","binary_suffix":"-mongo-only","artifact":"rust_oauth2_server-mongo-only-linux-arm64"}
+            ]'
+          else
+            matrix='[
+              {"name":"debug-amd64","runner":"ubuntu-latest","arch":"amd64","profile":"debug","cargo_args":"","binary_suffix":"","artifact":"rust_oauth2_server-linux-amd64"}
+            ]'
+          fi
+          echo "matrix=$(echo "${matrix}" | jq -c .)" >> "$GITHUB_OUTPUT"
+
   checks:
     name: Checks (fmt, clippy, test)
     runs-on: ubuntu-latest
@@ -80,10 +108,14 @@ jobs:
         with:
           toolchain: stable
           components: rustfmt, clippy
-          # Shared debug-profile cache: integration/mongo (db-tests) restore the
-          # artifacts compiled here instead of rebuilding the workspace.
           cache-key: debug
           install-system-deps: "true"
+
+      - name: Install cargo-nextest
+        if: needs.changes.outputs.code == 'true'
+        uses: taiki-e/install-action@9e1e5806d4a4822de933115878265be9aaa786d9 # v2.82.2
+        with:
+          tool: cargo-nextest
 
       - name: Check formatting
         if: needs.changes.outputs.code == 'true'
@@ -93,9 +125,22 @@ jobs:
         if: needs.changes.outputs.code == 'true'
         run: cargo clippy --all-targets --all-features -- -D warnings
 
-      - name: Run tests
+      # The cucumber `bdd` target is harness = false and does not speak the
+      # libtest protocol nextest requires, so it is excluded here and run via
+      # `cargo test` below (same compiled artifacts, no rebuild).
+      - name: Run tests (nextest)
         if: needs.changes.outputs.code == 'true'
-        run: cargo test --verbose --all-features --locked
+        run: cargo nextest run --all-features --locked -E 'not binary(bdd)'
+
+      - name: Run BDD suite (cucumber)
+        if: needs.changes.outputs.code == 'true'
+        run: cargo test --test bdd --all-features --locked
+
+      # nextest does not run doctests; keep them gated separately (cheap — the
+      # compilation above is reused).
+      - name: Run doctests
+        if: needs.changes.outputs.code == 'true'
+        run: cargo test --doc --all-features --locked
 
       # Compliance matrix is only published by the (main-only) docs job, so the
       # re-run + report + upload only need to happen on push events.
@@ -132,12 +177,22 @@ jobs:
             target/compliance-tests.txt
           if-no-files-found: error
 
+  # Builds each server binary in its own job, in parallel with `checks` — the
+  # PR critical path used to be checks → build → e2e; flattening it shaves
+  # ~4-5 min off PR wall clock. arm64 variants build natively on GitHub's free
+  # arm runners (no cross/QEMU). Publishing is still gated: the `docker` job
+  # needs checks/security/db-tests/e2e-kind, so a red PR or push never ships
+  # an image — a failed run just wastes a few runner-minutes of build.
   build-binaries:
-    name: Build release binaries
-    runs-on: ubuntu-latest
-    needs: [changes, checks]
+    name: Build binaries (${{ matrix.name }})
+    runs-on: ${{ matrix.runner }}
+    needs: [changes]
     if: needs.changes.outputs.code == 'true'
-    timeout-minutes: 45
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.changes.outputs.build_matrix) }}
     steps:
       - uses: actions/checkout@v7.0.0 # v6
 
@@ -145,81 +200,29 @@ jobs:
         uses: ./.github/actions/rust-setup
         with:
           toolchain: stable
-          cache-key: build-binaries
+          cache-key: build-${{ matrix.name }}
           install-system-deps: "true"
 
-      # cross (arm64) is only needed for the multi-arch images published on
-      # main/tags. PRs build a single debug amd64 binary for the e2e image.
-      - name: Install cross (for arm64 builds)
-        if: github.event_name == 'push' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) || startsWith(github.ref, 'refs/tags/'))
-        uses: taiki-e/install-action@9e1e5806d4a4822de933115878265be9aaa786d9 # v2.82.2
-        with:
-          tool: cross
-
-      - name: Build server binary/binaries
+      - name: Build server binary
         shell: bash
         run: |
           set -euo pipefail
-          if [[ "${GITHUB_EVENT_NAME}" == "push" ]] && \
-             ([[ "${GITHUB_REF}" == "refs/heads/${{ github.event.repository.default_branch }}" ]] || \
-              [[ "${GITHUB_REF}" == refs/tags/* ]]); then
-            # Release path: multi-arch (amd64 + cross arm64) + mongo variants for
-            # the published images.
-            bash .github/scripts/build_release_binaries.sh --include-mongo-variants
+          if [[ "${{ matrix.profile }}" == "release" ]]; then
+            cargo build --release --locked ${{ matrix.cargo_args }}
           else
             # PR/develop path: the only consumer is e2e-kind, which loads a
-            # single-arch amd64 image. A debug build is much faster than release
-            # and skips the slow cross arm64 compile entirely.
-            cargo build --locked
-            mkdir -p target/release
-            cp target/debug/rust_oauth2_server target/release/rust_oauth2_server-amd64
+            # single-arch amd64 image. A debug build is much faster than release.
+            cargo build --locked ${{ matrix.cargo_args }}
           fi
+          mkdir -p target/release
+          cp "target/${{ matrix.profile }}/rust_oauth2_server" \
+            "target/release/rust_oauth2_server${{ matrix.binary_suffix }}-${{ matrix.arch }}"
 
-      - name: Upload release binary artifact (linux/amd64)
+      - name: Upload server binary artifact
         uses: actions/upload-artifact@v7.0.1 # v7
         with:
-          name: rust_oauth2_server-linux-amd64
-          path: target/release/rust_oauth2_server-amd64
-          if-no-files-found: error
-
-      - name: Upload release binary artifact (linux/arm64)
-        if: github.event_name == 'push' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) || startsWith(github.ref, 'refs/tags/'))
-        uses: actions/upload-artifact@v7.0.1 # v7
-        with:
-          name: rust_oauth2_server-linux-arm64
-          path: target/release/rust_oauth2_server-arm64
-          if-no-files-found: error
-
-      - name: Upload release binary artifact (linux/amd64, mongo feature)
-        if: github.event_name == 'push' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) || startsWith(github.ref, 'refs/tags/'))
-        uses: actions/upload-artifact@v7.0.1 # v7
-        with:
-          name: rust_oauth2_server-mongo-linux-amd64
-          path: target/release/rust_oauth2_server-mongo-amd64
-          if-no-files-found: error
-
-      - name: Upload release binary artifact (linux/arm64, mongo feature)
-        if: github.event_name == 'push' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) || startsWith(github.ref, 'refs/tags/'))
-        uses: actions/upload-artifact@v7.0.1 # v7
-        with:
-          name: rust_oauth2_server-mongo-linux-arm64
-          path: target/release/rust_oauth2_server-mongo-arm64
-          if-no-files-found: error
-
-      - name: Upload release binary artifact (linux/amd64, mongo-only; no SQLx)
-        if: github.event_name == 'push' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) || startsWith(github.ref, 'refs/tags/'))
-        uses: actions/upload-artifact@v7.0.1 # v7
-        with:
-          name: rust_oauth2_server-mongo-only-linux-amd64
-          path: target/release/rust_oauth2_server-mongo-only-amd64
-          if-no-files-found: error
-
-      - name: Upload release binary artifact (linux/arm64, mongo-only; no SQLx)
-        if: github.event_name == 'push' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) || startsWith(github.ref, 'refs/tags/'))
-        uses: actions/upload-artifact@v7.0.1 # v7
-        with:
-          name: rust_oauth2_server-mongo-only-linux-arm64
-          path: target/release/rust_oauth2_server-mongo-only-arm64
+          name: ${{ matrix.artifact }}
+          path: target/release/rust_oauth2_server${{ matrix.binary_suffix }}-${{ matrix.arch }}
           if-no-files-found: error
 
   security:
@@ -262,12 +265,13 @@ jobs:
         run: cargo vet --locked
 
   # Integration (Postgres) + Mongo storage tests in one job: both are
-  # Docker-backed debug-profile suites, and sharing the `debug` cache lets them
-  # restore the artifacts already compiled by `checks`.
+  # Docker-backed debug-profile suites. Runs in parallel with `checks` (it
+  # builds with different feature sets, so there is no compiled-artifact
+  # sharing to wait for); the `gate` and `docker` jobs still require both.
   db-tests:
     name: Database Tests (postgres, mongo)
     runs-on: ubuntu-latest
-    needs: [changes, checks]
+    needs: [changes]
     if: needs.changes.outputs.code == 'true'
     timeout-minutes: 25
     services:
@@ -291,7 +295,7 @@ jobs:
         uses: ./.github/actions/rust-setup
         with:
           toolchain: stable
-          cache-key: debug
+          cache-key: db-tests
           install-system-deps: "true"
 
       - name: Run Flyway Migrations
@@ -332,7 +336,10 @@ jobs:
   docker:
     name: Docker (${{ matrix.variant_name }})
     runs-on: ubuntu-latest
-    needs: [build-binaries, security, db-tests, e2e-kind]
+    # `checks` must be an explicit dependency: build-binaries/db-tests no
+    # longer run after it, so nothing else keeps a red fmt/clippy/test run
+    # from publishing images.
+    needs: [checks, build-binaries, security, db-tests, e2e-kind]
     if: github.event_name == 'push' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) || startsWith(github.ref, 'refs/tags/'))
     timeout-minutes: 45
     permissions:

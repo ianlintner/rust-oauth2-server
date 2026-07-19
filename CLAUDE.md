@@ -179,7 +179,7 @@ existing clients (migration `V12__add_token_endpoint_auth_method.sql`).
 
 ```bash
 # All integration tests
-cargo test --verbose --all-features --locked
+cargo test --all-features --locked
 
 # Only RFC compliance tests
 cargo test --test rfc_compliance
@@ -276,8 +276,15 @@ See `docs/oauth2-spec-audit.md` §6 for the full checklist.
 ```bash
 cargo fmt --all -- --check     # auto-fix: cargo fmt --all
 cargo clippy --all-targets --all-features -- -D warnings
-cargo test --verbose --all-features --locked
+cargo nextest run --all-features --locked -E 'not binary(bdd)'
+cargo test --test bdd --all-features --locked      # cucumber (not nextest-compatible)
+cargo test --doc --all-features --locked           # nextest skips doctests
 ```
+
+While iterating, use the quick loop instead (`cargo check --all-targets` +
+targeted `cargo nextest run`) and run the full gate once before committing.
+If cargo-nextest is unavailable, `cargo test --all-features --locked` covers
+steps 3–5 in one (slower) command.
 
 ---
 
