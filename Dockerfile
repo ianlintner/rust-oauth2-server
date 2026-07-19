@@ -38,7 +38,7 @@ COPY static/js/ ./static/js/
 
 RUN ./tailwindcss -c tailwind.config.js -i admin.src.css -o admin.min.css --minify
 
-FROM rust:slim@sha256:3b05f7c617a200c41c3506097f0d15fc193a1c93bfd8f141007b47cac8f95d3c AS chef
+FROM rust:slim@sha256:c37af730be4fd8104cbf9aedbd6ab259e51ca2d5437817a0f8680edf66ac6c28 AS chef
 
 WORKDIR /app
 
