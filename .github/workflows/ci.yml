@@ -137,10 +137,13 @@ jobs:
         run: cargo test --test bdd --all-features --locked
 
       # nextest does not run doctests; keep them gated separately (cheap — the
-      # compilation above is reused).
+      # compilation above is reused). --workspace is required: the root
+      # `rust_oauth2_server` package is binary-only (no lib target), and
+      # `cargo test --doc` without --workspace errors on that instead of
+      # skipping it.
       - name: Run doctests
         if: needs.changes.outputs.code == 'true'
-        run: cargo test --doc --all-features --locked
+        run: cargo test --doc --workspace --all-features --locked
 
       # Compliance matrix is only published by the (main-only) docs job, so the
       # re-run + report + upload only need to happen on push events.

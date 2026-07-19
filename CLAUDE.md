@@ -278,7 +278,7 @@ cargo fmt --all -- --check     # auto-fix: cargo fmt --all
 cargo clippy --all-targets --all-features -- -D warnings
 cargo nextest run --all-features --locked -E 'not binary(bdd)'
 cargo test --test bdd --all-features --locked      # cucumber (not nextest-compatible)
-cargo test --doc --all-features --locked           # nextest skips doctests
+cargo test --doc --workspace --all-features --locked  # nextest skips doctests; --workspace required (root crate has no lib target)
 ```
 
 While iterating, use the quick loop instead (`cargo check --all-targets` +

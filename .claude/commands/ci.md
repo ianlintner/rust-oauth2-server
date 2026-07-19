@@ -16,7 +16,9 @@ paying for the full all-features build:
 2. Lint check: `cargo clippy --all-targets --all-features -- -D warnings`
 3. Tests: `cargo nextest run --all-features --locked -E 'not binary(bdd)'`
 4. BDD suite: `cargo test --test bdd --all-features --locked`
-5. Doctests: `cargo test --doc --all-features --locked`
+5. Doctests: `cargo test --doc --workspace --all-features --locked` (`--workspace`
+   is required — the root `rust_oauth2_server` package is binary-only and
+   `cargo test --doc` without it errors instead of skipping that package)
 
 If formatting fails, auto-fix with: `cargo fmt --all`
 
