@@ -5,6 +5,8 @@ use oauth2::{
     TokenResponse as OAuth2TokenResponse,
 };
 use serde::Deserialize;
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
 
 use oauth2_core::utils::redirect::is_safe_redirect;
@@ -311,6 +313,31 @@ async fn find_or_create_social_user(
     Ok(user)
 }
 
+/// Custom HTTP client adapter to bridge reqwest 0.13 and oauth2 5.0.0
+fn oauth2_request(
+    request: oauth2::HttpRequest,
+) -> Pin<
+    Box<
+        dyn Future<Output = Result<oauth2::HttpResponse, oauth2::HttpClientError<reqwest::Error>>>
+            + Send,
+    >,
+> {
+    Box::pin(async move {
+        let client = reqwest::Client::new();
+        let reqwest_req: reqwest::Request = request.try_into().map_err(Box::new)?;
+        let response = client.execute(reqwest_req).await.map_err(Box::new)?;
+
+        let mut builder = oauth2::http::Response::builder().status(response.status());
+        for (name, value) in response.headers() {
+            builder = builder.header(name, value);
+        }
+        let body = response.bytes().await.map_err(Box::new)?;
+        builder
+            .body(body.to_vec())
+            .map_err(oauth2::HttpClientError::Http)
+    })
+}
+
 async fn handle_google_callback(
     code: &str,
     config: &SocialLoginConfig,
@@ -333,13 +360,10 @@ async fn handle_google_callback(
             OAuth2Error::new("session_error", Some("PKCE verifier missing from session"))
         })?;
 
-    // oauth2 implements its async HTTP client trait for reqwest 0.12.
-    // We standardize on reqwest 0.12 (rustls) here to keep cross-compilation (arm64) OpenSSL-free.
-    let http_client = reqwest::Client::new();
     let token_result = client
         .exchange_code(AuthorizationCode::new(code.to_string()))
         .set_pkce_verifier(pkce_verifier)
-        .request_async(&http_client)
+        .request_async(&oauth2_request)
         .await
         .map_err(|e| OAuth2Error::new("token_exchange_failed", Some(&e.to_string())))?;
 
@@ -359,10 +383,9 @@ async fn handle_microsoft_callback(
 
     let client = SocialLoginService::get_microsoft_client(provider_config)?;
 
-    let http_client = reqwest::Client::new();
     let token_result = client
         .exchange_code(AuthorizationCode::new(code.to_string()))
-        .request_async(&http_client)
+        .request_async(&oauth2_request)
         .await
         .map_err(|e| OAuth2Error::new("token_exchange_failed", Some(&e.to_string())))?;
 
@@ -384,10 +407,9 @@ async fn handle_azure_callback(
 
     let client = SocialLoginService::get_microsoft_client(provider_config)?;
 
-    let http_client = reqwest::Client::new();
     let token_result = client
         .exchange_code(AuthorizationCode::new(code.to_string()))
-        .request_async(&http_client)
+        .request_async(&oauth2_request)
         .await
         .map_err(|e| OAuth2Error::new("token_exchange_failed", Some(&e.to_string())))?;
 
@@ -407,10 +429,9 @@ async fn handle_github_callback(
 
     let client = SocialLoginService::get_github_client(provider_config)?;
 
-    let http_client = reqwest::Client::new();
     let token_result = client
         .exchange_code(AuthorizationCode::new(code.to_string()))
-        .request_async(&http_client)
+        .request_async(&oauth2_request)
         .await
         .map_err(|e| OAuth2Error::new("token_exchange_failed", Some(&e.to_string())))?;
 

@@ -28,20 +28,18 @@ fn build_http_client(timeout: Duration) -> HttpClient {
 
     #[cfg(feature = "otel")]
     {
-        // reqwest-tracing 0.5.x only exposes opentelemetry features through
-        // 0.30. It injects headers via `opentelemetry_0_30::global::get_text_map_propagator`,
-        // which is a *different* global static from the workspace's OTEL 0.31
-        // propagator installed by W0.1 `init_telemetry`. Install a
-        // `TraceContextPropagator` on the 0.30 global here (once) so that the
-        // middleware actually serialises the current span's context into
-        // traceparent/tracestate. This bridge can be removed once upstream
-        // reqwest-tracing gains `opentelemetry_0_31` support AND permits
-        // reqwest 0.12.
+        // reqwest-tracing's `opentelemetry_0_32` feature matches the
+        // workspace's opentelemetry/opentelemetry_sdk version, so it reads
+        // the same global propagator installed by oauth2-observability's
+        // `init_telemetry`. Install a `TraceContextPropagator` here too
+        // (once) so the middleware still injects traceparent/tracestate
+        // correctly when this crate is used without `init_telemetry` (e.g.
+        // in isolation or in tests).
         use std::sync::Once;
-        static INIT_0_30_PROPAGATOR: Once = Once::new();
-        INIT_0_30_PROPAGATOR.call_once(|| {
-            opentelemetry_0_30_pkg::global::set_text_map_propagator(
-                opentelemetry_sdk_0_30_pkg::propagation::TraceContextPropagator::new(),
+        static INIT_PROPAGATOR: Once = Once::new();
+        INIT_PROPAGATOR.call_once(|| {
+            opentelemetry::global::set_text_map_propagator(
+                opentelemetry_sdk::propagation::TraceContextPropagator::new(),
             );
         });
 

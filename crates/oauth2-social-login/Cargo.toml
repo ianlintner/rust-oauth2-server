@@ -15,19 +15,20 @@ actix-session = { version = "0.11", features = ["cookie-session"] }
 
 # OAuth2 + HTTP
 oauth2 = "5.0"
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
 
 # Optional: OTEL-aware HTTP middleware that injects W3C traceparent/tracestate
 # into outgoing requests and emits a CLIENT span per call. Gated behind `otel`.
-# Version selection: reqwest-tracing 0.5.x is the only line still on reqwest
-# 0.12 (0.6+ require reqwest 0.13, which `oauth2 = 5.0` does not yet permit).
-# 0.5.8 exposes OTEL feature flags up to `opentelemetry_0_30` only; we set a
-# `TraceContextPropagator` on the 0.30 global inside this crate (see service.rs)
-# to bridge until the upstream middleware catches up to OTEL 0.31.
-reqwest-middleware = { version = "0.4", optional = true }
-reqwest-tracing = { version = "0.5.8", optional = true, default-features = false, features = ["opentelemetry_0_30"] }
-opentelemetry_0_30_pkg = { package = "opentelemetry", version = "0.30", optional = true }
-opentelemetry_sdk_0_30_pkg = { package = "opentelemetry_sdk", version = "0.30", optional = true }
+# Version selection: reqwest-tracing 0.7.x requires reqwest 0.13. Since
+# `oauth2 = 5.0` expects reqwest 0.12 for its built-in client, we use a
+# custom closure adapter in the handler to bridge reqwest 0.13 and oauth2.
+# `opentelemetry_0_32` matches the workspace's opentelemetry/opentelemetry_sdk
+# version, so the middleware's global propagator is the same one installed by
+# oauth2-observability's `init_telemetry` -- no separate aliased crate needed.
+reqwest-middleware = { version = "0.5", optional = true }
+reqwest-tracing = { version = "0.7.1", optional = true, default-features = false, features = ["opentelemetry_0_32"] }
+opentelemetry = { version = "0.32", optional = true }
+opentelemetry_sdk = { version = "0.32", optional = true }
 
 # Password hashing (Argon2id) – for creating placeholder hashes for social users
 argon2 = "0.5"
@@ -48,6 +49,6 @@ uuid = { version = "1", features = ["v4"] }
 otel = [
     "dep:reqwest-middleware",
     "dep:reqwest-tracing",
-    "dep:opentelemetry_0_30_pkg",
-    "dep:opentelemetry_sdk_0_30_pkg",
+    "dep:opentelemetry",
+    "dep:opentelemetry_sdk",
 ]
