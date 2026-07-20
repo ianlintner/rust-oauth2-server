@@ -3204,3 +3204,131 @@ async fn refresh_token_replay_revokes_entire_token_family() {
         "RT2 must return error=invalid_grant after family was revoked"
     );
 }
+
+// ── return_to staleness hardening (login-CSRF) ─────────────────────────────
+//
+// The authorize endpoint stores `return_to` (+ `return_to_ts`) in the session
+// before redirecting to /auth/login. A stale return_to from an abandoned
+// (possibly attacker-initiated) authorization request must NOT be replayed on
+// a later unrelated login — only a fresh, timestamped return_to is honored.
+
+#[derive(serde::Deserialize)]
+struct SeedReturnToQuery {
+    /// Seconds added to "now" for the stored return_to_ts (negative = in the past).
+    offset: i64,
+    /// Whether to store a return_to_ts at all.
+    with_ts: bool,
+}
+
+/// Test-only route seeding a pending return_to as the authorize handler would.
+async fn seed_return_to(session: Session, q: web::Query<SeedReturnToQuery>) -> HttpResponse {
+    session
+        .insert(
+            "return_to",
+            "/oauth/authorize?response_type=code&client_id=client_pending",
+        )
+        .unwrap();
+    if q.with_ts {
+        session
+            .insert("return_to_ts", chrono::Utc::now().timestamp() + q.offset)
+            .unwrap();
+    }
+    HttpResponse::Ok().finish()
+}
+
+/// Drive the real login_submit handler: seed the session via /test/seed with the
+/// given query, then POST valid credentials and return the redirect Location.
+async fn login_redirect_after_seeding(seed_query: &str) -> String {
+    use actix_session::{storage::CookieSessionStore, SessionMiddleware};
+    use actix_web::cookie::Key;
+
+    let storage = oauth2_storage_factory::create_storage("sqlite::memory:")
+        .await
+        .expect("create storage");
+    storage.init().await.expect("init storage");
+
+    // Random per-run password: the tests only need hash(password) to verify,
+    // and this avoids a hard-coded credential in the source.
+    let password = uuid::Uuid::new_v4().to_string();
+
+    let now = chrono::Utc::now();
+    let user = User {
+        id: "user_login".to_string(),
+        username: "user_login".to_string(),
+        password_hash: oauth2_actix::handlers::login::hash_password(&password)
+            .expect("hash password"),
+        email: "user_login@example.test".to_string(),
+        enabled: true,
+        role: "user".to_string(),
+        created_at: now,
+        updated_at: now,
+    };
+    storage.save_user(&user).await.expect("save user");
+
+    let metrics = Metrics::new().expect("metrics");
+    let app = test::init_service(
+        App::new()
+            .wrap(SessionMiddleware::new(
+                CookieSessionStore::default(),
+                Key::generate(),
+            ))
+            .route("/test/seed", web::get().to(seed_return_to))
+            .app_data(web::Data::new(storage))
+            .app_data(web::Data::new(metrics))
+            .route(
+                "/auth/login",
+                web::post().to(oauth2_actix::handlers::login::login_submit),
+            ),
+    )
+    .await;
+
+    let seed_req = test::TestRequest::get()
+        .uri(&format!("/test/seed?{seed_query}"))
+        .to_request();
+    let seed_resp = test::call_service(&app, seed_req).await;
+    let session_cookie = extract_session_cookie(&seed_resp);
+
+    let login_req = test::TestRequest::post()
+        .uri("/auth/login")
+        .insert_header(("Cookie", session_cookie.as_str()))
+        .set_form([("username", "user_login"), ("password", password.as_str())])
+        .to_request();
+    let login_resp = test::call_service(&app, login_req).await;
+    assert_eq!(login_resp.status(), 303, "login must redirect with 303");
+    login_resp
+        .headers()
+        .get(actix_web::http::header::LOCATION)
+        .and_then(|h| h.to_str().ok())
+        .expect("Location header")
+        .to_string()
+}
+
+#[actix_web::test]
+async fn fresh_return_to_is_replayed_after_login() {
+    let location = login_redirect_after_seeding("offset=0&with_ts=true").await;
+    assert_eq!(
+        location, "/oauth/authorize?response_type=code&client_id=client_pending",
+        "a fresh return_to must be replayed after login"
+    );
+}
+
+#[actix_web::test]
+async fn stale_return_to_is_not_replayed_after_login() {
+    // Stamped one hour in the past — well beyond the freshness window.
+    let location = login_redirect_after_seeding("offset=-3600&with_ts=true").await;
+    assert_eq!(
+        location, "/profile",
+        "a stale return_to from an abandoned authorization request must not be replayed"
+    );
+}
+
+#[actix_web::test]
+async fn unstamped_return_to_is_not_replayed_after_login() {
+    // return_to present without return_to_ts (e.g. left over from a pre-upgrade
+    // session): must be treated as stale, not silently replayed.
+    let location = login_redirect_after_seeding("offset=0&with_ts=false").await;
+    assert_eq!(
+        location, "/profile",
+        "an unstamped return_to must not be replayed"
+    );
+}

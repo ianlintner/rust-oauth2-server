@@ -17,6 +17,10 @@ use oauth2_observability::Metrics;
 use oauth2_ports::DynStorage;
 use oauth2_ratelimit::RateLimiter;
 
+/// How long a pending `return_to` saved by the authorize endpoint stays valid.
+/// After this window a login no longer replays the stored authorize URL.
+const RETURN_TO_MAX_AGE_SECS: i64 = 600;
+
 fn extract_client_ip(req: &HttpRequest, trust_proxy_headers: bool) -> String {
     // Only trust proxy-provided client IP headers when explicitly configured.
     // Otherwise, an attacker can spoof X-Forwarded-For and evade per-IP
@@ -255,10 +259,19 @@ pub async fn login_submit(
     // Redirect to the OAuth authorize URL that was saved before the login redirect,
     // or fall back to the success page.
     let return_to: Option<String> = session.get("return_to")?;
+    let return_to_ts: Option<i64> = session.get("return_to_ts").unwrap_or(None);
     session.remove("return_to");
+    session.remove("return_to_ts");
+
+    // Only honor return_to when it was stamped by a recent authorize redirect.
+    // A stale (or unstamped) value from an abandoned authorization request must
+    // not be replayed on a later unrelated login (login-CSRF hardening).
+    let fresh = return_to_ts
+        .is_some_and(|ts| chrono::Utc::now().timestamp() - ts <= RETURN_TO_MAX_AGE_SECS);
 
     // Only allow safe relative redirects; anything else falls back to /profile.
     let redirect_url = return_to
+        .filter(|_| fresh)
         .filter(|u| is_safe_redirect(u))
         .unwrap_or_else(|| "/profile".to_string());
 

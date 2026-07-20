@@ -954,6 +954,12 @@ pub async fn authorize(
             session
                 .insert("return_to", &return_to)
                 .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))?;
+            // Timestamp the pending redirect so login_submit can reject a stale
+            // return_to left over from an abandoned (possibly attacker-initiated)
+            // authorization request instead of silently replaying it.
+            session
+                .insert("return_to_ts", chrono::Utc::now().timestamp())
+                .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))?;
 
             // OIDC Core §3.1.2.1: forward login_hint to the login form
             // so the username field can be pre-filled for the user.
