@@ -3247,11 +3247,15 @@ async fn login_redirect_after_seeding(seed_query: &str) -> String {
         .expect("create storage");
     storage.init().await.expect("init storage");
 
+    // Random per-run password: the tests only need hash(password) to verify,
+    // and this avoids a hard-coded credential in the source.
+    let password = uuid::Uuid::new_v4().to_string();
+
     let now = chrono::Utc::now();
     let user = User {
         id: "user_login".to_string(),
         username: "user_login".to_string(),
-        password_hash: oauth2_actix::handlers::login::hash_password("correct horse battery")
+        password_hash: oauth2_actix::handlers::login::hash_password(&password)
             .expect("hash password"),
         email: "user_login@example.test".to_string(),
         enabled: true,
@@ -3287,10 +3291,7 @@ async fn login_redirect_after_seeding(seed_query: &str) -> String {
     let login_req = test::TestRequest::post()
         .uri("/auth/login")
         .insert_header(("Cookie", session_cookie.as_str()))
-        .set_form([
-            ("username", "user_login"),
-            ("password", "correct horse battery"),
-        ])
+        .set_form([("username", "user_login"), ("password", password.as_str())])
         .to_request();
     let login_resp = test::call_service(&app, login_req).await;
     assert_eq!(login_resp.status(), 303, "login must redirect with 303");
