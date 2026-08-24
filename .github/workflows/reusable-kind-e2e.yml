@@ -51,7 +51,7 @@ jobs:
       KUBECONFIG: ${{ github.workspace }}/.kubeconfig-kind-oauth2
     steps:
       - name: Checkout code
-        uses: actions/checkout@v7.0.0 # v6
+        uses: actions/checkout@v7.0.1 # v6
 
       - name: Rust toolchain + cache
         if: ${{ !inputs.use_prebuilt_binaries }}
@@ -97,7 +97,7 @@ jobs:
           fi
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4.2.0 # v4
+        uses: docker/setup-buildx-action@v4.3.0 # v4
 
       - name: Install KIND
         shell: bash
