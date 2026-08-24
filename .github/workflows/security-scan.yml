@@ -37,7 +37,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v7.0.0 # v6
+      - uses: actions/checkout@v7.0.1 # v6
 
       - name: Install kustomize
         shell: bash
@@ -113,7 +113,7 @@ jobs:
       RUST_BACKTRACE: 1
       OAUTH2_JWT_SECRET: "test-jwt-secret-for-ci-only-do-not-use-in-production-32chars"
     steps:
-      - uses: actions/checkout@v7.0.0 # v6
+      - uses: actions/checkout@v7.0.1 # v6
 
       - name: Rust toolchain + cache
         uses: ./.github/actions/rust-setup
@@ -130,7 +130,7 @@ jobs:
           cp target/release/rust_oauth2_server target/release/rust_oauth2_server-amd64
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4.2.0 # v4
+        uses: docker/setup-buildx-action@v4.3.0 # v4
 
       - name: Build Docker image
         uses: docker/build-push-action@v7.3.0 # v7
