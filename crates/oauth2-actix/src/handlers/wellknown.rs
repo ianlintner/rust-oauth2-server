@@ -176,6 +176,9 @@ pub async fn openid_configuration(
     if agent.obo_enabled {
         config["requested_actor_parameter_supported"] = json!(true);
     }
+    if agent.txn_tokens_enabled {
+        config["transaction_token_supported"] = json!(true);
+    }
 
     Ok(HttpResponse::Ok().json(config))
 }

@@ -1245,6 +1245,13 @@ pub struct TokenRequest {
     pub(crate) requested_token_type: Option<String>,
     /// RFC 9396: Rich Authorization Request (JSON array string).
     pub(crate) authorization_details: Option<String>,
+    // draft-ietf-oauth-transaction-tokens fields ---
+    /// Transaction context (`tctx`) proposed by the requester, as a JSON object.
+    pub(crate) request_details: Option<String>,
+    /// Request context (`rctx`) proposed by the requester, as a JSON object.
+    pub(crate) request_context: Option<String>,
+    /// draft-liu-oauth-a2a-profile: declared purpose of the transaction.
+    pub(crate) purp: Option<String>,
 }
 
 /// JWT Bearer assertion type per RFC 7523 §2.2.
@@ -1506,6 +1513,9 @@ pub async fn token(
         actor_token_type: form_map.get("actor_token_type").cloned(),
         requested_token_type: form_map.get("requested_token_type").cloned(),
         authorization_details: form_map.get("authorization_details").cloned(),
+        request_details: form_map.get("request_details").cloned(),
+        request_context: form_map.get("request_context").cloned(),
+        purp: form_map.get("purp").cloned(),
     };
 
     // RFC 9449: DPoP — fully validate the DPoP proof and extract JWK Thumbprint.

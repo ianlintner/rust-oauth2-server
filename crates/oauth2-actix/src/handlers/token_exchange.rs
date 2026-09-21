@@ -60,6 +60,11 @@ pub(crate) struct ResolvedToken {
     /// `true` when this token is an OIDC ID token, which carries no scope of
     /// its own and therefore needs the request to name one explicitly.
     pub is_id_token: bool,
+    /// Raw claims of a transaction-token subject (`None` otherwise).
+    /// `ResolvedToken` cannot carry the txn-specific members
+    /// (`txn`, `tctx`, `rctx`, `purp`, `req_wl`), so the replacement path in
+    /// [`crate::handlers::txn_token`] reads them from here.
+    pub txn: Option<Value>,
 }
 
 /// Everything the exchange algorithm operates on once the request has been
@@ -141,6 +146,18 @@ pub(crate) async fn exchange(
         .subject_token_type
         .clone()
         .ok_or_else(|| OAuth2Error::invalid_request("Missing subject_token_type"))?;
+
+    // draft-ietf-oauth-transaction-tokens §6: a transaction token is only
+    // accepted as a subject when the request asks for another transaction
+    // token (a *replacement*). Anything else would launder a token scoped to
+    // the trust domain into a bearer credential for a resource server.
+    if subject_token_type == token_types::TXN_TOKEN
+        && req.requested_token_type.as_deref() != Some(token_types::TXN_TOKEN)
+    {
+        return Err(OAuth2Error::invalid_request(
+            "a transaction token may only be exchanged for another transaction token",
+        ));
+    }
 
     // Read the keyset once; both token resolutions share the snapshot.
     let keyset_snapshot = match keyset.as_ref() {
@@ -319,6 +336,7 @@ async fn resolve_token(
                     .and_then(|c| c.cnf.clone())
                     .or_else(|| row.cnf_value()),
                 is_id_token: false,
+                txn: None,
             })
         }
         token_types::JWT => {
@@ -336,9 +354,10 @@ async fn resolve_token(
                 )));
             }
 
-            let claims: Claims = verify_jwt(raw, oidc_config, keyset).map_err(|_| {
-                OAuth2Error::invalid_grant(&format!("{which}_token signature is not valid"))
-            })?;
+            let claims: Claims =
+                verify_jwt(raw, &oidc_config.jwt_secret, keyset).map_err(|_| {
+                    OAuth2Error::invalid_grant(&format!("{which}_token signature is not valid"))
+                })?;
             // A JWT this server issued must still be on record and valid. The
             // lookup is by access token, so anything not stored as one (a
             // refresh token, a replayed copy of a deleted token) is refused.
@@ -387,6 +406,7 @@ async fn resolve_token(
                 authorization_details: claims.authorization_details.clone(),
                 cnf: claims.cnf.clone(),
                 is_id_token: false,
+                txn: None,
             })
         }
         // RFC 8693 §3 lists `refresh_token`, but exchanging one for an access
@@ -444,6 +464,7 @@ async fn resolve_token(
                     .and_then(|c| c.cnf.clone())
                     .or_else(|| row.cnf_value()),
                 is_id_token: false,
+                txn: None,
             })
         }
         token_types::ID_TOKEN => {
@@ -469,9 +490,10 @@ async fn resolve_token(
                 )));
             }
 
-            let claims: IdTokenClaims = verify_jwt(raw, oidc_config, keyset).map_err(|_| {
-                OAuth2Error::invalid_grant(&format!("{which}_token is not a valid id_token"))
-            })?;
+            let claims: IdTokenClaims =
+                verify_jwt(raw, &oidc_config.jwt_secret, keyset).map_err(|_| {
+                    OAuth2Error::invalid_grant(&format!("{which}_token is not a valid id_token"))
+                })?;
             if claims.iss != oidc_config.issuer {
                 return Err(OAuth2Error::invalid_grant(&format!(
                     "{which}_token was not issued by this authorization server"
@@ -498,6 +520,60 @@ async fn resolve_token(
                 authorization_details: None,
                 cnf: None,
                 is_id_token: true,
+                txn: None,
+            })
+        }
+        token_types::TXN_TOKEN => {
+            // Only ever a *replacement* subject: a transaction token confers
+            // no authority at a resource server, so it must not become an
+            // actor token either.
+            if which != "subject" {
+                return Err(OAuth2Error::invalid_request(
+                    "a transaction token cannot be used as an actor_token",
+                ));
+            }
+            // Transaction tokens are never persisted, so the signature and
+            // `exp` are the only authentication. Shared with introspection.
+            let claims = crate::handlers::txn_token::verify_txn_token(
+                raw,
+                keyset,
+                &oidc_config.jwt_secret,
+                &oidc_config.issuer,
+            )
+            .map_err(|e| {
+                OAuth2Error::new(
+                    &e.error,
+                    Some(&format!(
+                        "{which}_token is not a valid transaction token: {}",
+                        e.error_description.unwrap_or_default()
+                    )),
+                )
+            })?;
+            let aud = vec![claims.aud.clone()];
+            let act = claims.act.clone();
+            let scope = claims.scope.clone();
+            let sub = claims.sub.clone();
+            let raw_claims = serde_json::to_value(&claims)
+                .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))?;
+
+            Ok(ResolvedToken {
+                sub,
+                // A transaction token is bound to the trust domain, not to the
+                // client it was issued to, so the cross-client guard in step 4
+                // does not apply: any workload in the domain that authenticates
+                // asymmetrically may request a replacement. Naming the caller
+                // here makes that guard a no-op instead of a false refusal.
+                client_id: Some(requesting_client_id.to_string()),
+                user_id: None,
+                scope,
+                aud,
+                act,
+                may_act: None,
+                sub_profile: None,
+                authorization_details: None,
+                cnf: None,
+                is_id_token: false,
+                txn: Some(raw_claims),
             })
         }
         other => Err(OAuth2Error::invalid_request(&format!(
@@ -525,9 +601,9 @@ async fn lookup(
 /// [`KeySet`] first and falling back to the configured HS256 secret. `aud` is
 /// deliberately not validated here: the exchange algorithm inspects the
 /// audience itself.
-fn verify_jwt<T: serde::de::DeserializeOwned>(
+pub(crate) fn verify_jwt<T: serde::de::DeserializeOwned>(
     raw: &str,
-    oidc_config: &OidcConfig,
+    jwt_secret: &str,
     keyset: Option<&KeySet>,
 ) -> Result<T, ()> {
     let header = jsonwebtoken::decode_header(raw).map_err(|_| ())?;
@@ -553,7 +629,7 @@ fn verify_jwt<T: serde::de::DeserializeOwned>(
         }
     }
     candidates.push((
-        DecodingKey::from_secret(oidc_config.jwt_secret.as_bytes()),
+        DecodingKey::from_secret(jwt_secret.as_bytes()),
         Algorithm::HS256,
     ));
 
@@ -613,10 +689,23 @@ pub(crate) async fn handle_token_exchange_grant(
         }
     };
 
+    // The requested token type steers step 6 and is dispatched on at step 9.
+    let requested_token_type = ctx
+        .req
+        .requested_token_type
+        .clone()
+        .unwrap_or_else(|| token_types::ACCESS_TOKEN.to_string());
+    let is_txn_token = requested_token_type == token_types::TXN_TOKEN;
+
     // --- Step 6: requested resources / audiences. ---------------------------
+    // A transaction token's `audience` names the trust domain, not a protected
+    // resource: it is not a URL in general, it is not in the resource registry
+    // and it is unrelated to the subject token's own audience. The txn arm
+    // checks it against the configured trust domain itself, so it must not be
+    // fed through the resource-indicator rules here.
     let resources = resolve_requested_resources(
         &ctx.req.resource,
-        &ctx.req.audience,
+        if is_txn_token { &[] } else { &ctx.req.audience },
         &ctx.subject.aud,
         ctx.subject.client_id.as_deref().unwrap_or_default(),
         &ctx.storage,
@@ -651,11 +740,6 @@ pub(crate) async fn handle_token_exchange_grant(
     )?;
 
     // --- Step 9: requested_token_type. --------------------------------------
-    let requested_token_type = ctx
-        .req
-        .requested_token_type
-        .clone()
-        .unwrap_or_else(|| token_types::ACCESS_TOKEN.to_string());
     // draft-ietf-oauth-identity-chaining: `requested_token_type=...:jwt` with
     // a single `audience` naming a configured chaining target asks for a
     // delegated authorization grant, not a plain access token.
