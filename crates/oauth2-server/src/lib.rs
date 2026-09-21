@@ -1452,6 +1452,19 @@ pub async fn run() -> std::io::Result<()> {
                         "/clients/register",
                         web::post().to(oauth2_actix::handlers::client::register_client),
                     )
+                    // Protected resources registry (RFC 8707 / RFC 9728, agent/A2A OAuth)
+                    .route(
+                        "/resources",
+                        web::get().to(oauth2_actix::handlers::admin_resources::list_resources),
+                    )
+                    .route(
+                        "/resources",
+                        web::post().to(oauth2_actix::handlers::admin_resources::create_resource),
+                    )
+                    .route(
+                        "/resources/{id}",
+                        web::delete().to(oauth2_actix::handlers::admin_resources::delete_resource),
+                    )
                     .service(
                         web::scope("/api")
                             .route(

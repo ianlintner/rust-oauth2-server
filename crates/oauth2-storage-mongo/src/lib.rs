@@ -6,7 +6,8 @@ use mongodb::{
 };
 
 use oauth2_core::{
-    AuthorizationCode, Client, DeviceAuthorization, ListQuery, OAuth2Error, Page, Token, User,
+    AuthorizationCode, Client, DeviceAuthorization, ListQuery, OAuth2Error, Page,
+    ProtectedResource, Token, User,
 };
 use oauth2_ports::Storage;
 
@@ -22,6 +23,7 @@ pub struct MongoStorage {
     tokens: Collection<Token>,
     authorization_codes: Collection<AuthorizationCode>,
     device_authorizations: Collection<DeviceAuthorization>,
+    resources: Collection<ProtectedResource>,
 }
 
 impl MongoStorage {
@@ -57,6 +59,7 @@ impl MongoStorage {
         let tokens = db.collection::<Token>("tokens");
         let authorization_codes = db.collection::<AuthorizationCode>("authorization_codes");
         let device_authorizations = db.collection::<DeviceAuthorization>("device_authorizations");
+        let resources = db.collection::<ProtectedResource>("resources");
 
         Ok(Self {
             db,
@@ -65,6 +68,7 @@ impl MongoStorage {
             tokens,
             authorization_codes,
             device_authorizations,
+            resources,
         })
     }
 
@@ -184,6 +188,17 @@ impl MongoStorage {
 
         self.device_authorizations
             .create_index(IndexModel::builder().keys(doc! { "client_id": 1 }).build())
+            .await
+            .map_err(Self::mongo_err_to_oauth)?;
+
+        // resources.resource_uri unique
+        self.resources
+            .create_index(
+                IndexModel::builder()
+                    .keys(doc! { "resource_uri": 1 })
+                    .options(IndexOptions::builder().unique(true).build())
+                    .build(),
+            )
             .await
             .map_err(Self::mongo_err_to_oauth)?;
 
@@ -822,6 +837,49 @@ impl Storage for MongoStorage {
             .await
             .map_err(Self::mongo_err_to_oauth)?;
         Ok(result.modified_count)
+    }
+
+    // --- Protected resources registry ---
+
+    async fn save_resource(&self, r: &ProtectedResource) -> Result<(), OAuth2Error> {
+        self.resources
+            .insert_one(r)
+            .await
+            .map(|_| ())
+            .map_err(Self::mongo_err_to_oauth)
+    }
+
+    async fn get_resource_by_uri(
+        &self,
+        uri: &str,
+    ) -> Result<Option<ProtectedResource>, OAuth2Error> {
+        self.resources
+            .find_one(doc! { "resource_uri": uri })
+            .await
+            .map_err(Self::mongo_err_to_oauth)
+    }
+
+    async fn list_resources(&self) -> Result<Vec<ProtectedResource>, OAuth2Error> {
+        use futures::TryStreamExt;
+        let cursor = self
+            .resources
+            .find(doc! {})
+            .await
+            .map_err(Self::mongo_err_to_oauth)?;
+        let mut resources: Vec<ProtectedResource> = cursor
+            .try_collect()
+            .await
+            .map_err(Self::mongo_err_to_oauth)?;
+        resources.sort_by_key(|r| std::cmp::Reverse(r.created_at));
+        Ok(resources)
+    }
+
+    async fn delete_resource(&self, id: &str) -> Result<(), OAuth2Error> {
+        self.resources
+            .delete_one(doc! { "id": id })
+            .await
+            .map(|_| ())
+            .map_err(Self::mongo_err_to_oauth)
     }
 }
 

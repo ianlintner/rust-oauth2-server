@@ -3,7 +3,7 @@ use tracing::{field, Instrument};
 
 use oauth2_core::{
     AuditLogEntry, AuthorizationCode, Client, DenylistEntry, DeviceAuthorization, ListQuery,
-    OAuth2Error, Page, Token, User,
+    OAuth2Error, Page, ProtectedResource, Token, User,
 };
 use oauth2_ports::{DynStorage, Storage};
 
@@ -768,5 +768,40 @@ impl Storage for ObservedStorage {
 
     async fn supports_audit_log(&self) -> bool {
         self.inner.supports_audit_log().await
+    }
+
+    // --- Protected resources registry ---
+
+    async fn save_resource(&self, r: &ProtectedResource) -> Result<(), OAuth2Error> {
+        let span = self.span("save_resource");
+        async move { self.inner.save_resource(r).await }
+            .instrument(span)
+            .await
+    }
+
+    async fn get_resource_by_uri(
+        &self,
+        uri: &str,
+    ) -> Result<Option<ProtectedResource>, OAuth2Error> {
+        let span = self.span("get_resource_by_uri");
+        let uri = uri.to_string();
+        async move { self.inner.get_resource_by_uri(&uri).await }
+            .instrument(span)
+            .await
+    }
+
+    async fn list_resources(&self) -> Result<Vec<ProtectedResource>, OAuth2Error> {
+        let span = self.span("list_resources");
+        async move { self.inner.list_resources().await }
+            .instrument(span)
+            .await
+    }
+
+    async fn delete_resource(&self, id: &str) -> Result<(), OAuth2Error> {
+        let span = self.span("delete_resource");
+        let id = id.to_string();
+        async move { self.inner.delete_resource(&id).await }
+            .instrument(span)
+            .await
     }
 }

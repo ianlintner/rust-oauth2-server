@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use oauth2_core::{
     AuditLogEntry, AuthorizationCode, Client, DenylistEntry, DeviceAuthorization, ListQuery,
-    OAuth2Error, Page, Token, User,
+    OAuth2Error, Page, ProtectedResource, Token, User,
 };
 use oauth2_ports::Storage;
 use sqlx::pool::PoolOptions;
@@ -441,6 +441,30 @@ impl SqlxStorage {
         .await?;
         sqlx::query(
             r#"CREATE INDEX IF NOT EXISTS idx_device_authorizations_client_id ON device_authorizations(client_id);"#,
+        )
+        .execute(pool)
+        .await?;
+
+        // Protected resources registry (RFC 8707 / RFC 9728, agent/A2A OAuth)
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS resources (
+                id TEXT PRIMARY KEY,
+                resource_uri TEXT NOT NULL UNIQUE,
+                name TEXT NOT NULL,
+                scopes TEXT NOT NULL DEFAULT '[]',
+                authorization_details_types TEXT NOT NULL DEFAULT '[]',
+                txn_challenge_jwks_uri TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            "#,
+        )
+        .execute(pool)
+        .await?;
+
+        sqlx::query(
+            r#"CREATE INDEX IF NOT EXISTS idx_resources_resource_uri ON resources(resource_uri);"#,
         )
         .execute(pool)
         .await?;
@@ -2032,6 +2056,113 @@ impl Storage for SqlxStorage {
 
     async fn supports_audit_log(&self) -> bool {
         true
+    }
+
+    // --- Protected resources registry ---
+
+    async fn save_resource(&self, r: &ProtectedResource) -> Result<(), OAuth2Error> {
+        match &self.pool {
+            DatabasePool::Sqlite(pool) => {
+                sqlx::query(
+                    r#"
+                    INSERT INTO resources (id, resource_uri, name, scopes, authorization_details_types, txn_challenge_jwks_uri, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    "#,
+                )
+                .bind(&r.id)
+                .bind(&r.resource_uri)
+                .bind(&r.name)
+                .bind(&r.scopes)
+                .bind(&r.authorization_details_types)
+                .bind(&r.txn_challenge_jwks_uri)
+                .bind(r.created_at)
+                .bind(r.updated_at)
+                .execute(pool)
+                .await?;
+            }
+            DatabasePool::Postgres(pool) => {
+                sqlx::query(
+                    r#"
+                    INSERT INTO resources (id, resource_uri, name, scopes, authorization_details_types, txn_challenge_jwks_uri, created_at, updated_at)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                    "#,
+                )
+                .bind(&r.id)
+                .bind(&r.resource_uri)
+                .bind(&r.name)
+                .bind(&r.scopes)
+                .bind(&r.authorization_details_types)
+                .bind(&r.txn_challenge_jwks_uri)
+                .bind(r.created_at)
+                .bind(r.updated_at)
+                .execute(pool)
+                .await?;
+            }
+        }
+        Ok(())
+    }
+
+    async fn get_resource_by_uri(
+        &self,
+        uri: &str,
+    ) -> Result<Option<ProtectedResource>, OAuth2Error> {
+        let resource = match self.read_pool() {
+            DatabasePool::Sqlite(pool) => {
+                sqlx::query_as::<_, ProtectedResource>(
+                    "SELECT * FROM resources WHERE resource_uri = ?",
+                )
+                .bind(uri)
+                .fetch_optional(pool)
+                .await?
+            }
+            DatabasePool::Postgres(pool) => {
+                sqlx::query_as::<_, ProtectedResource>(
+                    "SELECT * FROM resources WHERE resource_uri = $1",
+                )
+                .bind(uri)
+                .fetch_optional(pool)
+                .await?
+            }
+        };
+        Ok(resource)
+    }
+
+    async fn list_resources(&self) -> Result<Vec<ProtectedResource>, OAuth2Error> {
+        let items = match self.read_pool() {
+            DatabasePool::Sqlite(pool) => {
+                sqlx::query_as::<_, ProtectedResource>(
+                    "SELECT * FROM resources ORDER BY created_at DESC",
+                )
+                .fetch_all(pool)
+                .await?
+            }
+            DatabasePool::Postgres(pool) => {
+                sqlx::query_as::<_, ProtectedResource>(
+                    "SELECT * FROM resources ORDER BY created_at DESC",
+                )
+                .fetch_all(pool)
+                .await?
+            }
+        };
+        Ok(items)
+    }
+
+    async fn delete_resource(&self, id: &str) -> Result<(), OAuth2Error> {
+        match &self.pool {
+            DatabasePool::Sqlite(pool) => {
+                sqlx::query("DELETE FROM resources WHERE id = ?")
+                    .bind(id)
+                    .execute(pool)
+                    .await?;
+            }
+            DatabasePool::Postgres(pool) => {
+                sqlx::query("DELETE FROM resources WHERE id = $1")
+                    .bind(id)
+                    .execute(pool)
+                    .await?;
+            }
+        }
+        Ok(())
     }
 }
 
