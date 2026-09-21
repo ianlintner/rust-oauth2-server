@@ -42,6 +42,12 @@ pub struct AuthorizationCode {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "sqlx", sqlx(default))]
     pub token_family: Option<String>,
+    /// RFC 9449 §10: JWK SHA-256 thumbprint (`dpop_jkt`) the code is bound
+    /// to. When set, the token endpoint must see a DPoP proof made with the
+    /// matching key when the code is redeemed. `None` = not DPoP-bound.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "sqlx", sqlx(default))]
+    pub dpop_jkt: Option<String>,
 }
 
 impl AuthorizationCode {
@@ -121,6 +127,7 @@ impl AuthorizationCode {
             // every derived access/refresh token shares a lineage that can
             // be cascade-revoked on code replay.
             token_family: Some(Uuid::new_v4().to_string()),
+            dpop_jkt: None,
         }
     }
 
