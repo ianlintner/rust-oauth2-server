@@ -61,6 +61,43 @@ for the full chunk tracker.
 
 ### Changed
 
+Everything above is behind a flag. The changes in this section are **not** —
+they apply to every deployment on upgrade.
+
+- **Token endpoint.** A JWT client assertion's `aud` may now be either the
+  issuer or the token endpoint URL (RFC 7523 §3 allows both; only the token
+  endpoint was accepted before). `resource` and `audience` may be repeated,
+  and the resulting access token carries a multi-valued `aud`.
+- **Refresh rotation.** A refreshed token keeps the `act` chain of the token
+  it replaces, so a delegation survives rotation instead of being silently
+  dropped.
+- **Introspection** responses gained `txn`, `purp` and `req_wl` for
+  transaction tokens. `act` is returned only to an authenticated caller — it
+  names the delegating agent, so it is PII on the same footing as `sub`.
+- **Client registration.** A `software_statement` is now always verified,
+  whether or not trusted issuers are configured; an unsigned or
+  unknown-issuer statement is rejected with `invalid_software_statement`
+  (previously it could be ignored). Self-service dynamic registration strips
+  body-supplied `allowed_actors`, `software_id` and `software_version` —
+  the last two are accepted only from a verified software statement, and the
+  admin endpoint remains exempt. Selecting `tls_client_auth_san_uri` or
+  `tls_client_auth_san_dns` requires a `tls_client_auth_san` value. The
+  registration response gained three fields (`allowed_actors`,
+  `software_id`, `software_version`), and an RFC 7592 update replaces
+  `tls_client_auth_san` rather than merging it.
+- **Discovery** (`/.well-known/openid-configuration` and
+  `/.well-known/oauth-authorization-server`) gained `mtls_endpoint_aliases`
+  and the two SAN client-authentication methods, and
+  `authorization_details_types_supported` is now derived from the
+  authorization-details types actually registered in the database rather
+  than from a static list.
+- **Login page** now names the client that initiated the authorization
+  request (and the agent it asked to act, when `requested_actor` was used).
+  Library API: `handlers::login::login_page` takes a `Session`.
+- **Library API break (`oauth2-actix`).** `handlers::dpop::validate_dpop_proof`
+  and `DpopReplayStore::check_and_insert` are now `async` (the replay store
+  may hit the database), and `DpopReplayStore`'s fields are private —
+  construct it with `new()` / `with_storage()`.
 - `docs/oauth2-spec-audit.md` §1 (Current Implementation Inventory) corrected
   for Token Exchange, the JWT authorization grant, DPoP, mutual-TLS, and RFC
   9728 Protected Resource Metadata — these had shipped in earlier waves but
@@ -68,6 +105,20 @@ for the full chunk tracker.
 
 ### Security
 
+Also always on, and rejections where previous versions accepted the request:
+
+- **Token exchange hardening.** A `subject_token_type` of `jwt` requires the
+  JOSE header to say `typ: "at+JWT"`. A refresh token is never accepted as a
+  subject token (except on the ID-JAG path, where the draft calls for it). A
+  subject token carrying `cnf` requires proof of possession — a DPoP proof or
+  the matching mTLS certificate — at the exchange. Exchanging a token issued
+  to a *different* client requires that client's `allowed_actors` to name the
+  requesting client. The resulting scope must be a subset of the requesting
+  client's own registered scope, not merely of the subject token's.
+- **URL-shaped `client_id`s are rejected** with `invalid_client` unless CIMD
+  is enabled, instead of being looked up as an opaque identifier.
+- **The transaction-approval form fails closed:** only an explicit
+  `action=approve` approves; any other (or absent) value denies.
 - Trusted issuers are an explicit, admin-controlled registry (`allowed_audiences`,
   `subject_mapping`, `allowed_client_ids`, `jit_provision`); email-based
   subject mapping trusts the issuer to assert accurate local email addresses.
@@ -75,7 +126,8 @@ for the full chunk tracker.
 - CIMD fetches are SSRF-guarded (loopback, private/link-local/CGNAT ranges
   blocked; HTTPS-only; no redirects; ≤5 KB); materialized `clients` rows are
   capped by `OAUTH2_CIMD_MAX_CLIENTS` and never overwrite operator-set fields
-  on re-fetch. Row cleanup is not yet automated — a documented follow-up.
+  on re-fetch — nor any client that was not itself created from a metadata
+  document. Row cleanup is not yet automated — a documented follow-up.
   See `docs/agents/README.md#security-considerations`.
 - RFC 9470 step-up enforcement for the Transaction Authorization Challenge is
   documented but not yet implemented — a documented follow-up.
