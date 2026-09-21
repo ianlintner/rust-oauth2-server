@@ -28,6 +28,8 @@ pub struct Config {
     pub resilience: Option<ResilienceConfig>,
     #[serde(default)]
     pub telemetry: TelemetryConfig,
+    #[serde(default)]
+    pub agent: AgentConfig,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -490,6 +492,124 @@ pub enum SamplerKind {
     AlwaysOff,
 }
 
+/// Configuration for agent / A2A (agent-to-agent) OAuth features (Phase 7).
+///
+/// All boolean feature flags default to `false` except `max_delegation_depth`,
+/// which defaults to `4` (a nonzero cap so delegation is bounded even before
+/// the feature is explicitly configured). Discovery should advertise a
+/// capability only when its corresponding flag is enabled.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct AgentConfig {
+    /// Maximum number of hops in an actor-delegation chain (`act` nesting depth).
+    #[serde(default = "default_max_delegation_depth")]
+    pub max_delegation_depth: usize,
+    /// Trust domain used to validate agent identities. `OAUTH2_TRUST_DOMAIN`.
+    #[serde(default)]
+    pub trust_domain: Option<String>,
+    /// Enable Client ID Metadata Document (CIMD) resolution. `OAUTH2_CIMD_ENABLED`.
+    #[serde(default)]
+    pub cimd_enabled: bool,
+    /// Allowlist of hosts CIMD may fetch from; empty means any public host is
+    /// allowed. `OAUTH2_CIMD_ALLOWED_HOSTS` (comma-separated).
+    #[serde(default)]
+    pub cimd_allowed_hosts: Vec<String>,
+    /// Denylist of hosts CIMD must never fetch from.
+    /// `OAUTH2_CIMD_DENIED_HOSTS` (comma-separated).
+    #[serde(default)]
+    pub cimd_denied_hosts: Vec<String>,
+    /// Enable the on-behalf-of (OBO) delegation grant. `OAUTH2_AGENT_OBO_ENABLED`.
+    #[serde(default)]
+    pub obo_enabled: bool,
+    /// Enable the A2A (agent-to-agent) profile. `OAUTH2_A2A_PROFILE_ENABLED`.
+    #[serde(default)]
+    pub a2a_profile_enabled: bool,
+    /// Transaction token lifetime, in seconds. `OAUTH2_TXN_TOKEN_TTL_SECS`.
+    #[serde(default = "default_txn_token_ttl_secs")]
+    pub txn_token_ttl_secs: u64,
+    /// Enable transaction tokens. `OAUTH2_TXN_TOKENS_ENABLED`.
+    #[serde(default)]
+    pub txn_tokens_enabled: bool,
+    /// Enable trusted-actor claims (TAC). `OAUTH2_TAC_ENABLED`.
+    #[serde(default)]
+    pub tac_enabled: bool,
+    /// Enable ID-JAG issuance and acceptance. `OAUTH2_ID_JAG_ENABLED`.
+    #[serde(default)]
+    pub id_jag_enabled: bool,
+    /// Issuer URLs this server may mint delegated grants for.
+    /// `OAUTH2_CHAINING_TARGETS` (comma-separated).
+    #[serde(default)]
+    pub chaining_targets: Vec<String>,
+    /// Optional access-token TTL override for AI-agent tokens, in seconds.
+    /// `OAUTH2_AI_AGENT_ACCESS_TOKEN_TTL_SECS`. Consumed by a later task.
+    #[serde(default)]
+    pub ai_agent_access_token_ttl_secs: Option<u64>,
+}
+
+fn default_max_delegation_depth() -> usize {
+    std::env::var("OAUTH2_MAX_DELEGATION_DEPTH")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(4)
+}
+
+fn default_txn_token_ttl_secs() -> u64 {
+    std::env::var("OAUTH2_TXN_TOKEN_TTL_SECS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(300)
+}
+
+/// Parse a boolean feature-flag value. Recognizes `1`, `true`, `yes`
+/// case-insensitively (after trimming whitespace); anything else is `false`.
+fn parse_bool_flag(raw: &str) -> bool {
+    matches!(raw.trim().to_lowercase().as_str(), "1" | "true" | "yes")
+}
+
+/// Parse a comma-separated list, trimming whitespace and dropping empty entries.
+fn parse_csv_list(raw: &str) -> Vec<String> {
+    raw.split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect()
+}
+
+fn env_bool_flag(name: &str) -> bool {
+    std::env::var(name)
+        .map(|v| parse_bool_flag(&v))
+        .unwrap_or(false)
+}
+
+fn env_csv_list(name: &str) -> Vec<String> {
+    std::env::var(name)
+        .map(|v| parse_csv_list(&v))
+        .unwrap_or_default()
+}
+
+impl Default for AgentConfig {
+    fn default() -> Self {
+        Self {
+            max_delegation_depth: default_max_delegation_depth(),
+            trust_domain: std::env::var("OAUTH2_TRUST_DOMAIN")
+                .ok()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty()),
+            cimd_enabled: env_bool_flag("OAUTH2_CIMD_ENABLED"),
+            cimd_allowed_hosts: env_csv_list("OAUTH2_CIMD_ALLOWED_HOSTS"),
+            cimd_denied_hosts: env_csv_list("OAUTH2_CIMD_DENIED_HOSTS"),
+            obo_enabled: env_bool_flag("OAUTH2_AGENT_OBO_ENABLED"),
+            a2a_profile_enabled: env_bool_flag("OAUTH2_A2A_PROFILE_ENABLED"),
+            txn_token_ttl_secs: default_txn_token_ttl_secs(),
+            txn_tokens_enabled: env_bool_flag("OAUTH2_TXN_TOKENS_ENABLED"),
+            tac_enabled: env_bool_flag("OAUTH2_TAC_ENABLED"),
+            id_jag_enabled: env_bool_flag("OAUTH2_ID_JAG_ENABLED"),
+            chaining_targets: env_csv_list("OAUTH2_CHAINING_TARGETS"),
+            ai_agent_access_token_ttl_secs: std::env::var("OAUTH2_AI_AGENT_ACCESS_TOKEN_TTL_SECS")
+                .ok()
+                .and_then(|v| v.parse().ok()),
+        }
+    }
+}
+
 impl Default for Config {
     fn default() -> Self {
         // Try to load from HOCON file first, fall back to environment variables
@@ -713,6 +833,7 @@ impl Config {
             }),
             resilience: Self::resilience_from_env(),
             telemetry: Self::telemetry_from_env(),
+            agent: AgentConfig::default(),
         };
 
         config.normalize_event_config();
@@ -1125,5 +1246,208 @@ cache {
             config.server.public_url.as_deref(),
             Some("https://auth.example.com")
         );
+    }
+
+    // --- AgentConfig ---------------------------------------------------
+    //
+    // `AgentConfig::default()` reads several `OAUTH2_*` env vars, and Rust
+    // tests run in parallel by default, so every test that sets/reads these
+    // vars serializes on `AGENT_ENV_MUTEX` and clears them before and after
+    // to avoid bleeding state into other tests in this file.
+
+    use super::AgentConfig;
+    use std::sync::Mutex;
+
+    static AGENT_ENV_MUTEX: Mutex<()> = Mutex::new(());
+
+    const AGENT_ENV_VARS: &[&str] = &[
+        "OAUTH2_MAX_DELEGATION_DEPTH",
+        "OAUTH2_TRUST_DOMAIN",
+        "OAUTH2_CIMD_ENABLED",
+        "OAUTH2_CIMD_ALLOWED_HOSTS",
+        "OAUTH2_CIMD_DENIED_HOSTS",
+        "OAUTH2_AGENT_OBO_ENABLED",
+        "OAUTH2_A2A_PROFILE_ENABLED",
+        "OAUTH2_TXN_TOKEN_TTL_SECS",
+        "OAUTH2_TXN_TOKENS_ENABLED",
+        "OAUTH2_TAC_ENABLED",
+        "OAUTH2_ID_JAG_ENABLED",
+        "OAUTH2_CHAINING_TARGETS",
+        "OAUTH2_AI_AGENT_ACCESS_TOKEN_TTL_SECS",
+    ];
+
+    fn clear_agent_env_vars() {
+        for name in AGENT_ENV_VARS {
+            std::env::remove_var(name);
+        }
+    }
+
+    #[test]
+    fn parse_bool_flag_matches_1_true_yes_case_insensitively() {
+        assert!(super::parse_bool_flag("1"));
+        assert!(super::parse_bool_flag("true"));
+        assert!(super::parse_bool_flag("True"));
+        assert!(super::parse_bool_flag("YES"));
+        assert!(super::parse_bool_flag(" yes "));
+        assert!(!super::parse_bool_flag("0"));
+        assert!(!super::parse_bool_flag("false"));
+        assert!(!super::parse_bool_flag(""));
+        assert!(!super::parse_bool_flag("on"));
+        assert!(!super::parse_bool_flag("maybe"));
+    }
+
+    #[test]
+    fn parse_csv_list_trims_and_drops_empty_entries() {
+        assert_eq!(
+            super::parse_csv_list(" a, b ,,c "),
+            vec!["a".to_string(), "b".to_string(), "c".to_string()]
+        );
+        assert!(super::parse_csv_list("").is_empty());
+        assert!(super::parse_csv_list("   ").is_empty());
+        assert!(super::parse_csv_list(",,").is_empty());
+    }
+
+    #[test]
+    fn agent_config_defaults_when_env_unset() {
+        let _guard = AGENT_ENV_MUTEX.lock().unwrap();
+        clear_agent_env_vars();
+
+        let agent = AgentConfig::default();
+
+        assert_eq!(agent.max_delegation_depth, 4);
+        assert_eq!(agent.trust_domain, None);
+        assert!(!agent.cimd_enabled);
+        assert!(agent.cimd_allowed_hosts.is_empty());
+        assert!(agent.cimd_denied_hosts.is_empty());
+        assert!(!agent.obo_enabled);
+        assert!(!agent.a2a_profile_enabled);
+        assert_eq!(agent.txn_token_ttl_secs, 300);
+        assert!(!agent.txn_tokens_enabled);
+        assert!(!agent.tac_enabled);
+        assert!(!agent.id_jag_enabled);
+        assert!(agent.chaining_targets.is_empty());
+        assert_eq!(agent.ai_agent_access_token_ttl_secs, None);
+
+        clear_agent_env_vars();
+    }
+
+    #[test]
+    fn agent_config_reads_overrides_from_env() {
+        let _guard = AGENT_ENV_MUTEX.lock().unwrap();
+        clear_agent_env_vars();
+
+        std::env::set_var("OAUTH2_MAX_DELEGATION_DEPTH", "7");
+        std::env::set_var("OAUTH2_TRUST_DOMAIN", "example.com");
+        std::env::set_var("OAUTH2_CIMD_ENABLED", "TRUE");
+        std::env::set_var("OAUTH2_CIMD_ALLOWED_HOSTS", "a.example.com, b.example.com");
+        std::env::set_var("OAUTH2_CIMD_DENIED_HOSTS", "evil.example.com");
+        std::env::set_var("OAUTH2_AGENT_OBO_ENABLED", "yes");
+        std::env::set_var("OAUTH2_A2A_PROFILE_ENABLED", "1");
+        std::env::set_var("OAUTH2_TXN_TOKEN_TTL_SECS", "600");
+        std::env::set_var("OAUTH2_TXN_TOKENS_ENABLED", "true");
+        std::env::set_var("OAUTH2_TAC_ENABLED", "Yes");
+        std::env::set_var("OAUTH2_ID_JAG_ENABLED", "1");
+        std::env::set_var(
+            "OAUTH2_CHAINING_TARGETS",
+            "https://a.example, https://b.example",
+        );
+        std::env::set_var("OAUTH2_AI_AGENT_ACCESS_TOKEN_TTL_SECS", "120");
+
+        let agent = AgentConfig::default();
+
+        assert_eq!(agent.max_delegation_depth, 7);
+        assert_eq!(agent.trust_domain.as_deref(), Some("example.com"));
+        assert!(agent.cimd_enabled);
+        assert_eq!(
+            agent.cimd_allowed_hosts,
+            vec!["a.example.com".to_string(), "b.example.com".to_string()]
+        );
+        assert_eq!(
+            agent.cimd_denied_hosts,
+            vec!["evil.example.com".to_string()]
+        );
+        assert!(agent.obo_enabled);
+        assert!(agent.a2a_profile_enabled);
+        assert_eq!(agent.txn_token_ttl_secs, 600);
+        assert!(agent.txn_tokens_enabled);
+        assert!(agent.tac_enabled);
+        assert!(agent.id_jag_enabled);
+        assert_eq!(
+            agent.chaining_targets,
+            vec![
+                "https://a.example".to_string(),
+                "https://b.example".to_string()
+            ]
+        );
+        assert_eq!(agent.ai_agent_access_token_ttl_secs, Some(120));
+
+        clear_agent_env_vars();
+    }
+
+    #[test]
+    fn agent_config_bool_env_rejects_unrecognized_values() {
+        let _guard = AGENT_ENV_MUTEX.lock().unwrap();
+        clear_agent_env_vars();
+
+        std::env::set_var("OAUTH2_CIMD_ENABLED", "on");
+        let agent = AgentConfig::default();
+        assert!(!agent.cimd_enabled);
+
+        clear_agent_env_vars();
+    }
+
+    #[test]
+    fn from_env_fallback_populates_agent_defaults() {
+        let _guard = AGENT_ENV_MUTEX.lock().unwrap();
+        clear_agent_env_vars();
+
+        let config = Config::from_env_fallback();
+        assert_eq!(config.agent.max_delegation_depth, 4);
+        assert_eq!(config.agent.txn_token_ttl_secs, 300);
+
+        clear_agent_env_vars();
+    }
+
+    #[test]
+    fn hocon_config_without_agent_section_uses_agent_env_defaults() {
+        let _guard = AGENT_ENV_MUTEX.lock().unwrap();
+        clear_agent_env_vars();
+
+        let tempdir = tempfile::tempdir().expect("tempdir");
+        let config_path = tempdir.path().join("application.conf");
+
+        fs::write(
+            &config_path,
+            r#"
+server {
+    host = "127.0.0.1"
+    port = 8080
+}
+
+database {
+    url = "sqlite:oauth2.db?mode=rwc"
+}
+
+jwt {
+    secret = "test-jwt-secret-for-ci-only-do-not-use-in-production-32chars"
+}
+
+events {
+    enabled = false
+    backend = "in_memory"
+    filter_mode = "allow_all"
+}
+                    "#,
+        )
+        .expect("write config");
+
+        let config = Config::from_hocon_path(&config_path).expect("load config");
+
+        assert_eq!(config.agent.max_delegation_depth, 4);
+        assert_eq!(config.agent.txn_token_ttl_secs, 300);
+        assert!(!config.agent.cimd_enabled);
+        assert!(config.agent.chaining_targets.is_empty());
+
+        clear_agent_env_vars();
     }
 }
