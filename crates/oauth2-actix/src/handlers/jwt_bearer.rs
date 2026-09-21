@@ -429,18 +429,18 @@ async fn resolve_subject(
         .and_then(Value::as_str)
         .unwrap_or_default();
 
-    let existing = match trusted.subject_mapping.as_str() {
-        "email" => {
-            if email.is_empty() {
-                return Err(OAuth2Error::invalid_grant(
-                    "trusted issuer maps subjects by email but the assertion has no email claim",
-                ));
-            }
-            storage.get_user_by_email(email).await?
+    let is_email_mapping = trusted.subject_mapping == "email";
+    let existing = if is_email_mapping {
+        if email.is_empty() {
+            return Err(OAuth2Error::invalid_grant(
+                "trusted issuer maps subjects by email but the assertion has no email claim",
+            ));
         }
+        storage.get_user_by_email(email).await?
+    } else {
         // Default (and the explicit `"sub"` setting): the `sub` claim is the
         // local user id.
-        _ => storage.get_user_by_id(sub).await?,
+        storage.get_user_by_id(sub).await?
     };
 
     if let Some(user) = existing {
@@ -448,6 +448,13 @@ async fn resolve_subject(
             return Err(OAuth2Error::invalid_grant("subject user is disabled"));
         }
         return Ok(user.id);
+    }
+
+    // Email-mapped subjects are never provisioned: provisioning keys the new
+    // row on `sub`, which says nothing about who owns the address, so an
+    // unknown email is simply an unknown subject.
+    if is_email_mapping {
+        return Err(OAuth2Error::invalid_grant("unknown subject"));
     }
 
     if !trusted.jit_provision {
@@ -467,7 +474,26 @@ async fn resolve_subject(
         created_at: now,
         updated_at: now,
     };
-    storage.save_user(&user).await?;
+    // `save_user` is a bare INSERT, so two concurrent first-use assertions for
+    // the same subject — or a `sub` colliding with an existing local user id —
+    // raise a unique-constraint error. Re-read once before giving up: a racing
+    // request may have just created exactly the row we wanted. Either way this
+    // is a grant failure, not a 500.
+    if let Err(insert_err) = storage.save_user(&user).await {
+        tracing::warn!(
+            issuer = %trusted.issuer,
+            subject = %sub,
+            error = %insert_err.error,
+            "RFC 7523: just-in-time user provisioning insert failed"
+        );
+        return match storage.get_user_by_id(sub).await? {
+            Some(raced) if raced.enabled => Ok(raced.id),
+            Some(_) => Err(OAuth2Error::invalid_grant("subject user is disabled")),
+            None => Err(OAuth2Error::invalid_grant(
+                "could not provision a local user for the assertion subject",
+            )),
+        };
+    }
     tracing::info!(
         issuer = %trusted.issuer,
         subject = %sub,

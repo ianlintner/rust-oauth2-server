@@ -540,6 +540,101 @@ async fn email_mapping_resolves_existing_user() {
     assert!(body["access_token"].is_string());
 }
 
+/// `subject_mapping = "email"` never just-in-time provisions: keying a new row
+/// on `sub` says nothing about who owns the address. An unknown email is an
+/// unknown subject, and no user row may be created.
+#[actix_web::test]
+async fn email_mapping_never_jit_provisions() {
+    let jwks_uri = spawn_jwks_server();
+    // `jit_provision` is deliberately left on to prove the mapping, not the
+    // flag, is what refuses to provision here.
+    let storage = setup(&jwks_uri, |ti| {
+        ti.subject_mapping = "email".to_string();
+        ti.jit_provision = true;
+    })
+    .await;
+
+    let assertion = sign_assertion(&base_claims("email-no-jit-1"), None, true);
+
+    let (status, body) = post_token!(
+        storage,
+        deps(&storage, false),
+        form_body(&assertion, &[]),
+        None::<String>
+    );
+    assert_eq!(status, 400, "body: {body}");
+    assert_eq!(body["error"], "invalid_grant");
+
+    assert!(
+        storage
+            .get_user_by_email("agent.subject.1@example.test")
+            .await
+            .expect("get_user_by_email")
+            .is_none(),
+        "no user may be provisioned for an email-mapped subject"
+    );
+    assert!(
+        storage
+            .get_user_by_id("agent-subject-1")
+            .await
+            .expect("get_user_by_id")
+            .is_none(),
+        "no user may be provisioned for an email-mapped subject"
+    );
+}
+
+/// When a local user already carries the `sub` as its id, the grant binds to
+/// that user and leaves the row untouched — provisioning is never attempted,
+/// so the bare INSERT can never collide.
+#[actix_web::test]
+async fn sub_mapping_reuses_an_existing_user_without_modifying_it() {
+    let jwks_uri = spawn_jwks_server();
+    let storage = setup(&jwks_uri, |_| {}).await;
+
+    let now = chrono::Utc::now();
+    let existing = oauth2_core::User {
+        id: "agent-subject-1".to_string(),
+        username: "already-here".to_string(),
+        password_hash: "pre-existing-hash".to_string(),
+        email: "already.here@example.test".to_string(),
+        enabled: true,
+        role: "admin".to_string(),
+        created_at: now,
+        updated_at: now,
+    };
+    storage.save_user(&existing).await.expect("save user");
+
+    let assertion = sign_assertion(&base_claims("sub-existing-1"), None, true);
+
+    let (status, body) = post_token!(
+        storage,
+        deps(&storage, false),
+        form_body(&assertion, &[]),
+        None::<String>
+    );
+    assert_eq!(status, 200, "body: {body}");
+
+    // The token is bound to the existing user...
+    let access_token = body["access_token"].as_str().expect("access_token");
+    let stored = storage
+        .get_token_by_access_token(access_token)
+        .await
+        .expect("get_token_by_access_token")
+        .expect("issued token must be persisted");
+    assert_eq!(stored.user_id.as_deref(), Some("agent-subject-1"));
+
+    // ...and that user is completely unchanged.
+    let after = storage
+        .get_user_by_id("agent-subject-1")
+        .await
+        .expect("get_user_by_id")
+        .expect("user still exists");
+    assert_eq!(after.username, "already-here");
+    assert_eq!(after.password_hash, "pre-existing-hash");
+    assert_eq!(after.email, "already.here@example.test");
+    assert_eq!(after.role, "admin");
+}
+
 // ---------------------------------------------------------------------------
 // ID-JAG acceptance
 // ---------------------------------------------------------------------------
