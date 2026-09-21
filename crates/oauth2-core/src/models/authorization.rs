@@ -48,6 +48,12 @@ pub struct AuthorizationCode {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "sqlx", sqlx(default))]
     pub dpop_jkt: Option<String>,
+    /// Phase 7 (agent/A2A OAuth): the actor `client_id` requested via RFC
+    /// 8693 token exchange `actor_token` at authorization time. `None` = no
+    /// actor was requested (all pre-existing rows).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "sqlx", sqlx(default))]
+    pub requested_actor: Option<String>,
 }
 
 impl AuthorizationCode {
@@ -128,6 +134,7 @@ impl AuthorizationCode {
             // be cascade-revoked on code replay.
             token_family: Some(Uuid::new_v4().to_string()),
             dpop_jkt: None,
+            requested_actor: None,
         }
     }
 

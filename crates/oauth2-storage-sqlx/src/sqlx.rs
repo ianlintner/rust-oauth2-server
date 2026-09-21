@@ -195,7 +195,8 @@ impl SqlxStorage {
                 enabled INTEGER NOT NULL DEFAULT 1,
                 require_state INTEGER NOT NULL DEFAULT 0,
                 tls_client_certificate_subject_dn TEXT NOT NULL DEFAULT '',
-                dpop_nonce_required INTEGER NOT NULL DEFAULT 0
+                dpop_nonce_required INTEGER NOT NULL DEFAULT 0,
+                allowed_actors TEXT NOT NULL DEFAULT '[]'
             );
             "#,
         )
@@ -223,6 +224,13 @@ impl SqlxStorage {
         )
         .execute(pool)
         .await;
+
+        // Idempotent upgrade for existing databases bootstrapped before the
+        // `allowed_actors` column was added (Phase 7: agent/A2A OAuth).
+        let _ =
+            sqlx::query("ALTER TABLE clients ADD COLUMN allowed_actors TEXT NOT NULL DEFAULT '[]'")
+                .execute(pool)
+                .await;
 
         sqlx::query(r#"CREATE INDEX IF NOT EXISTS idx_clients_client_id ON clients(client_id);"#)
             .execute(pool)
@@ -381,6 +389,7 @@ impl SqlxStorage {
                 claims_request TEXT,
                 token_family TEXT,
                 dpop_jkt TEXT,
+                requested_actor TEXT,
                 FOREIGN KEY (client_id) REFERENCES clients(client_id),
                 FOREIGN KEY (user_id) REFERENCES users(id)
             );
@@ -498,8 +507,8 @@ impl Storage for SqlxStorage {
             DatabasePool::Sqlite(pool) => {
                 sqlx::query(
                     r#"
-                    INSERT INTO clients (id, client_id, client_secret, redirect_uris, grant_types, scope, name, created_at, updated_at, token_endpoint_auth_method, registration_access_token, response_types, contacts, logo_uri, client_uri, policy_uri, tos_uri, jwks, jwks_uri, backchannel_logout_uri, backchannel_logout_session_required, frontchannel_logout_uri, frontchannel_logout_session_required, post_logout_redirect_uris, enabled, require_state, tls_client_certificate_subject_dn, dpop_nonce_required)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO clients (id, client_id, client_secret, redirect_uris, grant_types, scope, name, created_at, updated_at, token_endpoint_auth_method, registration_access_token, response_types, contacts, logo_uri, client_uri, policy_uri, tos_uri, jwks, jwks_uri, backchannel_logout_uri, backchannel_logout_session_required, frontchannel_logout_uri, frontchannel_logout_session_required, post_logout_redirect_uris, enabled, require_state, tls_client_certificate_subject_dn, dpop_nonce_required, allowed_actors)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     "#,
                 )
                 .bind(&client.id)
@@ -530,14 +539,15 @@ impl Storage for SqlxStorage {
                 .bind(client.require_state)
                 .bind(&client.tls_client_certificate_subject_dn)
                 .bind(client.dpop_nonce_required)
+                .bind(&client.allowed_actors)
                 .execute(pool)
                 .await?;
             }
             DatabasePool::Postgres(pool) => {
                 sqlx::query(
                     r#"
-                    INSERT INTO clients (id, client_id, client_secret, redirect_uris, grant_types, scope, name, created_at, updated_at, token_endpoint_auth_method, registration_access_token, response_types, contacts, logo_uri, client_uri, policy_uri, tos_uri, jwks, jwks_uri, backchannel_logout_uri, backchannel_logout_session_required, frontchannel_logout_uri, frontchannel_logout_session_required, post_logout_redirect_uris, enabled, require_state, tls_client_certificate_subject_dn, dpop_nonce_required)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28)
+                    INSERT INTO clients (id, client_id, client_secret, redirect_uris, grant_types, scope, name, created_at, updated_at, token_endpoint_auth_method, registration_access_token, response_types, contacts, logo_uri, client_uri, policy_uri, tos_uri, jwks, jwks_uri, backchannel_logout_uri, backchannel_logout_session_required, frontchannel_logout_uri, frontchannel_logout_session_required, post_logout_redirect_uris, enabled, require_state, tls_client_certificate_subject_dn, dpop_nonce_required, allowed_actors)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29)
                     "#,
                 )
                 .bind(&client.id)
@@ -568,6 +578,7 @@ impl Storage for SqlxStorage {
                 .bind(client.require_state)
                 .bind(&client.tls_client_certificate_subject_dn)
                 .bind(client.dpop_nonce_required)
+                .bind(&client.allowed_actors)
                 .execute(pool)
                 .await?;
             }
@@ -616,7 +627,8 @@ impl Storage for SqlxStorage {
                         post_logout_redirect_uris = ?,
                         tls_client_certificate_subject_dn = ?,
                         enabled = ?,
-                        dpop_nonce_required = ?
+                        dpop_nonce_required = ?,
+                        allowed_actors = ?
                     WHERE client_id = ?
                     "#,
                 )
@@ -644,6 +656,7 @@ impl Storage for SqlxStorage {
                 .bind(&client.tls_client_certificate_subject_dn)
                 .bind(client.enabled)
                 .bind(client.dpop_nonce_required)
+                .bind(&client.allowed_actors)
                 .bind(&client.client_id)
                 .execute(pool)
                 .await?;
@@ -667,8 +680,9 @@ impl Storage for SqlxStorage {
                         post_logout_redirect_uris = $21,
                         tls_client_certificate_subject_dn = $22,
                         enabled = $23,
-                        dpop_nonce_required = $24
-                    WHERE client_id = $25
+                        dpop_nonce_required = $24,
+                        allowed_actors = $25
+                    WHERE client_id = $26
                     "#,
                 )
                 .bind(&client.client_secret)
@@ -695,6 +709,7 @@ impl Storage for SqlxStorage {
                 .bind(&client.tls_client_certificate_subject_dn)
                 .bind(client.enabled)
                 .bind(client.dpop_nonce_required)
+                .bind(&client.allowed_actors)
                 .bind(&client.client_id)
                 .execute(pool)
                 .await?;
@@ -997,8 +1012,8 @@ impl Storage for SqlxStorage {
             DatabasePool::Sqlite(pool) => {
                 sqlx::query(
                     r#"
-                    INSERT INTO authorization_codes (id, code, client_id, user_id, redirect_uri, scope, created_at, expires_at, used, code_challenge, code_challenge_method, nonce, resource, authorization_details, claims_request, token_family, dpop_jkt)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO authorization_codes (id, code, client_id, user_id, redirect_uri, scope, created_at, expires_at, used, code_challenge, code_challenge_method, nonce, resource, authorization_details, claims_request, token_family, dpop_jkt, requested_actor)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     "#,
                 )
                 .bind(&auth_code.id)
@@ -1018,14 +1033,15 @@ impl Storage for SqlxStorage {
                 .bind(&auth_code.claims_request)
                 .bind(&auth_code.token_family)
                 .bind(&auth_code.dpop_jkt)
+                .bind(&auth_code.requested_actor)
                 .execute(pool)
                 .await?;
             }
             DatabasePool::Postgres(pool) => {
                 sqlx::query(
                     r#"
-                    INSERT INTO authorization_codes (id, code, client_id, user_id, redirect_uri, scope, created_at, expires_at, used, code_challenge, code_challenge_method, nonce, resource, authorization_details, claims_request, token_family, dpop_jkt)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+                    INSERT INTO authorization_codes (id, code, client_id, user_id, redirect_uri, scope, created_at, expires_at, used, code_challenge, code_challenge_method, nonce, resource, authorization_details, claims_request, token_family, dpop_jkt, requested_actor)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
                     "#,
                 )
                 .bind(&auth_code.id)
@@ -1045,6 +1061,7 @@ impl Storage for SqlxStorage {
                 .bind(&auth_code.claims_request)
                 .bind(&auth_code.token_family)
                 .bind(&auth_code.dpop_jkt)
+                .bind(&auth_code.requested_actor)
                 .execute(pool)
                 .await?;
             }
