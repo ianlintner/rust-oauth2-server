@@ -24,7 +24,9 @@ use oauth2_core::{Actor as DelegationActor, OAuth2Error, TokenResponse, TrustedI
 use oauth2_observability::Metrics;
 use oauth2_ports::DynStorage;
 
-use crate::actors::{ClientActor, CreateToken, GetClient, TokenActorPool};
+use crate::actors::{ClientActor, CreateToken, TokenActorPool};
+use crate::handlers::cimd::CimdFetcher;
+use crate::handlers::client_resolver::resolve_client;
 use crate::handlers::jwks_cache::JwksCache;
 use crate::handlers::oauth::{
     apply_dpop_token_type, authenticate_confidential_client, enforce_jti_replay, no_store_headers,
@@ -61,6 +63,7 @@ pub(crate) async fn handle_jwt_bearer_grant(
     jwks_cache: Option<web::Data<JwksCache>>,
     mtls_thumbprint: Option<&str>,
     mtls_subject_dn: Option<&str>,
+    cimd: Option<web::Data<CimdFetcher>>,
 ) -> Result<HttpResponse, OAuth2Error> {
     let assertion = req
         .assertion
@@ -71,13 +74,13 @@ pub(crate) async fn handle_jwt_bearer_grant(
     //
     // Done before anything that touches the network (the JWKS fetch below),
     // so an unauthenticated caller cannot drive outbound requests.
-    let client = client_actor
-        .send(GetClient {
-            client_id: req.client_id.clone(),
-            span: tracing::Span::current(),
-        })
-        .await
-        .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))??;
+    let client = resolve_client(
+        &req.client_id,
+        client_actor.get_ref(),
+        cimd.as_ref().map(|d| d.get_ref()),
+        &agent,
+    )
+    .await?;
 
     if !client.supports_grant_type(oauth2_core::token_types::GRANT_JWT_BEARER) {
         return Err(OAuth2Error::unauthorized_client(

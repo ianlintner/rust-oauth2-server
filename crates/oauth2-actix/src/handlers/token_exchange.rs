@@ -27,7 +27,9 @@ use oauth2_core::{Claims, IdTokenClaims, OAuth2Error, ProtectedResource};
 use oauth2_observability::Metrics;
 use oauth2_ports::DynStorage;
 
-use crate::actors::{ClientActor, CreateToken, GetClient, LookupToken, TokenActorPool};
+use crate::actors::{ClientActor, CreateToken, LookupToken, TokenActorPool};
+use crate::handlers::cimd::CimdFetcher;
+use crate::handlers::client_resolver::resolve_client;
 use crate::handlers::jwks_cache::JwksCache;
 use crate::handlers::oauth::{
     authenticate_confidential_client, no_store_headers, resolve_client_jwks, validate_scope_subset,
@@ -97,15 +99,16 @@ pub(crate) async fn exchange(
     jwks_cache: Option<web::Data<JwksCache>>,
     mtls_thumbprint: Option<&str>,
     mtls_subject_dn: Option<&str>,
+    cimd: Option<web::Data<CimdFetcher>>,
 ) -> Result<HttpResponse, OAuth2Error> {
     // --- Step 1: authenticate the client making the exchange request. -------
-    let client = client_actor
-        .send(GetClient {
-            client_id: req.client_id.clone(),
-            span: tracing::Span::current(),
-        })
-        .await
-        .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))??;
+    let client = resolve_client(
+        &req.client_id,
+        client_actor.get_ref(),
+        cimd.as_ref().map(|d| d.get_ref()),
+        &config,
+    )
+    .await?;
 
     if !client.supports_grant_type(token_types::GRANT_TOKEN_EXCHANGE) {
         return Err(OAuth2Error::unauthorized_client(

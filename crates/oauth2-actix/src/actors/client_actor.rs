@@ -544,6 +544,97 @@ impl Handler<DeleteClient> for ClientActor {
     }
 }
 
+// ---------------------------------------------------------------------------
+// MaterializeCimdClient — persist a client described by a metadata document
+// ---------------------------------------------------------------------------
+
+/// Store (or refresh) the `clients` row for a client resolved from a Client ID
+/// Metadata Document.
+///
+/// `tokens`, `authorization_codes` and `device_authorizations` all carry a
+/// foreign key to `clients(client_id)`, so a CIMD client that exists only as a
+/// fetched document cannot be granted anything. The document stays
+/// authoritative — the row is rewritten whenever it drifts from the document —
+/// and a row that carries a client secret is never overwritten, so a metadata
+/// document can never take over a registered, credentialed client.
+#[derive(Message)]
+#[rtype(result = "Result<(), OAuth2Error>")]
+pub struct MaterializeCimdClient {
+    pub client: Client,
+    pub span: tracing::Span,
+}
+
+/// Compare the stored row against the document on the fields the document owns.
+fn cimd_row_matches(stored: &Client, doc: &Client) -> bool {
+    stored.redirect_uris == doc.redirect_uris
+        && stored.grant_types == doc.grant_types
+        && stored.scope == doc.scope
+        && stored.name == doc.name
+        && stored.token_endpoint_auth_method == doc.token_endpoint_auth_method
+        && stored.response_types == doc.response_types
+        && stored.jwks == doc.jwks
+        && stored.jwks_uri == doc.jwks_uri
+        && stored.client_uri == doc.client_uri
+        && stored.logo_uri == doc.logo_uri
+        && stored.enabled
+}
+
+impl Handler<MaterializeCimdClient> for ClientActor {
+    type Result = ResponseFuture<Result<(), OAuth2Error>>;
+
+    fn handle(&mut self, msg: MaterializeCimdClient, ctx: &mut Self::Context) -> Self::Result {
+        // Steady state: the LRU already holds a row matching the document, so
+        // no database round-trip happens on the hot path.
+        if let Some(cached) = self.get_cached_client(&msg.client.client_id) {
+            if cimd_row_matches(&cached, &msg.client) {
+                return Box::pin(async { Ok(()) });
+            }
+        }
+
+        let db = self.db.clone();
+        let self_addr = ctx.address();
+
+        let parent_span = msg.span.clone();
+        let actor_span = tracing::info_span!(
+            parent: &parent_span,
+            "actor.client.materialize_cimd",
+            trace_id = tracing::field::Empty,
+            span_id = tracing::field::Empty,
+            client_id = %msg.client.client_id
+        );
+        annotate_span_with_trace_ids(&actor_span);
+
+        Box::pin(
+            async move {
+                let mut client = msg.client;
+                match db.get_client(&client.client_id).await? {
+                    Some(existing) => {
+                        if !existing.client_secret.is_empty() {
+                            return Err(OAuth2Error::invalid_client(
+                                "client_id is already registered with credentials",
+                            ));
+                        }
+                        if cimd_row_matches(&existing, &client) {
+                            let _ = self_addr.try_send(CacheClient { client });
+                            return Ok(());
+                        }
+                        // Keep the row's primary key so the update targets it.
+                        client.id = existing.id;
+                        db.update_client(&client).await?;
+                    }
+                    None => db.save_client(&client).await?,
+                }
+
+                let _ = self_addr.try_send(CacheClient {
+                    client: client.clone(),
+                });
+                Ok(())
+            }
+            .instrument(actor_span),
+        )
+    }
+}
+
 fn generate_secret() -> String {
     generate_secret_of_length(32)
 }

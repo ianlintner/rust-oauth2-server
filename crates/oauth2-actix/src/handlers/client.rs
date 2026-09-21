@@ -6,7 +6,7 @@ use oauth2_core::{ClientCredentials, ClientRegistration, ClientRegistrationRespo
 
 use crate::handlers::wellknown::OidcConfig;
 
-fn validate_redirect_uri(uri: &str) -> Result<(), OAuth2Error> {
+pub(crate) fn validate_redirect_uri(uri: &str) -> Result<(), OAuth2Error> {
     let uri = uri.trim();
     if uri.is_empty() {
         return Err(OAuth2Error::invalid_request(

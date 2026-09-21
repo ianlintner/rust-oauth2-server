@@ -12,10 +12,12 @@ use uuid::Uuid;
 use oauth2_observability::Metrics;
 
 use crate::actors::{
-    AuthActor, ClientActor, CreateAuthorizationCode, CreateToken, GetClient, GetPARRequest,
+    AuthActor, ClientActor, CreateAuthorizationCode, CreateToken, GetPARRequest,
     MarkAuthorizationCodeUsed, StorePARRequest, TokenActorPool, ValidateAuthorizationCode,
     ValidateRefreshToken,
 };
+use crate::handlers::cimd::CimdFetcher;
+use crate::handlers::client_resolver::resolve_client;
 use crate::handlers::dpop::{
     build_request_url_bounded, enforce_dpop_nonce, validate_dpop_proof, DpopReplayStore,
 };
@@ -670,6 +672,10 @@ pub async fn authorize(
     metrics: web::Data<Metrics>,
     oidc_config: web::Data<OidcConfig>,
     jwks_cache: Option<web::Data<JwksCache>>,
+    // Phase 7 (agent / A2A OAuth): Client ID Metadata Document resolution.
+    // Optional so the inline test `App` builders that predate it keep working.
+    cimd: Option<web::Data<CimdFetcher>>,
+    agent_config: Option<web::Data<oauth2_config::AgentConfig>>,
 ) -> Result<HttpResponse, OAuth2Error> {
     // OAuch: reject duplicate parameters (prevents ambiguous parsing).
     ensure_no_duplicate_query_params(&req)?;
@@ -744,13 +750,16 @@ pub async fn authorize(
     }
 
     // Validate client and redirect_uri to prevent open redirect / code exfiltration.
-    let client = client_actor
-        .send(GetClient {
-            client_id: query.client_id.clone(),
-            span: tracing::Span::current(),
-        })
-        .await
-        .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))??;
+    let agent: oauth2_config::AgentConfig = agent_config
+        .map(|c| c.get_ref().clone())
+        .unwrap_or_default();
+    let client = resolve_client(
+        &query.client_id,
+        client_actor.get_ref(),
+        cimd.as_ref().map(|d| d.get_ref()),
+        &agent,
+    )
+    .await?;
 
     if !client.supports_grant_type("authorization_code") {
         return Err(OAuth2Error::unauthorized_client(
@@ -1001,6 +1010,14 @@ pub async fn authorize(
             if let Some(ref hint) = query.login_hint {
                 let _ = session.insert("login_hint", hint);
             }
+
+            // Name the requesting client on the login page. A CIMD client is
+            // shown with the host its metadata came from, so two agents
+            // claiming the same name are distinguishable.
+            let _ = session.insert(
+                "client_display",
+                crate::handlers::client_resolver::client_display_name(&client),
+            );
 
             // Clear session so the login form is shown.
             if force_login || auth_expired {
@@ -1437,9 +1454,14 @@ pub async fn token(
     // builders that predate it keep working; falls back to defaults.
     agent_config: Option<web::Data<oauth2_config::AgentConfig>>,
     keyset: Option<web::Data<std::sync::Arc<tokio::sync::RwLock<KeySet>>>>,
+    cimd: Option<web::Data<CimdFetcher>>,
 ) -> Result<HttpResponse, OAuth2Error> {
     // OAuch: reject duplicate parameters (prevents parser differentials / smuggling).
     ensure_no_duplicate_query_params(&req)?;
+    // Phase 7 (agent / A2A OAuth): settings for every client lookup below.
+    let agent: oauth2_config::AgentConfig = agent_config
+        .map(|c| c.get_ref().clone())
+        .unwrap_or_default();
     let form_map = parse_form_no_dupes(&body)?;
 
     // Support confidential client auth via either:
@@ -1545,13 +1567,13 @@ pub async fn token(
     // retry. Skipped when no proof is presented (DPoP itself is optional).
     if let (Some(validated), Some(issuer_data)) = (&dpop_validated, &dpop_nonce_issuer) {
         let issuer = issuer_data.as_ref();
-        let lookup = client_actor
-            .send(GetClient {
-                client_id: form.client_id.clone(),
-                span: tracing::Span::current(),
-            })
-            .await
-            .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))?;
+        let lookup = resolve_client(
+            &form.client_id,
+            client_actor.get_ref(),
+            cimd.as_ref().map(|d| d.get_ref()),
+            &agent,
+        )
+        .await;
         if let Ok(client) = lookup {
             if client.dpop_nonce_required {
                 match enforce_dpop_nonce(validated, issuer) {
@@ -1629,6 +1651,8 @@ pub async fn token(
                 jwks_cache.clone(),
                 mtls_thumbprint.as_deref(),
                 mtls_subject_dn.as_deref(),
+                cimd.clone(),
+                agent.clone(),
             )
             .await
         }
@@ -1644,6 +1668,8 @@ pub async fn token(
                 jwks_cache.clone(),
                 mtls_thumbprint.as_deref(),
                 mtls_subject_dn.as_deref(),
+                cimd.clone(),
+                agent.clone(),
             )
             .await
         }
@@ -1657,6 +1683,8 @@ pub async fn token(
                 jwks_cache.clone(),
                 mtls_thumbprint.as_deref(),
                 mtls_subject_dn.as_deref(),
+                cimd.clone(),
+                agent.clone(),
             )
             .await
         }
@@ -1677,6 +1705,8 @@ pub async fn token(
                 jwks_cache.clone(),
                 mtls_thumbprint.as_deref(),
                 mtls_subject_dn.as_deref(),
+                cimd.clone(),
+                agent.clone(),
             )
             .await
         }
@@ -1687,9 +1717,6 @@ pub async fn token(
                     Some("Storage backend not configured for the jwt-bearer grant"),
                 )
             })?;
-            let agent_config = agent_config
-                .map(|c| c.get_ref().clone())
-                .unwrap_or_default();
             crate::handlers::jwt_bearer::handle_jwt_bearer_grant(
                 form,
                 cnf_claim,
@@ -1699,10 +1726,11 @@ pub async fn token(
                 storage,
                 metrics,
                 oidc_config,
-                agent_config,
+                agent.clone(),
                 jwks_cache.clone(),
                 mtls_thumbprint.as_deref(),
                 mtls_subject_dn.as_deref(),
+                cimd.clone(),
             )
             .await
         }
@@ -1713,9 +1741,6 @@ pub async fn token(
                     Some("Storage backend not configured for token-exchange grant"),
                 )
             })?;
-            let agent_config = agent_config
-                .map(|c| c.get_ref().clone())
-                .unwrap_or_default();
             crate::handlers::token_exchange::exchange(
                 form,
                 cnf_claim,
@@ -1725,11 +1750,12 @@ pub async fn token(
                 storage.get_ref().clone(),
                 metrics,
                 oidc_config,
-                agent_config,
+                agent.clone(),
                 keyset,
                 jwks_cache,
                 mtls_thumbprint.as_deref(),
                 mtls_subject_dn.as_deref(),
+                cimd.clone(),
             )
             .await
         }
@@ -1794,19 +1820,21 @@ async fn handle_device_code_grant(
     jwks_cache: Option<web::Data<JwksCache>>,
     mtls_thumbprint: Option<&str>,
     mtls_subject_dn: Option<&str>,
+    cimd: Option<web::Data<CimdFetcher>>,
+    agent: oauth2_config::AgentConfig,
 ) -> Result<HttpResponse, OAuth2Error> {
     let device_code = req
         .device_code
         .clone()
         .ok_or_else(|| OAuth2Error::invalid_request("Missing device_code"))?;
 
-    let client = client_actor
-        .send(GetClient {
-            client_id: req.client_id.clone(),
-            span: tracing::Span::current(),
-        })
-        .await
-        .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))??;
+    let client = resolve_client(
+        &req.client_id,
+        client_actor.get_ref(),
+        cimd.as_ref().map(|d| d.get_ref()),
+        &agent,
+    )
+    .await?;
 
     // Device code grant requires confidential clients.
     if client.is_public() {
@@ -1961,6 +1989,8 @@ async fn handle_authorization_code_grant(
     jwks_cache: Option<web::Data<JwksCache>>,
     mtls_thumbprint: Option<&str>,
     mtls_subject_dn: Option<&str>,
+    cimd: Option<web::Data<CimdFetcher>>,
+    agent: oauth2_config::AgentConfig,
 ) -> Result<HttpResponse, OAuth2Error> {
     let code = req
         .code
@@ -2024,13 +2054,13 @@ async fn handle_authorization_code_grant(
     };
 
     // Validate client grant permissions + authenticate if required.
-    let client = client_actor
-        .send(GetClient {
-            client_id: req.client_id.clone(),
-            span: tracing::Span::current(),
-        })
-        .await
-        .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))??;
+    let client = resolve_client(
+        &req.client_id,
+        client_actor.get_ref(),
+        cimd.as_ref().map(|d| d.get_ref()),
+        &agent,
+    )
+    .await?;
 
     if !client.supports_grant_type("authorization_code") {
         return Err(OAuth2Error::unauthorized_client(
@@ -2215,15 +2245,17 @@ async fn handle_client_credentials_grant(
     jwks_cache: Option<web::Data<JwksCache>>,
     mtls_thumbprint: Option<&str>,
     mtls_subject_dn: Option<&str>,
+    cimd: Option<web::Data<CimdFetcher>>,
+    agent: oauth2_config::AgentConfig,
 ) -> Result<HttpResponse, OAuth2Error> {
     // Validate client exists + grant permissions.
-    let client = client_actor
-        .send(GetClient {
-            client_id: req.client_id.clone(),
-            span: tracing::Span::current(),
-        })
-        .await
-        .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))??;
+    let client = resolve_client(
+        &req.client_id,
+        client_actor.get_ref(),
+        cimd.as_ref().map(|d| d.get_ref()),
+        &agent,
+    )
+    .await?;
 
     if !client.supports_grant_type("client_credentials") {
         return Err(OAuth2Error::unauthorized_client(
@@ -2296,6 +2328,8 @@ async fn handle_refresh_token_grant(
     jwks_cache: Option<web::Data<JwksCache>>,
     mtls_thumbprint: Option<&str>,
     mtls_subject_dn: Option<&str>,
+    cimd: Option<web::Data<CimdFetcher>>,
+    agent: oauth2_config::AgentConfig,
 ) -> Result<HttpResponse, OAuth2Error> {
     let refresh_token_str = req
         .refresh_token
@@ -2303,13 +2337,13 @@ async fn handle_refresh_token_grant(
         .ok_or_else(|| OAuth2Error::invalid_request("Missing refresh_token"))?;
 
     // Authenticate the client.
-    let client = client_actor
-        .send(GetClient {
-            client_id: req.client_id.clone(),
-            span: tracing::Span::current(),
-        })
-        .await
-        .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))??;
+    let client = resolve_client(
+        &req.client_id,
+        client_actor.get_ref(),
+        cimd.as_ref().map(|d| d.get_ref()),
+        &agent,
+    )
+    .await?;
 
     // Public clients skip secret check; others use the unified authenticator.
     if !client.is_public() {
@@ -2440,6 +2474,8 @@ pub async fn par(
     auth_actor: web::Data<Addr<AuthActor>>,
     client_actor: web::Data<Addr<ClientActor>>,
     jwks_cache: Option<web::Data<JwksCache>>,
+    cimd: Option<web::Data<CimdFetcher>>,
+    agent_config: Option<web::Data<oauth2_config::AgentConfig>>,
 ) -> Result<HttpResponse, OAuth2Error> {
     // Parse the application/x-www-form-urlencoded body.
     let raw = String::from_utf8(body.to_vec())
@@ -2468,13 +2504,16 @@ pub async fn par(
     }
 
     // Authenticate the client before storing any params.
-    let client = client_actor
-        .send(GetClient {
-            client_id: client_id.clone(),
-            span: tracing::Span::current(),
-        })
-        .await
-        .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))??;
+    let agent: oauth2_config::AgentConfig = agent_config
+        .map(|c| c.get_ref().clone())
+        .unwrap_or_default();
+    let client = resolve_client(
+        &client_id,
+        client_actor.get_ref(),
+        cimd.as_ref().map(|d| d.get_ref()),
+        &agent,
+    )
+    .await?;
 
     // Authenticate confidential clients; public clients are identified by client_id only.
     if !client.is_public() {

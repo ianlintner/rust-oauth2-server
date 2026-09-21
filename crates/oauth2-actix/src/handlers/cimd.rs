@@ -100,6 +100,15 @@ impl CimdFetcher {
         }
     }
 
+    /// Returns `true` when this fetcher would dereference `client_id`.
+    ///
+    /// Same rule as [`is_client_id_url`], except that a fetcher built with
+    /// [`CimdFetcher::allow_loopback_for_tests`] also accepts `http` loopback
+    /// URLs so tests can serve documents in-process.
+    pub fn accepts_client_id(&self, client_id: &str) -> bool {
+        validate_client_id_url(client_id, self.allow_loopback).is_ok()
+    }
+
     /// Allow loopback destinations. **Tests only** — this disables the SSRF
     /// guard that keeps client-controlled URLs away from the local host.
     pub fn allow_loopback_for_tests(mut self) -> Self {

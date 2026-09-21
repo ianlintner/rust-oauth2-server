@@ -104,7 +104,10 @@ pub struct LoginForm {
 /// Serve the login page.
 ///
 /// If `?error=…` is present the page will display an alert banner.
-pub async fn login_page(query: web::Query<LoginQuery>) -> actix_web::Result<HttpResponse> {
+pub async fn login_page(
+    query: web::Query<LoginQuery>,
+    session: Session,
+) -> actix_web::Result<HttpResponse> {
     let mut html = std::fs::read_to_string("templates/login.html")
         .unwrap_or_else(|_| include_str!("../../../../templates/login.html").to_string());
 
@@ -130,6 +133,18 @@ pub async fn login_page(query: web::Query<LoginQuery>) -> actix_web::Result<Http
             html_escape(message)
         );
         html = html.replace("<!--SERVER_ERROR-->", &error_html);
+    }
+
+    // Name the client that sent the user here, as recorded by the authorize
+    // endpoint. A client identified by a metadata-document URL is shown with
+    // its host, e.g. "Example MCP Client (app.example.com)".
+    let client_display: Option<String> = session.get("client_display").unwrap_or(None);
+    if let Some(name) = client_display.as_deref().filter(|n| !n.is_empty()) {
+        let prompt_html = format!(
+            r#"<p class="text-sm text-slate-600 dark:text-slate-300 mb-4 text-center">Sign in to continue to <span class="font-semibold">{}</span></p>"#,
+            html_escape(name)
+        );
+        html = html.replace("<!--CLIENT_PROMPT-->", &prompt_html);
     }
 
     Ok(HttpResponse::Ok()
@@ -262,6 +277,9 @@ pub async fn login_submit(
     let return_to_ts: Option<i64> = session.get("return_to_ts").unwrap_or(None);
     session.remove("return_to");
     session.remove("return_to_ts");
+    // The pending authorization request is consumed; don't name its client on
+    // a later, unrelated visit to the login page.
+    session.remove("client_display");
 
     // Only honor return_to when it was stamped by a recent authorize redirect.
     // A stale (or unstamped) value from an abandoned authorization request must
