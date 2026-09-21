@@ -2401,6 +2401,24 @@ impl Storage for SqlxStorage {
         Ok(resource)
     }
 
+    async fn get_resource_by_id(&self, id: &str) -> Result<Option<ProtectedResource>, OAuth2Error> {
+        let resource = match self.read_pool() {
+            DatabasePool::Sqlite(pool) => {
+                sqlx::query_as::<_, ProtectedResource>("SELECT * FROM resources WHERE id = ?")
+                    .bind(id)
+                    .fetch_optional(pool)
+                    .await?
+            }
+            DatabasePool::Postgres(pool) => {
+                sqlx::query_as::<_, ProtectedResource>("SELECT * FROM resources WHERE id = $1")
+                    .bind(id)
+                    .fetch_optional(pool)
+                    .await?
+            }
+        };
+        Ok(resource)
+    }
+
     async fn list_resources(&self) -> Result<Vec<ProtectedResource>, OAuth2Error> {
         let items = match self.read_pool() {
             DatabasePool::Sqlite(pool) => {

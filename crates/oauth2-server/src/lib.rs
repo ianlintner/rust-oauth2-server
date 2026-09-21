@@ -1407,6 +1407,13 @@ pub async fn run() -> std::io::Result<()> {
                         "/oauth-protected-resource",
                         web::get().to(oauth2_actix::handlers::wellknown::protected_resource_metadata),
                     )
+                    // RFC 9728: per-resource Protected Resource Metadata (agent/A2A OAuth)
+                    .route(
+                        "/oauth-protected-resource/{id}",
+                        web::get().to(
+                            oauth2_actix::handlers::wellknown::protected_resource_metadata_for_resource,
+                        ),
+                    )
                     // Token Status List (draft-ietf-oauth-status-list)
                     .route(
                         "/oauth-authorization-server/status",

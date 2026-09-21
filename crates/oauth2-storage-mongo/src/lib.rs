@@ -921,6 +921,13 @@ impl Storage for MongoStorage {
             .map_err(Self::mongo_err_to_oauth)
     }
 
+    async fn get_resource_by_id(&self, id: &str) -> Result<Option<ProtectedResource>, OAuth2Error> {
+        self.resources
+            .find_one(doc! { "id": id })
+            .await
+            .map_err(Self::mongo_err_to_oauth)
+    }
+
     async fn list_resources(&self) -> Result<Vec<ProtectedResource>, OAuth2Error> {
         use futures::TryStreamExt;
         let cursor = self

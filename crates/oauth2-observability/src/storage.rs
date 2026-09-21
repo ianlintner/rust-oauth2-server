@@ -843,6 +843,14 @@ impl Storage for ObservedStorage {
             .await
     }
 
+    async fn get_resource_by_id(&self, id: &str) -> Result<Option<ProtectedResource>, OAuth2Error> {
+        let span = self.span("get_resource_by_id");
+        let id = id.to_string();
+        async move { self.inner.get_resource_by_id(&id).await }
+            .instrument(span)
+            .await
+    }
+
     async fn list_resources(&self) -> Result<Vec<ProtectedResource>, OAuth2Error> {
         let span = self.span("list_resources");
         async move { self.inner.list_resources().await }

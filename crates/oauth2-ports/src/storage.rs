@@ -387,6 +387,11 @@ pub trait Storage: Send + Sync {
         Ok(None)
     }
 
+    async fn get_resource_by_id(&self, id: &str) -> Result<Option<ProtectedResource>, OAuth2Error> {
+        let _ = id;
+        Ok(None)
+    }
+
     async fn list_resources(&self) -> Result<Vec<ProtectedResource>, OAuth2Error> {
         Ok(vec![])
     }
