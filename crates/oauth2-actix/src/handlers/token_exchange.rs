@@ -346,9 +346,10 @@ async fn resolve_token(
                 )));
             }
 
-            let claims: Claims = verify_jwt(raw, oidc_config, keyset).map_err(|_| {
-                OAuth2Error::invalid_grant(&format!("{which}_token signature is not valid"))
-            })?;
+            let claims: Claims =
+                verify_jwt(raw, &oidc_config.jwt_secret, keyset).map_err(|_| {
+                    OAuth2Error::invalid_grant(&format!("{which}_token signature is not valid"))
+                })?;
             // A JWT this server issued must still be on record and valid. The
             // lookup is by access token, so anything not stored as one (a
             // refresh token, a replayed copy of a deleted token) is refused.
@@ -423,9 +424,10 @@ async fn resolve_token(
                 )));
             }
 
-            let claims: IdTokenClaims = verify_jwt(raw, oidc_config, keyset).map_err(|_| {
-                OAuth2Error::invalid_grant(&format!("{which}_token is not a valid id_token"))
-            })?;
+            let claims: IdTokenClaims =
+                verify_jwt(raw, &oidc_config.jwt_secret, keyset).map_err(|_| {
+                    OAuth2Error::invalid_grant(&format!("{which}_token is not a valid id_token"))
+                })?;
             if claims.iss != oidc_config.issuer {
                 return Err(OAuth2Error::invalid_grant(&format!(
                     "{which}_token was not issued by this authorization server"
@@ -464,49 +466,29 @@ async fn resolve_token(
                     "a transaction token cannot be used as an actor_token",
                 ));
             }
-            let header = jsonwebtoken::decode_header(raw).map_err(|_| {
-                OAuth2Error::invalid_request(&format!("{which}_token header is malformed"))
+            // Transaction tokens are never persisted, so the signature and
+            // `exp` are the only authentication. Shared with introspection.
+            let claims = crate::handlers::txn_token::verify_txn_token(
+                raw,
+                keyset,
+                &oidc_config.jwt_secret,
+                &oidc_config.issuer,
+            )
+            .map_err(|e| {
+                OAuth2Error::new(
+                    &e.error,
+                    Some(&format!(
+                        "{which}_token is not a valid transaction token: {}",
+                        e.error_description.unwrap_or_default()
+                    )),
+                )
             })?;
-            if header.typ.as_deref() != Some(crate::handlers::txn_token::TXN_TOKEN_TYP) {
-                return Err(OAuth2Error::invalid_request(&format!(
-                    "{which}_token is not a transaction token"
-                )));
-            }
-
-            // Transaction tokens are never persisted, so the signature (and
-            // the `exp` that `verify_jwt` enforces) is the only authentication.
-            let claims: Value = verify_jwt(raw, oidc_config, keyset).map_err(|_| {
-                OAuth2Error::invalid_grant(&format!("{which}_token is not a valid txn token"))
-            })?;
-            if claims.get("iss").and_then(Value::as_str) != Some(oidc_config.issuer.as_str()) {
-                return Err(OAuth2Error::invalid_grant(&format!(
-                    "{which}_token was not issued by this authorization server"
-                )));
-            }
-            let exp = claims.get("exp").and_then(Value::as_i64).ok_or_else(|| {
-                OAuth2Error::invalid_grant(&format!("{which}_token has no exp claim"))
-            })?;
-            if exp <= chrono::Utc::now().timestamp() {
-                return Err(OAuth2Error::invalid_grant(&format!(
-                    "{which}_token is expired"
-                )));
-            }
-
-            let sub = claims
-                .get("sub")
-                .and_then(Value::as_str)
-                .ok_or_else(|| {
-                    OAuth2Error::invalid_grant(&format!("{which}_token has no sub claim"))
-                })?
-                .to_string();
-            let aud = match claims.get("aud") {
-                Some(Value::String(one)) => vec![one.clone()],
-                Some(Value::Array(many)) => many
-                    .iter()
-                    .filter_map(|v| v.as_str().map(str::to_string))
-                    .collect(),
-                _ => Vec::new(),
-            };
+            let aud = vec![claims.aud.clone()];
+            let act = claims.act.clone();
+            let scope = claims.scope.clone();
+            let sub = claims.sub.clone();
+            let raw_claims = serde_json::to_value(&claims)
+                .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))?;
 
             Ok(ResolvedToken {
                 sub,
@@ -517,19 +499,15 @@ async fn resolve_token(
                 // here makes that guard a no-op instead of a false refusal.
                 client_id: Some(requesting_client_id.to_string()),
                 user_id: None,
-                scope: claims
-                    .get("scope")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default()
-                    .to_string(),
+                scope,
                 aud,
-                act: claims.get("act").cloned(),
+                act,
                 may_act: None,
                 sub_profile: None,
                 authorization_details: None,
                 cnf: None,
                 is_id_token: false,
-                txn: Some(claims),
+                txn: Some(raw_claims),
             })
         }
         other => Err(OAuth2Error::invalid_request(&format!(
@@ -557,9 +535,9 @@ async fn lookup(
 /// [`KeySet`] first and falling back to the configured HS256 secret. `aud` is
 /// deliberately not validated here: the exchange algorithm inspects the
 /// audience itself.
-fn verify_jwt<T: serde::de::DeserializeOwned>(
+pub(crate) fn verify_jwt<T: serde::de::DeserializeOwned>(
     raw: &str,
-    oidc_config: &OidcConfig,
+    jwt_secret: &str,
     keyset: Option<&KeySet>,
 ) -> Result<T, ()> {
     let header = jsonwebtoken::decode_header(raw).map_err(|_| ())?;
@@ -585,7 +563,7 @@ fn verify_jwt<T: serde::de::DeserializeOwned>(
         }
     }
     candidates.push((
-        DecodingKey::from_secret(oidc_config.jwt_secret.as_bytes()),
+        DecodingKey::from_secret(jwt_secret.as_bytes()),
         Algorithm::HS256,
     ));
 
@@ -645,10 +623,23 @@ pub(crate) async fn handle_token_exchange_grant(
         }
     };
 
+    // The requested token type steers step 6 and is dispatched on at step 9.
+    let requested_token_type = ctx
+        .req
+        .requested_token_type
+        .clone()
+        .unwrap_or_else(|| token_types::ACCESS_TOKEN.to_string());
+    let is_txn_token = requested_token_type == token_types::TXN_TOKEN;
+
     // --- Step 6: requested resources / audiences. ---------------------------
+    // A transaction token's `audience` names the trust domain, not a protected
+    // resource: it is not a URL in general, it is not in the resource registry
+    // and it is unrelated to the subject token's own audience. The txn arm
+    // checks it against the configured trust domain itself, so it must not be
+    // fed through the resource-indicator rules here.
     let resources = resolve_requested_resources(
         &ctx.req.resource,
-        &ctx.req.audience,
+        if is_txn_token { &[] } else { &ctx.req.audience },
         &ctx.subject.aud,
         ctx.subject.client_id.as_deref().unwrap_or_default(),
         &ctx.storage,
@@ -683,11 +674,6 @@ pub(crate) async fn handle_token_exchange_grant(
     )?;
 
     // --- Step 9: requested_token_type. --------------------------------------
-    let requested_token_type = ctx
-        .req
-        .requested_token_type
-        .clone()
-        .unwrap_or_else(|| token_types::ACCESS_TOKEN.to_string());
     match requested_token_type.as_str() {
         token_types::ACCESS_TOKEN | token_types::JWT => {}
         token_types::ID_JAG => return crate::handlers::id_jag::issue(&ctx).await,

@@ -9,8 +9,10 @@ use crate::actors::{
 };
 use crate::handlers::dpop::{build_request_url_bounded, validate_dpop_proof, DpopReplayStore};
 use crate::handlers::oauth::{client_secret_matches, parse_client_basic_auth};
+use crate::handlers::txn_token::{verify_txn_token, TXN_TOKEN_TYP};
 use crate::handlers::wellknown::OidcConfig;
 use oauth2_config::Config;
+use oauth2_core::models::key_set::KeySet;
 use oauth2_core::{Claims, IntrospectionResponse, OAuth2Error};
 use oauth2_observability::Metrics;
 
@@ -23,6 +25,16 @@ fn no_store_headers(mut response: HttpResponse) -> HttpResponse {
         .headers_mut()
         .insert(actix_web::http::header::PRAGMA, "no-cache".parse().unwrap());
     response
+}
+
+/// Whether the presented token carries the transaction-token JOSE `typ`.
+/// Header-only: the signature is checked by [`verify_txn_token`].
+fn is_transaction_token(raw: &str) -> bool {
+    jsonwebtoken::decode_header(raw)
+        .ok()
+        .and_then(|header| header.typ)
+        .as_deref()
+        == Some(TXN_TOKEN_TYP)
 }
 
 fn inactive_introspection_response() -> HttpResponse {
@@ -136,6 +148,10 @@ pub async fn introspect(
     config: Option<web::Data<Config>>,
     oidc_config: Option<web::Data<OidcConfig>>,
     dpop_replay_store: Option<web::Data<DpopReplayStore>>,
+    // Phase 7 (agent / A2A OAuth): optional so the inline test `App` builders
+    // that predate them keep working.
+    agent_config: Option<web::Data<oauth2_config::AgentConfig>>,
+    keyset: Option<web::Data<std::sync::Arc<tokio::sync::RwLock<KeySet>>>>,
 ) -> Result<HttpResponse, OAuth2Error> {
     let opaque_access_tokens = config
         .as_ref()
@@ -162,6 +178,57 @@ pub async fn introspect(
             return Err(err);
         }
     };
+
+    // draft-ietf-oauth-transaction-tokens: a transaction token is never
+    // persisted, so neither the storage nor the stateless path can resolve
+    // one. Its own signature is the whole of its authentication.
+    if agent_config
+        .as_ref()
+        .is_some_and(|agent| agent.txn_tokens_enabled)
+        && is_transaction_token(&form.token)
+    {
+        let oidc = oidc_config.as_ref().ok_or_else(|| {
+            OAuth2Error::new(
+                "server_error",
+                Some("transaction token introspection requires the OIDC configuration"),
+            )
+        })?;
+        let snapshot = match keyset.as_ref() {
+            Some(keyset) => Some(keyset.read().await.clone()),
+            None => None,
+        };
+        return Ok(
+            match verify_txn_token(
+                &form.token,
+                snapshot.as_ref(),
+                &oidc.jwt_secret,
+                &oidc.issuer,
+            ) {
+                Ok(claims) => no_store_headers(HttpResponse::Ok().json(IntrospectionResponse {
+                    active: true,
+                    scope: Some(claims.scope),
+                    client_id: None,
+                    username: None,
+                    // draft-ietf-oauth-transaction-tokens §6.2: a txn token is
+                    // never presented as an HTTP credential.
+                    token_type: Some("N_A".to_string()),
+                    exp: Some(claims.exp),
+                    iat: Some(claims.iat),
+                    nbf: Some(claims.iat),
+                    sub: Some(claims.sub),
+                    aud: Some(vec![claims.aud]),
+                    jti: None,
+                    iss: Some(claims.iss),
+                    cnf: None,
+                    act: claims.act,
+                    txn: Some(claims.txn),
+                    purp: claims.purp,
+                    req_wl: Some(claims.req_wl),
+                })),
+                Err(_) => inactive_introspection_response(),
+            },
+        );
+    }
 
     let token_prefix = form.token.chars().take(20).collect::<String>();
     tracing::info!(

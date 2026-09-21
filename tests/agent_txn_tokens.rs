@@ -18,7 +18,7 @@ use serde_json::{json, Value};
 use oauth2_actix::actors::{CreateToken, TokenActor, TokenActorPool};
 use oauth2_actix::handlers::wellknown::OidcConfig;
 use oauth2_config::{AgentConfig, Config};
-use oauth2_core::{Client, Token, User};
+use oauth2_core::{Client, ProtectedResource, Token, User};
 use oauth2_observability::Metrics;
 use oauth2_ports::DynStorage;
 use rsa::pkcs8::EncodePrivateKey;
@@ -138,6 +138,17 @@ async fn mint(
     scope: &str,
     act: Option<Value>,
 ) -> Token {
+    mint_for(storage, user_id, client_id, scope, act, vec![]).await
+}
+
+async fn mint_for(
+    storage: &DynStorage,
+    user_id: Option<&str>,
+    client_id: &str,
+    scope: &str,
+    act: Option<Value>,
+    resources: Vec<String>,
+) -> Token {
     TokenActor::new(storage.clone(), JWT_SECRET.to_string(), ISSUER.to_string())
         .start()
         .send(CreateToken {
@@ -146,7 +157,7 @@ async fn mint(
             scope: scope.to_string(),
             include_refresh: false,
             token_family: None,
-            resources: vec![],
+            resources,
             cnf: None,
             authorization_details: None,
             act,
@@ -258,6 +269,20 @@ macro_rules! post_pkj {
             .set_payload(form(&pairs))
             .to_request();
         test::call_service(&$app, req).await
+    }};
+}
+
+macro_rules! introspect {
+    ($app:expr, $token:expr) => {{
+        let req = test::TestRequest::post()
+            .uri("/oauth/introspect")
+            .insert_header(("Host", HOST))
+            .set_form([("token", $token)])
+            .to_request();
+        let resp = test::call_service(&$app, req).await;
+        assert_eq!(resp.status(), 200, "introspection must return 200");
+        let body: Value = test::read_body_json(resp).await;
+        body
     }};
 }
 
@@ -493,14 +518,18 @@ async fn a_transaction_token_carries_the_profile_claim_set() {
     uuid::Uuid::parse_str(claims["txn"].as_str().expect("txn")).expect("txn is a UUID");
     assert!(claims.get("purp").is_none(), "purp is A2A-only: {claims}");
 
-    // Not persisted: introspection cannot find it.
-    let intro_req = test::TestRequest::post()
-        .uri("/oauth/introspect")
-        .insert_header(("Host", HOST))
-        .set_form([("token", token)])
-        .to_request();
-    let intro: Value = test::read_body_json(test::call_service(&app, intro_req).await).await;
-    assert_eq!(intro["active"], false, "intro: {intro}");
+    // Never persisted, but introspectable from its own signature.
+    let intro = introspect!(app, token);
+    assert_eq!(intro["active"], true, "intro: {intro}");
+    assert_eq!(intro["token_type"], "N_A", "intro: {intro}");
+    assert_eq!(intro["sub"], "alice", "intro: {intro}");
+    assert_eq!(intro["aud"], TRUST_DOMAIN, "intro: {intro}");
+    assert_eq!(intro["scope"], "read", "intro: {intro}");
+    assert_eq!(intro["iss"], ISSUER, "intro: {intro}");
+    assert_eq!(intro["txn"], claims["txn"], "intro: {intro}");
+    assert_eq!(intro["req_wl"], "wl_happy", "intro: {intro}");
+    assert_eq!(intro["exp"], claims["exp"], "intro: {intro}");
+    assert_eq!(intro["iat"], claims["iat"], "intro: {intro}");
 }
 
 /// Without an explicit `scope` the token inherits the subject's.
@@ -782,7 +811,198 @@ async fn tctx_is_immutable_across_a_replacement() {
 }
 
 // ---------------------------------------------------------------------------
-// 7. Discovery
+// 7. The trust domain is not a resource indicator
+// ---------------------------------------------------------------------------
+
+/// A trust domain is an opaque identifier, not a URL: `example.com` is the
+/// shape oauth2-config's own defaults use and must be accepted verbatim.
+#[actix_web::test]
+async fn a_non_url_trust_domain_is_accepted() {
+    let storage = storage().await;
+    storage
+        .save_client(&workload("wl_bare", "read write"))
+        .await
+        .expect("save client");
+    save_user(&storage, "alice").await;
+    let subject = mint(&storage, Some("alice"), "wl_bare", "read", None).await;
+
+    let app = oauth_app!(storage, agent_config(true, Some("example.com"), false));
+    let resp = post_pkj!(
+        app,
+        "wl_bare",
+        &[
+            ("grant_type", TOKEN_EXCHANGE),
+            ("subject_token", subject.access_token.as_str()),
+            ("subject_token_type", ACCESS_TOKEN),
+            ("requested_token_type", TXN_TOKEN),
+            ("audience", "example.com"),
+        ]
+    );
+
+    assert_eq!(resp.status(), 200);
+    let body = body_of(resp).await;
+    let (_, claims) = decode_txn(body["access_token"].as_str().expect("access_token"));
+    assert_eq!(claims["aud"], "example.com", "claims: {claims}");
+}
+
+/// A subject token bound to a resource has `aud != client_id`. The trust
+/// domain is unrelated to that audience and must not be checked against it.
+#[actix_web::test]
+async fn a_resource_bound_subject_token_can_obtain_a_txn_token() {
+    let storage = storage().await;
+    storage
+        .save_client(&workload("wl_res", "read write"))
+        .await
+        .expect("save client");
+    save_user(&storage, "alice").await;
+    let subject = mint_for(
+        &storage,
+        Some("alice"),
+        "wl_res",
+        "read",
+        None,
+        vec!["https://api.example/v1".to_string()],
+    )
+    .await;
+
+    let app = oauth_app!(storage, agent_config(true, Some(TRUST_DOMAIN), false));
+    let resp = post_pkj!(
+        app,
+        "wl_res",
+        &txn_request(subject.access_token.as_str(), ACCESS_TOKEN)
+    );
+
+    assert_eq!(resp.status(), 200);
+    let body = body_of(resp).await;
+    let (_, claims) = decode_txn(body["access_token"].as_str().expect("access_token"));
+    assert_eq!(claims["aud"], TRUST_DOMAIN, "claims: {claims}");
+}
+
+/// A populated protected-resource registry constrains resource indicators,
+/// not the trust domain.
+#[actix_web::test]
+async fn a_populated_resource_registry_does_not_block_txn_issuance() {
+    let storage = storage().await;
+    storage
+        .save_resource(&ProtectedResource::new(
+            "https://api.example/v1".to_string(),
+            "Unrelated API".to_string(),
+            vec!["read".to_string()],
+        ))
+        .await
+        .expect("save resource");
+    storage
+        .save_client(&workload("wl_registry", "read write"))
+        .await
+        .expect("save client");
+    save_user(&storage, "alice").await;
+    let subject = mint(&storage, Some("alice"), "wl_registry", "read", None).await;
+
+    let app = oauth_app!(storage, agent_config(true, Some(TRUST_DOMAIN), false));
+    let resp = post_pkj!(
+        app,
+        "wl_registry",
+        &txn_request(subject.access_token.as_str(), ACCESS_TOKEN)
+    );
+
+    assert_eq!(resp.status(), 200);
+    let body = body_of(resp).await;
+    let (_, claims) = decode_txn(body["access_token"].as_str().expect("access_token"));
+    assert_eq!(claims["aud"], TRUST_DOMAIN, "claims: {claims}");
+}
+
+// ---------------------------------------------------------------------------
+// 8. Introspection
+// ---------------------------------------------------------------------------
+
+/// Sign an arbitrary transaction-token payload with the server's HS256 secret.
+fn forge_txn(claims: Value) -> String {
+    let mut header = jsonwebtoken::Header::new(jsonwebtoken::Algorithm::HS256);
+    header.typ = Some("txntoken+jwt".to_string());
+    jsonwebtoken::encode(
+        &header,
+        &claims,
+        &jsonwebtoken::EncodingKey::from_secret(JWT_SECRET.as_bytes()),
+    )
+    .expect("sign forged txn token")
+}
+
+#[actix_web::test]
+async fn an_expired_transaction_token_introspects_as_inactive() {
+    let storage = storage().await;
+    let app = oauth_app!(storage, agent_config(true, Some(TRUST_DOMAIN), false));
+
+    let now = chrono::Utc::now().timestamp();
+    let expired = forge_txn(json!({
+        "iss": ISSUER,
+        "iat": now - 600,
+        "exp": now - 300,
+        "aud": TRUST_DOMAIN,
+        "txn": uuid::Uuid::new_v4().to_string(),
+        "sub": "alice",
+        "scope": "read",
+        "req_wl": "wl_expired",
+    }));
+
+    let intro = introspect!(app, expired.as_str());
+    assert_eq!(intro["active"], false, "intro: {intro}");
+}
+
+/// A token signed by someone else must not introspect as active, however
+/// well-formed its payload is.
+#[actix_web::test]
+async fn a_foreign_transaction_token_introspects_as_inactive() {
+    let storage = storage().await;
+    let app = oauth_app!(storage, agent_config(true, Some(TRUST_DOMAIN), false));
+
+    let now = chrono::Utc::now().timestamp();
+    let mut header = jsonwebtoken::Header::new(jsonwebtoken::Algorithm::HS256);
+    header.typ = Some("txntoken+jwt".to_string());
+    let foreign = jsonwebtoken::encode(
+        &header,
+        &json!({
+            "iss": ISSUER,
+            "iat": now,
+            "exp": now + 300,
+            "aud": TRUST_DOMAIN,
+            "txn": uuid::Uuid::new_v4().to_string(),
+            "sub": "alice",
+            "scope": "read write",
+            "req_wl": "wl_attacker",
+        }),
+        &jsonwebtoken::EncodingKey::from_secret(b"not-the-servers-secret"),
+    )
+    .expect("sign foreign token");
+
+    let intro = introspect!(app, foreign.as_str());
+    assert_eq!(intro["active"], false, "intro: {intro}");
+}
+
+/// With the feature off the txn branch is not taken at all, so the token
+/// falls through to the ordinary (storage-backed) path and is inactive.
+#[actix_web::test]
+async fn introspection_ignores_txn_tokens_when_the_feature_is_off() {
+    let storage = storage().await;
+    let app = oauth_app!(storage, agent_config(false, Some(TRUST_DOMAIN), false));
+
+    let now = chrono::Utc::now().timestamp();
+    let token = forge_txn(json!({
+        "iss": ISSUER,
+        "iat": now,
+        "exp": now + 300,
+        "aud": TRUST_DOMAIN,
+        "txn": uuid::Uuid::new_v4().to_string(),
+        "sub": "alice",
+        "scope": "read",
+        "req_wl": "wl_off",
+    }));
+
+    let intro = introspect!(app, token.as_str());
+    assert_eq!(intro["active"], false, "intro: {intro}");
+}
+
+// ---------------------------------------------------------------------------
+// 9. Discovery
 // ---------------------------------------------------------------------------
 
 macro_rules! discovery_app {

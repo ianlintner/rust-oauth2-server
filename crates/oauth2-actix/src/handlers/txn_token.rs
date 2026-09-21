@@ -19,12 +19,12 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
 
-use oauth2_core::models::key_set::Algorithm as KeyAlgorithm;
+use oauth2_core::models::key_set::{Algorithm as KeyAlgorithm, KeySet};
 use oauth2_core::token_types;
 use oauth2_core::OAuth2Error;
 
 use crate::handlers::oauth::{no_store_headers, validate_scope_subset};
-use crate::handlers::token_exchange::ExchangeContext;
+use crate::handlers::token_exchange::{verify_jwt, ExchangeContext};
 
 /// JOSE `typ` header value identifying a transaction token
 /// (draft-ietf-oauth-transaction-tokens §5.1).
@@ -34,36 +34,66 @@ pub(crate) const TXN_TOKEN_TYP: &str = "txntoken+jwt";
 /// claim set is specific to the txn-token profile and has nothing to share
 /// with the access-token `Claims`.
 #[derive(Serialize, Deserialize)]
-struct TxnTokenClaims {
-    iss: String,
-    iat: i64,
-    exp: i64,
+pub(crate) struct TxnTokenClaims {
+    pub iss: String,
+    pub iat: i64,
+    pub exp: i64,
     /// Always the trust domain — a txn token is valid nowhere else.
-    aud: String,
+    pub aud: String,
     /// Stable identifier for the whole call chain.
-    txn: String,
-    sub: String,
-    scope: String,
+    pub txn: String,
+    pub sub: String,
+    pub scope: String,
     /// Identifier of the workload that requested this token.
-    req_wl: String,
+    pub req_wl: String,
     /// Transaction context: immutable for the lifetime of the transaction.
     #[serde(skip_serializing_if = "Option::is_none")]
-    tctx: Option<Value>,
+    pub tctx: Option<Value>,
     /// Request context: may be replaced at every hop.
     #[serde(skip_serializing_if = "Option::is_none")]
-    rctx: Option<Value>,
+    pub rctx: Option<Value>,
     /// A2A profile: the declared purpose of the transaction.
     #[serde(skip_serializing_if = "Option::is_none")]
-    purp: Option<String>,
+    pub purp: Option<String>,
     /// RFC 8693 §4.1 delegation chain, carried over from the subject token.
     #[serde(skip_serializing_if = "Option::is_none")]
-    act: Option<Value>,
+    pub act: Option<Value>,
     /// draft-araut compatibility: the outermost actor's `sub`.
     #[serde(skip_serializing_if = "Option::is_none")]
-    actor: Option<String>,
+    pub actor: Option<String>,
     /// draft-araut compatibility: the identity being acted for.
     #[serde(skip_serializing_if = "Option::is_none")]
-    principal: Option<String>,
+    pub principal: Option<String>,
+}
+
+/// Authenticate a transaction token from its signature alone — the only way
+/// there is, since txn tokens are never persisted.
+///
+/// Shared by the token-exchange replacement path (where the token is the
+/// exchange subject) and by introspection.
+pub(crate) fn verify_txn_token(
+    raw: &str,
+    keyset: Option<&KeySet>,
+    jwt_secret: &str,
+    issuer: &str,
+) -> Result<TxnTokenClaims, OAuth2Error> {
+    let header = jsonwebtoken::decode_header(raw)
+        .map_err(|_| OAuth2Error::invalid_request("token header is malformed"))?;
+    if header.typ.as_deref() != Some(TXN_TOKEN_TYP) {
+        return Err(OAuth2Error::invalid_request("not a transaction token"));
+    }
+
+    let claims: TxnTokenClaims = verify_jwt(raw, jwt_secret, keyset)
+        .map_err(|_| OAuth2Error::invalid_grant("transaction token is not valid"))?;
+    if claims.iss != issuer {
+        return Err(OAuth2Error::invalid_grant(
+            "transaction token was not issued by this authorization server",
+        ));
+    }
+    if claims.exp <= chrono::Utc::now().timestamp() {
+        return Err(OAuth2Error::invalid_grant("transaction token is expired"));
+    }
+    Ok(claims)
 }
 
 pub(crate) async fn issue(ctx: &ExchangeContext) -> Result<HttpResponse, OAuth2Error> {
@@ -83,6 +113,15 @@ pub(crate) async fn issue(ctx: &ExchangeContext) -> Result<HttpResponse, OAuth2E
         .ok_or_else(|| {
             OAuth2Error::invalid_request("transaction tokens require a configured trust domain")
         })?;
+    // A trust domain is an opaque identifier (`example.com`, a SPIFFE trust
+    // domain, a URL). It is deliberately NOT required to be a URL — only to be
+    // a single non-blank token, so it can be compared to `audience` verbatim.
+    if trust_domain.chars().any(char::is_whitespace) {
+        return Err(OAuth2Error::new(
+            "server_error",
+            Some("configured trust domain must not contain whitespace"),
+        ));
+    }
 
     // draft-ietf-oauth-transaction-tokens §6.1: the requester is a workload,
     // authenticated by a key rather than by a shared secret. A secret that
