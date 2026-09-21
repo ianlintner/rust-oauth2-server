@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-- Every migration is a new file `migrations/sql/V<n>__<desc>.sql` AND the matching `CREATE TABLE` / idempotent `ALTER TABLE` shim in `crates/oauth2-storage-sqlx/src/sqlx.rs::init()` for BOTH `DatabasePool::Sqlite` and `DatabasePool::Postgres` branches AND the Mongo equivalent in `crates/oauth2-storage-mongo/src/lib.rs`. Migration numbers are fixed by this plan: V22 tokens delegation columns, V23 resources, V24 clients.allowed_actors, V25 authorization_codes.requested_actor, V26 trusted_issuers, V27 dpop_jtis, V28 transaction_authorizations.
+- Every migration is a new file `migrations/sql/V<n>__<desc>.sql` AND the matching `CREATE TABLE` / idempotent `ALTER TABLE` shim in `crates/oauth2-storage-sqlx/src/sqlx.rs::init()` for BOTH `DatabasePool::Sqlite` and `DatabasePool::Postgres` branches AND the Mongo equivalent in `crates/oauth2-storage-mongo/src/lib.rs`. Migration numbers are fixed by this plan (V22 is already taken on main by `V22__add_dpop_jkt_to_auth_codes.sql`): V23 tokens delegation columns, V24 resources, V25 clients.allowed_actors, V26 authorization_codes.requested_actor, V27 trusted_issuers, V28 dpop_jtis, V29 transaction_authorizations.
 - New struct fields that map to DB columns get `#[serde(default)]` (or `default = "..."`) and `#[cfg_attr(feature = "sqlx", sqlx(default))]` so old rows and old JSON still deserialize.
 - New `Storage` trait methods get a default implementation (return `Ok(None)` / `Ok(())` / `Ok(vec![])`) so unrelated backends compile.
 - Any new `app_data` a handler requires must be `Option<web::Data<T>>` (so the 15+ inline `App::new()` builders in `tests/security_http.rs` and `tests/rfc_compliance.rs` keep working) OR every existing test App builder must be updated in the same task.
@@ -110,10 +110,10 @@ Follow the existing pattern (`default_access_token_ttl_secs` reads env). Boolean
 - [ ] Tests: defaults when env unset; env override for depth/ttl/bool/list parsing.
 - [ ] Commit `feat(config): add AgentConfig for Phase 7 agent features`.
 
-### Task 3: Persist delegation on tokens (V22), `act` in `CreateToken`, introspection exposes `act`/`cnf`
+### Task 3: Persist delegation on tokens (V23), `act` in `CreateToken`, introspection exposes `act`/`cnf`
 
 **Files:**
-- Create: `migrations/sql/V22__add_delegation_columns_to_tokens.sql` (three `ALTER TABLE tokens ADD COLUMN act TEXT;` / `cnf TEXT;` / `resource TEXT;`)
+- Create: `migrations/sql/V23__add_delegation_columns_to_tokens.sql` (three `ALTER TABLE tokens ADD COLUMN act TEXT;` / `cnf TEXT;` / `resource TEXT;`)
 - Modify: `crates/oauth2-core/src/models/token.rs` (`Token` fields + builder), `crates/oauth2-storage-sqlx/src/sqlx.rs` (init create/alter shims, `save_token` both branches), `crates/oauth2-storage-mongo/src/lib.rs` (no schema; verify serde round-trip), `crates/oauth2-actix/src/actors/token_actor.rs` (`CreateToken.act`, write `act/cnf/resource` into `Token`), every `CreateToken { .. }` call site (`oauth.rs`, `device.rs`, `admin*.rs`, social-login if any) gets `act: None`, `crates/oauth2-actix/src/handlers/token.rs` (introspection)
 - Test: `tests/agent_token_persistence.rs`
 
@@ -132,10 +132,10 @@ Introspection (`token.rs`): populate `act` from JWT claims when JWT, or from `To
 - [ ] Test: create token via `CreateToken` with `act = Actor::new("agent-1","http://localhost")`, opaque mode ON via `TokenActor::with_access_tokens_opaque(true)`; introspect → `act.sub == "agent-1"` and `cnf` present when supplied. Same test in JWT mode.
 - [ ] Commit `feat(storage): persist act/cnf/resource on tokens and expose act in introspection`.
 
-### Task 4: Protected resources registry (V23) + storage + admin CRUD
+### Task 4: Protected resources registry (V24) + storage + admin CRUD
 
 **Files:**
-- Create: `migrations/sql/V23__create_resources_table.sql`, `crates/oauth2-core/src/models/resource.rs`, `crates/oauth2-actix/src/handlers/admin_resources.rs`
+- Create: `migrations/sql/V24__create_resources_table.sql`, `crates/oauth2-core/src/models/resource.rs`, `crates/oauth2-actix/src/handlers/admin_resources.rs`
 - Modify: `crates/oauth2-ports/src/storage.rs`, sqlx + mongo backends, `crates/oauth2-core` exports, `crates/oauth2-actix/src/handlers/mod.rs`, `crates/oauth2-server/src/lib.rs` (routes under existing `/admin` scope, behind the same `AdminGuard`)
 - Test: `tests/agent_resources_registry.rs`
 
@@ -154,15 +154,15 @@ SQL: `resources(id TEXT PRIMARY KEY, resource_uri TEXT NOT NULL UNIQUE, name TEX
 - [ ] Tests: save/get/list/delete via storage on sqlite memory; `validate_uri` rejects `mcp.example.com` (no scheme) and `https://x#frag`; admin POST then GET round-trip (use the pattern in `tests/security_http.rs` for admin auth).
 - [ ] Commit `feat(storage): add protected resources registry with admin CRUD`.
 
-### Task 5: `clients.allowed_actors` (V24) and `authorization_codes.requested_actor` (V25)
+### Task 5: `clients.allowed_actors` (V25) and `authorization_codes.requested_actor` (V26)
 
-**Files:** migrations V24/V25; `crates/oauth2-core/src/models/client.rs` (`Client.allowed_actors: String` JSON array, default `"[]"`, helper `allowed_actors_vec()` and `allows_actor(&self, client_id: &str) -> bool`; `ClientRegistration.allowed_actors: Option<Vec<String>>`), `crates/oauth2-core/src/models/authorization.rs` (`AuthorizationCode.requested_actor: Option<String>`), sqlx (create/alter shims, client INSERT/UPDATE both branches, auth code INSERT both branches), mongo (verify serde), `crates/oauth2-actix/src/handlers/client.rs` (registration copies `allowed_actors`; admins only — dynamic (public) registration must ignore it), admin client edit form if one exists (`admin.rs`).
+**Files:** migrations V25/V26; `crates/oauth2-core/src/models/client.rs` (`Client.allowed_actors: String` JSON array, default `"[]"`, helper `allowed_actors_vec()` and `allows_actor(&self, client_id: &str) -> bool`; `ClientRegistration.allowed_actors: Option<Vec<String>>`), `crates/oauth2-core/src/models/authorization.rs` (`AuthorizationCode.requested_actor: Option<String>`), sqlx (create/alter shims, client INSERT/UPDATE both branches, auth code INSERT both branches), mongo (verify serde), `crates/oauth2-actix/src/handlers/client.rs` (registration copies `allowed_actors`; admins only — dynamic (public) registration must ignore it), admin client edit form if one exists (`admin.rs`).
 - Test: `tests/agent_client_columns.rs`: save client with `allowed_actors=["agent-a"]`, reload, `allows_actor("agent-a")`; save auth code with `requested_actor`, reload.
 - [ ] Commit `feat(storage): add allowed_actors to clients and requested_actor to auth codes`.
 
-### Task 6: Trusted issuers registry (V26) + `get_user_by_email`
+### Task 6: Trusted issuers registry (V27) + `get_user_by_email`
 
-**Files:** `migrations/sql/V26__create_trusted_issuers_table.sql`, `crates/oauth2-core/src/models/trusted_issuer.rs`, storage trait + both backends, `crates/oauth2-actix/src/handlers/admin_trusted_issuers.rs`, routes under `/admin` (`GET/POST /admin/trusted-issuers`, `DELETE /admin/trusted-issuers/{id}`), `Storage::get_user_by_email(&self, email) -> Result<Option<User>>` (default `Ok(None)`, implemented in sqlx + mongo).
+**Files:** `migrations/sql/V27__create_trusted_issuers_table.sql`, `crates/oauth2-core/src/models/trusted_issuer.rs`, storage trait + both backends, `crates/oauth2-actix/src/handlers/admin_trusted_issuers.rs`, routes under `/admin` (`GET/POST /admin/trusted-issuers`, `DELETE /admin/trusted-issuers/{id}`), `Storage::get_user_by_email(&self, email) -> Result<Option<User>>` (default `Ok(None)`, implemented in sqlx + mongo).
 - Test: `tests/agent_trusted_issuers.rs`.
 
 **Interfaces (Produces):**
@@ -191,9 +191,9 @@ impl CimdFetcher {
 - [ ] Tests: valid doc resolves; `client_id` mismatch → invalid_client; 404 → invalid_client and not cached; oversize body rejected; `client_secret_basic` rejected; redirect response rejected; URL shape rules (root path, userinfo, fragment, http scheme).
 - [ ] Commit `feat(cimd): add Client ID Metadata Document fetcher with SSRF guards`.
 
-### Task 8: DPoP `ath` claim + storage-backed replay store (V27)
+### Task 8: DPoP `ath` claim + storage-backed replay store (V28)
 
-**Files:** `crates/oauth2-actix/src/handlers/dpop.rs`, `crates/oauth2-actix/src/handlers/token.rs` (introspection passes the presented access token so `ath` is checked), `migrations/sql/V27__create_dpop_jtis_table.sql` (`dpop_jtis(jti TEXT PRIMARY KEY, expires_at TEXT NOT NULL)`), storage trait `async fn dpop_jti_check_and_insert(&self, jti: &str, expires_at: DateTime<Utc>) -> Result<bool /* true = fresh */, OAuth2Error>` default in-memory semantics `Ok(true)`, sqlx + mongo impls (insert; unique violation → `Ok(false)`; opportunistic delete of expired rows), `DpopReplayStore` gains `Storage`-backed variant selected in `crates/oauth2-server/src/lib.rs`.
+**Files:** `crates/oauth2-actix/src/handlers/dpop.rs`, `crates/oauth2-actix/src/handlers/token.rs` (introspection passes the presented access token so `ath` is checked), `migrations/sql/V28__create_dpop_jtis_table.sql` (`dpop_jtis(jti TEXT PRIMARY KEY, expires_at TEXT NOT NULL)`), storage trait `async fn dpop_jti_check_and_insert(&self, jti: &str, expires_at: DateTime<Utc>) -> Result<bool /* true = fresh */, OAuth2Error>` default in-memory semantics `Ok(true)`, sqlx + mongo impls (insert; unique violation → `Ok(false)`; opportunistic delete of expired rows), `DpopReplayStore` gains `Storage`-backed variant selected in `crates/oauth2-server/src/lib.rs`.
 - `DpopClaims.ath: Option<String>`; `validate_dpop_proof(...)` gains `expected_ath: Option<&str>`; when `Some`, proof MUST carry `ath == base64url(SHA-256(access_token))` else `invalid_dpop_proof`.
 - Tests in `tests/dpop_*.rs` style: `ath` mismatch rejected at introspection; replay across two `DpopReplayStore` instances sharing the same sqlite storage is rejected.
 - [ ] Commit `feat(dpop): validate ath claim and persist jti replay store`.
@@ -277,7 +277,7 @@ impl CimdFetcher {
 
 ### Task 15: Transaction Authorization Challenge (7.F)
 
-**Files:** Create `migrations/sql/V28__create_transaction_authorizations_table.sql`, `crates/oauth2-core/src/models/transaction_authorization.rs`, `crates/oauth2-actix/src/handlers/transaction_authorization.rs`; storage trait + both backends; `oauth.rs` dispatch arm for `GRANT_TRANSACTION_AUTHORIZATION` (`TokenRequest.transaction_authorization_id`); routes `POST /oauth/transaction_authorization`, `GET/POST /oauth/transaction_authorization/approve` (reuse the device verify page style from `device.rs`); `lib.rs`. Test: `tests/agent_tac.rs`.
+**Files:** Create `migrations/sql/V29__create_transaction_authorizations_table.sql`, `crates/oauth2-core/src/models/transaction_authorization.rs`, `crates/oauth2-actix/src/handlers/transaction_authorization.rs`; storage trait + both backends; `oauth.rs` dispatch arm for `GRANT_TRANSACTION_AUTHORIZATION` (`TokenRequest.transaction_authorization_id`); routes `POST /oauth/transaction_authorization`, `GET/POST /oauth/transaction_authorization/approve` (reuse the device verify page style from `device.rs`); `lib.rs`. Test: `tests/agent_tac.rs`.
 - Model: `TransactionAuthorization { id, transaction_authorization_id, client_id, user_id: Option<String>, resource_uri, txn, authorization_details: String, reason: String, reason_uri: String, act: Option<String>, created_at, expires_at, interval_seconds: i32, approved: bool, denied: bool, used: bool }`.
 - `POST /oauth/transaction_authorization` (client-authenticated, requires `agent.tac_enabled`): body `transaction_challenge=<jwt>`. Decode header/claims; `iss` MUST equal a registered `ProtectedResource.resource_uri` with non-empty `txn_challenge_jwks_uri` (`invalid_request` "unknown protected resource"); verify signature via `JwksCache` on that URI; required `iss, aud (== our issuer), iat, exp, jti, txn, authorization_details (array), reason (string)`; optional `reason_uri`, `act`. Reject expired / replayed `jti` (reuse replay guard). Store a row with `transaction_authorization_id = uuid`, expiry = min(challenge `exp`, now+600s), `interval_seconds = 5`. Response 200 `{ transaction_authorization_id, expires_in, interval }`.
 - Approval UI: `GET /oauth/transaction_authorization/approve?transaction_authorization_id=...` requires an authenticated session (same guard as device verify); renders `reason`, the `authorization_details` JSON pretty-printed, requesting `client` name and, if `act` present, "acting agent: <act.sub>". `POST` with `action=approve|deny` sets flags and `user_id`.
@@ -289,9 +289,9 @@ impl CimdFetcher {
 ### Task 16: Workload identity polish (7.G)
 
 **Files:** `oauth.rs` (`authenticate_confidential_client`), `client.rs` model + registration, sqlx/mongo, `wellknown.rs`, `token_actor.rs`. Test: `tests/agent_workload_identity.rs`.
-- `token_endpoint_auth_method` values `tls_client_auth_san_uri` and `tls_client_auth_san_dns`: the reverse proxy supplies `X-SSL-Client-SAN-URI` / `X-SSL-Client-SAN-DNS`; the client stores the expected value in a new column `tls_client_auth_san` (migration reuses V24? No — add the column in this task's sqlx `init()` shim AND a new file `migrations/sql/V29__add_tls_client_auth_san.sql`). Match exact string; thumbprint header still required.
+- `token_endpoint_auth_method` values `tls_client_auth_san_uri` and `tls_client_auth_san_dns`: the reverse proxy supplies `X-SSL-Client-SAN-URI` / `X-SSL-Client-SAN-DNS`; the client stores the expected value in a new column `tls_client_auth_san` (migration reuses V25? No — add the column in this task's sqlx `init()` shim AND a new file `migrations/sql/V30__add_tls_client_auth_san.sql`). Match exact string; thumbprint header still required.
 - `mtls_endpoint_aliases: { token_endpoint, introspection_endpoint, revocation_endpoint }` in discovery pointing at `{issuer}/oauth/...` (same URLs; documents the aliases).
-- Dynamic registration accepts `software_id`, `software_version`, `software_statement` (RFC 7591 §2.3): store `software_id`/`software_version` (columns in V29), and when `software_statement` is a JWT signed by a `TrustedIssuer` (Task 6), claims in the statement override the request body; unsigned/unknown-issuer statements → `invalid_software_statement`.
+- Dynamic registration accepts `software_id`, `software_version`, `software_statement` (RFC 7591 §2.3): store `software_id`/`software_version` (columns in V30), and when `software_statement` is a JWT signed by a `TrustedIssuer` (Task 6), claims in the statement override the request body; unsigned/unknown-issuer statements → `invalid_software_statement`.
 - `Claims.sub_profile` set on every access token: `user` when `user_id` is Some, else `service`; when the client has `software_id` starting with `agent:` or `allowed_actors` non-empty use `ai_agent` for client-credential tokens. Add `CreateToken.sub_profile: Option<String>` override.
 - Config `agent.ai_agent_access_token_ttl_secs: Option<u64>` (env `OAUTH2_AI_AGENT_ACCESS_TOKEN_TTL_SECS`): when set and `sub_profile == ai_agent`, cap TTL.
 - [ ] Tests: SAN URI auth success/mismatch; software_statement signed by trusted issuer applied; `sub_profile` present in JWT; agent TTL cap.
