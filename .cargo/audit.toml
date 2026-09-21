@@ -9,6 +9,11 @@
 # Note: This server supports optional backends/features (e.g. `--features mongo`).
 # Some advisories are only reachable through those optional dependencies.
 ignore = [
+  # RUSTSEC-2026-0258: h2 0.3.27 <- actix-http 3.13.6 (latest) <- actix-web 4.14.0.
+  # The h2 0.4.x copy is patched; actix-http has no release on h2 >= 0.4.16 yet.
+  # Review date: 2026-09-21. Remove once actix-http moves off h2 0.3.
+  "RUSTSEC-2026-0258",
+
   # RUSTSEC-2023-0071: RSA timing attack vulnerability
   # Status: No fix available
   # Reason: Transitive dependency via sqlx-mysql. This project does not enable MySQL support.

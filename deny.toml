@@ -23,6 +23,9 @@ ignore = [
     # No fix available upstream yet. Tracked for migration to ES256/EdDSA.
     # Re-evaluate monthly — remove this ignore once rsa ≥ 0.10 ships a fix.
     { id = "RUSTSEC-2023-0071", reason = "no upstream fix; tracked for ES256/EdDSA migration" },
+    # RUSTSEC-2026-0258: h2 0.3.27 <- actix-http 3.13.6 (latest); h2 0.4.x copy already patched.
+    # Remove once actix-http moves to h2 >= 0.4.16. Reviewed 2026-09-21.
+    { id = "RUSTSEC-2026-0258", reason = "actix-http still pins h2 0.3; no upstream fix available" },
     # RUSTSEC-2026-0173: proc-macro-error2 unmaintained advisory
     # Affected path: proc-macro-error2 2.0.1 → defmt-macros 1.1.0 → defmt 1.1.0 → jiff 0.2.29 → env_logger 0.11.10 → oauth2-server 0.6.2
     # Status: unmaintained advisory
