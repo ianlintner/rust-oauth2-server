@@ -27,7 +27,9 @@ use oauth2_core::{Claims, IdTokenClaims, OAuth2Error, ProtectedResource};
 use oauth2_observability::Metrics;
 use oauth2_ports::DynStorage;
 
-use crate::actors::{ClientActor, CreateToken, GetClient, LookupToken, TokenActorPool};
+use crate::actors::{
+    ClientActor, CreateToken, GetClient, LookupToken, TokenActorPool, ValidateRefreshToken,
+};
 use crate::handlers::jwks_cache::JwksCache;
 use crate::handlers::oauth::{
     authenticate_confidential_client, no_store_headers, resolve_client_jwks, validate_scope_subset,
@@ -66,7 +68,6 @@ pub(crate) struct ExchangeContext {
     pub req: TokenRequest,
     pub client: oauth2_core::Client,
     pub cnf_claim: Option<Value>,
-    #[allow(dead_code)] // consumed by the ID-JAG / Txn-Token arms (Tasks 12/13)
     pub dpop_present: bool,
     pub subject: ResolvedToken,
     pub actor: Option<ResolvedToken>,
@@ -75,6 +76,7 @@ pub(crate) struct ExchangeContext {
     pub token_actor: web::Data<TokenActorPool>,
     pub metrics: web::Data<Metrics>,
     pub oidc_config: web::Data<OidcConfig>,
+    pub keyset: Option<web::Data<Arc<RwLock<KeySet>>>>,
 }
 
 // ---------------------------------------------------------------------------
@@ -141,10 +143,14 @@ pub(crate) async fn exchange(
         .ok_or_else(|| OAuth2Error::invalid_request("Missing subject_token_type"))?;
 
     // Read the keyset once; both token resolutions share the snapshot.
-    let keyset_snapshot = match keyset {
+    let keyset_snapshot = match keyset.as_ref() {
         Some(ks) => Some(ks.read().await.clone()),
         None => None,
     };
+
+    // draft-ietf-oauth-identity-chaining: only the ID-JAG path accepts a
+    // refresh token as the subject; a plain access-token exchange must not.
+    let allow_refresh_subject = crate::handlers::id_jag::is_id_jag_request(&req, &config);
 
     let subject = resolve_token(
         &subject_token,
@@ -155,6 +161,7 @@ pub(crate) async fn exchange(
         &storage,
         &oidc_config,
         keyset_snapshot.as_ref(),
+        allow_refresh_subject,
     )
     .await?;
 
@@ -179,6 +186,7 @@ pub(crate) async fn exchange(
                 &storage,
                 &oidc_config,
                 keyset_snapshot.as_ref(),
+                false,
             )
             .await?;
             if resolved.client_id.as_deref() != Some(req.client_id.as_str()) {
@@ -202,6 +210,7 @@ pub(crate) async fn exchange(
         token_actor,
         metrics,
         oidc_config,
+        keyset: keyset.clone(),
     })
     .await
 }
@@ -258,6 +267,7 @@ async fn resolve_token(
     storage: &DynStorage,
     oidc_config: &OidcConfig,
     keyset: Option<&KeySet>,
+    allow_refresh: bool,
 ) -> Result<ResolvedToken, OAuth2Error> {
     match token_type {
         token_types::ACCESS_TOKEN => {
@@ -376,6 +386,63 @@ async fn resolve_token(
                 sub_profile: claims.sub_profile.clone(),
                 authorization_details: claims.authorization_details.clone(),
                 cnf: claims.cnf.clone(),
+                is_id_token: false,
+            })
+        }
+        // RFC 8693 §3 lists `refresh_token`, but exchanging one for an access
+        // token would turn a long-lived credential into a fresh grant without
+        // rotation. It is therefore only accepted on the ID-JAG / identity
+        // chaining path, and validated exactly as the refresh grant does.
+        token_types::REFRESH_TOKEN if allow_refresh => {
+            let row = token_actor
+                .route(requesting_client_id)
+                .send(ValidateRefreshToken {
+                    refresh_token: raw.to_string(),
+                    span: tracing::Span::current(),
+                })
+                .await
+                .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))??;
+            if row.client_id != requesting_client_id {
+                return Err(OAuth2Error::invalid_grant(&format!(
+                    "{which}_token was not issued to this client"
+                )));
+            }
+            // The storage lookup already authenticated the token, so the
+            // embedded claims can be read without re-verifying the signature.
+            let claims = Claims::decode_unverified(raw);
+            let row_aud = {
+                let resources = row.resources();
+                if resources.is_empty() {
+                    vec![row.client_id.clone()]
+                } else {
+                    resources
+                }
+            };
+            Ok(ResolvedToken {
+                sub: claims.as_ref().map(|c| c.sub.clone()).unwrap_or_else(|| {
+                    row.user_id.clone().unwrap_or_else(|| row.client_id.clone())
+                }),
+                client_id: Some(row.client_id.clone()),
+                user_id: row.user_id.clone(),
+                scope: row.scope.clone(),
+                aud: claims
+                    .as_ref()
+                    .map(|c| c.aud.clone())
+                    .filter(|a| !a.is_empty())
+                    .unwrap_or(row_aud),
+                act: claims
+                    .as_ref()
+                    .and_then(|c| c.act.clone())
+                    .or_else(|| row.actor()),
+                may_act: claims.as_ref().and_then(|c| c.may_act.clone()),
+                sub_profile: claims.as_ref().and_then(|c| c.sub_profile.clone()),
+                authorization_details: claims
+                    .as_ref()
+                    .and_then(|c| c.authorization_details.clone()),
+                cnf: claims
+                    .as_ref()
+                    .and_then(|c| c.cnf.clone())
+                    .or_else(|| row.cnf_value()),
                 is_id_token: false,
             })
         }
@@ -589,6 +656,14 @@ pub(crate) async fn handle_token_exchange_grant(
         .requested_token_type
         .clone()
         .unwrap_or_else(|| token_types::ACCESS_TOKEN.to_string());
+    // draft-ietf-oauth-identity-chaining: `requested_token_type=...:jwt` with
+    // a single `audience` naming a configured chaining target asks for a
+    // delegated authorization grant, not a plain access token.
+    if requested_token_type == token_types::JWT
+        && crate::handlers::id_jag::is_chaining_request(&ctx.req, &ctx.config)
+    {
+        return crate::handlers::id_jag::issue(&ctx).await;
+    }
     match requested_token_type.as_str() {
         token_types::ACCESS_TOKEN | token_types::JWT => {}
         token_types::ID_JAG => return crate::handlers::id_jag::issue(&ctx).await,
