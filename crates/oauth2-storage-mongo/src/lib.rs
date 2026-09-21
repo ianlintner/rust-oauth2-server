@@ -6,7 +6,8 @@ use mongodb::{
 };
 
 use oauth2_core::{
-    AuthorizationCode, Client, DeviceAuthorization, ListQuery, OAuth2Error, Page, Token, User,
+    AuthorizationCode, Client, DeviceAuthorization, ListQuery, OAuth2Error, Page, Token,
+    TrustedIssuer, User,
 };
 use oauth2_ports::Storage;
 
@@ -22,6 +23,7 @@ pub struct MongoStorage {
     tokens: Collection<Token>,
     authorization_codes: Collection<AuthorizationCode>,
     device_authorizations: Collection<DeviceAuthorization>,
+    trusted_issuers: Collection<TrustedIssuer>,
 }
 
 impl MongoStorage {
@@ -57,6 +59,7 @@ impl MongoStorage {
         let tokens = db.collection::<Token>("tokens");
         let authorization_codes = db.collection::<AuthorizationCode>("authorization_codes");
         let device_authorizations = db.collection::<DeviceAuthorization>("device_authorizations");
+        let trusted_issuers = db.collection::<TrustedIssuer>("trusted_issuers");
 
         Ok(Self {
             db,
@@ -65,6 +68,7 @@ impl MongoStorage {
             tokens,
             authorization_codes,
             device_authorizations,
+            trusted_issuers,
         })
     }
 
@@ -184,6 +188,17 @@ impl MongoStorage {
 
         self.device_authorizations
             .create_index(IndexModel::builder().keys(doc! { "client_id": 1 }).build())
+            .await
+            .map_err(Self::mongo_err_to_oauth)?;
+
+        // trusted_issuers.issuer unique
+        self.trusted_issuers
+            .create_index(
+                IndexModel::builder()
+                    .keys(doc! { "issuer": 1 })
+                    .options(IndexOptions::builder().unique(true).build())
+                    .build(),
+            )
             .await
             .map_err(Self::mongo_err_to_oauth)?;
 
@@ -355,6 +370,13 @@ impl Storage for MongoStorage {
     async fn get_user_by_id(&self, user_id: &str) -> Result<Option<User>, OAuth2Error> {
         self.users
             .find_one(doc! { "id": user_id })
+            .await
+            .map_err(Self::mongo_err_to_oauth)
+    }
+
+    async fn get_user_by_email(&self, email: &str) -> Result<Option<User>, OAuth2Error> {
+        self.users
+            .find_one(doc! { "email": email })
             .await
             .map_err(Self::mongo_err_to_oauth)
     }
@@ -822,6 +844,42 @@ impl Storage for MongoStorage {
             .await
             .map_err(Self::mongo_err_to_oauth)?;
         Ok(result.modified_count)
+    }
+
+    // --- Trusted issuers registry (RFC 7523 JWT bearer grants / agent-A2A OAuth) ---
+
+    async fn save_trusted_issuer(&self, trusted_issuer: &TrustedIssuer) -> Result<(), OAuth2Error> {
+        self.trusted_issuers
+            .replace_one(doc! { "issuer": &trusted_issuer.issuer }, trusted_issuer)
+            .upsert(true)
+            .await
+            .map(|_| ())
+            .map_err(Self::mongo_err_to_oauth)
+    }
+
+    async fn get_trusted_issuer(&self, issuer: &str) -> Result<Option<TrustedIssuer>, OAuth2Error> {
+        self.trusted_issuers
+            .find_one(doc! { "issuer": issuer })
+            .await
+            .map_err(Self::mongo_err_to_oauth)
+    }
+
+    async fn list_trusted_issuers(&self) -> Result<Vec<TrustedIssuer>, OAuth2Error> {
+        use futures::TryStreamExt;
+        let cursor = self
+            .trusted_issuers
+            .find(doc! {})
+            .await
+            .map_err(Self::mongo_err_to_oauth)?;
+        cursor.try_collect().await.map_err(Self::mongo_err_to_oauth)
+    }
+
+    async fn delete_trusted_issuer(&self, id: &str) -> Result<(), OAuth2Error> {
+        self.trusted_issuers
+            .delete_one(doc! { "id": id })
+            .await
+            .map(|_| ())
+            .map_err(Self::mongo_err_to_oauth)
     }
 }
 

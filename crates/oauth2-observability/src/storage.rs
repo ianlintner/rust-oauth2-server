@@ -3,7 +3,7 @@ use tracing::{field, Instrument};
 
 use oauth2_core::{
     AuditLogEntry, AuthorizationCode, Client, DenylistEntry, DeviceAuthorization, ListQuery,
-    OAuth2Error, Page, Token, User,
+    OAuth2Error, Page, Token, TrustedIssuer, User,
 };
 use oauth2_ports::{DynStorage, Storage};
 
@@ -194,6 +194,14 @@ impl Storage for ObservedStorage {
         );
         annotate_span_with_trace_ids(&span);
         async move { self.inner.get_user_by_id(user_id).await }
+            .instrument(span)
+            .await
+    }
+
+    async fn get_user_by_email(&self, email: &str) -> Result<Option<User>, OAuth2Error> {
+        let span = self.span("get_user_by_email");
+        annotate_span_with_trace_ids(&span);
+        async move { self.inner.get_user_by_email(email).await }
             .instrument(span)
             .await
     }
@@ -756,6 +764,37 @@ impl Storage for ObservedStorage {
         let span = self.span("revoke_tokens_by_client_id");
         let id = client_id.to_string();
         async move { self.inner.revoke_tokens_by_client_id(&id).await }
+            .instrument(span)
+            .await
+    }
+
+    // --- Trusted issuers registry (RFC 7523 JWT bearer grants / agent-A2A OAuth) ---
+
+    async fn save_trusted_issuer(&self, trusted_issuer: &TrustedIssuer) -> Result<(), OAuth2Error> {
+        let span = self.span("save_trusted_issuer");
+        async move { self.inner.save_trusted_issuer(trusted_issuer).await }
+            .instrument(span)
+            .await
+    }
+
+    async fn get_trusted_issuer(&self, issuer: &str) -> Result<Option<TrustedIssuer>, OAuth2Error> {
+        let span = self.span("get_trusted_issuer");
+        async move { self.inner.get_trusted_issuer(issuer).await }
+            .instrument(span)
+            .await
+    }
+
+    async fn list_trusted_issuers(&self) -> Result<Vec<TrustedIssuer>, OAuth2Error> {
+        let span = self.span("list_trusted_issuers");
+        async move { self.inner.list_trusted_issuers().await }
+            .instrument(span)
+            .await
+    }
+
+    async fn delete_trusted_issuer(&self, id: &str) -> Result<(), OAuth2Error> {
+        let span = self.span("delete_trusted_issuer");
+        let id = id.to_string();
+        async move { self.inner.delete_trusted_issuer(&id).await }
             .instrument(span)
             .await
     }

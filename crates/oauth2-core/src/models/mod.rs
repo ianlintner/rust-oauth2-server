@@ -8,6 +8,7 @@ pub mod key_set;
 pub mod pagination;
 pub mod scope;
 pub mod token;
+pub mod trusted_issuer;
 pub mod user;
 
 pub use audit::*;
@@ -19,4 +20,5 @@ pub use error::*;
 pub use pagination::*;
 pub use scope::*;
 pub use token::*;
+pub use trusted_issuer::*;
 pub use user::*;

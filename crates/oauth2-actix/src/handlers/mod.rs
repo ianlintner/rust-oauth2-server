@@ -1,6 +1,7 @@
 pub mod admin;
 pub mod admin_extra;
 pub mod admin_keys;
+pub mod admin_trusted_issuers;
 pub mod client;
 pub mod device;
 pub mod dpop;
