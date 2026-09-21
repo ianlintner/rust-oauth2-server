@@ -602,10 +602,10 @@ impl Token {
 
     /// Parse the persisted `act` column back into a JSON value.
     ///
-    /// Returns `Option<serde_json::Value>` rather than a typed `Actor` shape,
-    /// since `Actor` does not yet exist in `oauth2-core` (introduced by a
-    /// separate, concurrently-developed task). Callers that need the typed
-    /// shape should parse this value once `Actor` lands.
+    /// Returns `Option<serde_json::Value>` rather than a typed
+    /// [`crate::models::actor::Actor`]: the column stores whatever `act` chain
+    /// was issued, and introspection re-serialises it verbatim. Callers that
+    /// need the typed shape parse this value with `Actor::from_value`.
     pub fn actor(&self) -> Option<serde_json::Value> {
         self.act
             .as_deref()

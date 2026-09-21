@@ -160,8 +160,10 @@ GET /oauth/authorize?response_type=code&client_id=chat-app&redirect_uri=...
 
 `requested_actor` must name a registered client (or a resolvable CIMD URL);
 otherwise the authorize request redirects with `invalid_request` /
-`"unknown requested_actor"`. It is persisted on the authorization code. The
-consent page renders "*chat-app* wants *research-agent* to access …".
+`"unknown requested_actor"`. It is persisted on the authorization code. When
+the authorize request needs the user to log in, the login page names both
+clients — "*chat-app* wants *research-agent* to access …". An already
+authenticated user is not shown a separate consent page; the server has none.
 
 At code exchange, a code carrying `requested_actor` requires `actor_token` +
 `actor_token_type` (`access_token` or `jwt`):
@@ -382,11 +384,12 @@ happens at all and what it does and does not overwrite on re-fetch.
   certificate thumbprint check). Useful for SPIFFE-identified workloads.
   Discovery's `mtls_endpoint_aliases` mirrors `token_endpoint`,
   `introspection_endpoint`, `revocation_endpoint`.
-- **Software statements** (RFC 7591 §2.3): dynamic registration accepts
-  `software_id`, `software_version`, `software_statement`. A
-  `software_statement` that is a JWT signed by a registered trusted issuer
-  has its claims override the request body; an unsigned or unknown-issuer
-  statement is rejected with `invalid_software_statement`.
+- **Software statements** (RFC 7591 §2.3): a `software_statement` that is a
+  JWT signed by a registered trusted issuer has its claims override the
+  request body; an unsigned or unknown-issuer statement is rejected with
+  `invalid_software_statement`. On the self-service paths that is the *only*
+  way to set `software_id`/`software_version`: body-supplied values are
+  stripped first.
 - **`sub_profile` classification**: a client is treated as an AI agent
   (`sub_profile: "ai_agent"` on its client-credentials tokens) when its
   `software_id` starts with `agent:` or it has a non-empty `allowed_actors`
@@ -476,11 +479,14 @@ instances sharing one database.
   authenticated client that can call `POST /oauth/introspect` sees a txn
   token's `sub`, `act`, `txn`, `purp`, `req_wl` — the same trust model as
   introspection of any other token type in this server.
-- **`software_id` self-declaration is untrusted unless attested.** A bare
-  `software_id`/`software_version` in a registration request is not verified;
-  only a `software_statement` signed by a registered trusted issuer is
-  treated as authoritative. Do not rely on an unattested `software_id` for
-  authorization decisions.
+- **`software_id` self-declaration is never accepted unattested.** On the
+  self-service registration paths a body-supplied
+  `software_id`/`software_version` is stripped before the request is
+  processed; only values carried by a `software_statement` signed by a
+  registered trusted issuer survive. (The admin registration endpoint is
+  exempt: an operator setting them deliberately is the intended way to
+  register an agent without a statement.) They matter because they select the
+  `ai_agent` `sub_profile` and its shorter access-token TTL.
 - **CIMD materializes a `clients` row on first use.** `tokens`,
   `authorization_codes` and `device_authorizations` all foreign-key to
   `clients(client_id)`, so a URL client_id needs a row before it can be
