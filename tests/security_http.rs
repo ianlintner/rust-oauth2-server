@@ -165,7 +165,7 @@ async fn issue_access_token(
             scope: scope.to_string(),
             include_refresh: false,
             token_family: None,
-            resource: None,
+            resources: Vec::new(),
             cnf: None,
             authorization_details: None,
             act: None,
