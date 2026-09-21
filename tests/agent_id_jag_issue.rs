@@ -23,7 +23,7 @@ use oauth2_actix::actors::{CreateToken, TokenActor, TokenActorPool};
 use oauth2_actix::handlers::wellknown::OidcConfig;
 use oauth2_config::{AgentConfig, Config};
 use oauth2_core::models::key_set::{Algorithm as KeyAlgorithm, KeySet, SigningKey};
-use oauth2_core::{Client, IdTokenClaims, Token, User};
+use oauth2_core::{Client, IdTokenClaims, ProtectedResource, Token, User};
 use oauth2_observability::Metrics;
 use oauth2_ports::DynStorage;
 use rsa::pkcs1::{DecodeRsaPrivateKey, EncodeRsaPrivateKey, EncodeRsaPublicKey};
@@ -984,4 +984,116 @@ async fn a_configured_rs256_keyset_signs_the_assertion() {
     .expect("assertion must verify with the RS256 public key")
     .claims;
     assert_eq!(claims["aud"], TARGET, "claims: {claims}");
+}
+
+// ---------------------------------------------------------------------------
+// 8. The ID-JAG audience is not a resource indicator
+// ---------------------------------------------------------------------------
+
+/// Regression: an ID-JAG's single `audience` names the downstream
+/// authorization server, not a protected resource. Feeding it through the
+/// resource-indicator rules made issuance unreachable in any deployment that
+/// has a resource registry or mints audience-restricted subject tokens — the
+/// registry check rejected it as "not a registered protected resource" and the
+/// subject-audience check as "exceeds the subject token's audience".
+#[actix_web::test]
+async fn id_jag_audience_bypasses_the_resource_registry_and_subject_audience() {
+    let storage = storage().await;
+    storage
+        .save_client(&client("tx_client", &[TOKEN_EXCHANGE]))
+        .await
+        .expect("save client");
+    save_user(&storage, "alice").await;
+
+    // A non-empty registry: every *resource* must be registered.
+    storage
+        .save_resource(&ProtectedResource::new(
+            "https://api.one".to_string(),
+            "API one".to_string(),
+            vec!["read".to_string()],
+        ))
+        .await
+        .expect("save_resource");
+
+    // …and an audience-restricted subject token.
+    let subject = fixture_actor(&storage)
+        .send(CreateToken {
+            user_id: Some("alice".to_string()),
+            client_id: "tx_client".to_string(),
+            scope: "read".to_string(),
+            include_refresh: false,
+            token_family: None,
+            resources: vec!["https://api.one".to_string()],
+            cnf: None,
+            authorization_details: None,
+            act: None,
+            ttl_override_secs: None,
+            sub_profile: None,
+            txn: None,
+            span: tracing::Span::current(),
+        })
+        .await
+        .expect("send CreateToken")
+        .expect("create token");
+
+    let app = oauth_app!(storage, id_jag_config());
+    let resp = post_token!(
+        app,
+        "tx_client",
+        &[
+            ("grant_type", TOKEN_EXCHANGE),
+            ("subject_token", subject.access_token.as_str()),
+            ("subject_token_type", ACCESS_TOKEN),
+            ("requested_token_type", ID_JAG),
+            ("audience", TARGET),
+            ("scope", "read"),
+        ]
+    );
+
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["issued_token_type"], ID_JAG, "body: {body}");
+    let issued = body["access_token"].as_str().expect("access_token");
+    let (header, claims) = decode_id_jag(issued);
+    assert_eq!(header.typ.as_deref(), Some("oauth-id-jag+jwt"));
+    assert_eq!(claims["aud"], TARGET, "claims: {claims}");
+}
+
+/// A `resource` indicator, unlike the `audience`, is still checked against the
+/// registry on the ID-JAG path.
+#[actix_web::test]
+async fn id_jag_still_validates_resource_against_the_registry() {
+    let storage = storage().await;
+    storage
+        .save_client(&client("tx_client", &[TOKEN_EXCHANGE]))
+        .await
+        .expect("save client");
+    save_user(&storage, "alice").await;
+    storage
+        .save_resource(&ProtectedResource::new(
+            "https://api.one".to_string(),
+            "API one".to_string(),
+            vec!["read".to_string()],
+        ))
+        .await
+        .expect("save_resource");
+    let subject = mint(&storage, Some("alice"), "tx_client", "read", false, None).await;
+
+    let app = oauth_app!(storage, id_jag_config());
+    let resp = post_token!(
+        app,
+        "tx_client",
+        &[
+            ("grant_type", TOKEN_EXCHANGE),
+            ("subject_token", subject.access_token.as_str()),
+            ("subject_token_type", ACCESS_TOKEN),
+            ("requested_token_type", ID_JAG),
+            ("audience", TARGET),
+            ("resource", "https://api.two"),
+        ]
+    );
+
+    assert_eq!(resp.status(), 400);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["error"], "invalid_target", "body: {body}");
 }

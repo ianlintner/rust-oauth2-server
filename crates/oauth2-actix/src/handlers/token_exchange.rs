@@ -705,16 +705,29 @@ pub(crate) async fn handle_token_exchange_grant(
         .clone()
         .unwrap_or_else(|| token_types::ACCESS_TOKEN.to_string());
     let is_txn_token = requested_token_type == token_types::TXN_TOKEN;
+    let is_id_jag = crate::handlers::id_jag::is_id_jag_request(&ctx.req, &ctx.config);
 
     // --- Step 6: requested resources / audiences. ---------------------------
-    // A transaction token's `audience` names the trust domain, not a protected
-    // resource: it is not a URL in general, it is not in the resource registry
-    // and it is unrelated to the subject token's own audience. The txn arm
-    // checks it against the configured trust domain itself, so it must not be
-    // fed through the resource-indicator rules here.
+    // Two of the three arms below carry an `audience` that does not name a
+    // protected resource, so feeding it through the resource-indicator rules
+    // would reject every realistic request:
+    //
+    //  * a transaction token's `audience` names the trust domain — not a URL
+    //    in general, not in the resource registry, unrelated to the subject
+    //    token's own audience — and the txn arm checks it against the
+    //    configured trust domain itself;
+    //  * an ID-JAG's single `audience` names the *downstream authorization
+    //    server*, which `id_jag::issue` validates against the configured
+    //    chaining targets.
+    //
+    // `resource` still goes through the registry in both cases.
     let resources = resolve_requested_resources(
         &ctx.req.resource,
-        if is_txn_token { &[] } else { &ctx.req.audience },
+        if is_txn_token || is_id_jag {
+            &[]
+        } else {
+            &ctx.req.audience
+        },
         &ctx.subject.aud,
         ctx.subject.client_id.as_deref().unwrap_or_default(),
         &ctx.storage,
