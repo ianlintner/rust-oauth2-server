@@ -478,6 +478,11 @@ pub struct AuthorizeQuery {
     /// If present, the JWT payload claims override the corresponding query parameters.
     /// Supported signing: `alg=none` (public clients only), HS256, RS256.
     request: Option<String>,
+    /// `draft-oauth-ai-agents-on-behalf-of-user`: client_id of the agent the
+    /// user is being asked to let act on their behalf. Only honoured when
+    /// `AgentConfig::obo_enabled` is set; otherwise ignored (RFC 6749 §3.1
+    /// requires unrecognised parameters to be ignored).
+    requested_actor: Option<String>,
 }
 fn html_escape_attr(s: &str) -> String {
     s.replace('&', "&amp;")
@@ -750,6 +755,7 @@ pub async fn authorize(
         eff_authorization_details,
         eff_claims,
         eff_acr_values,
+        eff_requested_actor,
     ) = if let Some(ref request_uri) = query.request_uri {
         let entry = auth_actor
             .send(GetPARRequest {
@@ -775,6 +781,7 @@ pub async fn authorize(
             get("authorization_details").or_else(|| query.authorization_details.clone()),
             get("claims").or_else(|| query.claims.clone()),
             get("acr_values").or_else(|| query.acr_values.clone()),
+            get("requested_actor").or_else(|| query.requested_actor.clone()),
         )
     } else {
         (
@@ -788,6 +795,7 @@ pub async fn authorize(
             query.authorization_details.clone(),
             query.claims.clone(),
             query.acr_values.clone(),
+            query.requested_actor.clone(),
         )
     };
 
@@ -956,6 +964,48 @@ pub async fn authorize(
         ));
     }
 
+    // --- draft-oauth-ai-agents-on-behalf-of-user: named-agent consent ---
+    // `requested_actor` names the agent the user is being asked to let act on
+    // their behalf. The feature is opt-in: with `obo_enabled` off the
+    // parameter is an unrecognised one and RFC 6749 §3.1 requires it to be
+    // ignored. When on, it MUST name a registered client — resolved here,
+    // before the login gate, so an unknown agent never prompts the user.
+    //
+    // Resolved through the same entry point as the requesting client, so an
+    // agent named by a Client ID Metadata Document URL is recognised too. The
+    // actor is only read here, never materialized: nothing is issued against
+    // it at this point, and the row (if any) is the agent's own to create when
+    // it authenticates at the token endpoint.
+    let requested_actor: Option<oauth2_core::Client> = match eff_requested_actor
+        .as_deref()
+        .map(str::trim)
+        .filter(|a| !a.is_empty() && agent.obo_enabled)
+    {
+        None => None,
+        Some(actor_id) => {
+            match resolve_client(
+                actor_id,
+                client_actor.get_ref(),
+                cimd.as_ref().map(|d| d.get_ref()),
+                &agent,
+            )
+            .await
+            {
+                Ok(actor_client) => Some(actor_client),
+                Err(_) => {
+                    return build_authorize_error_redirect(
+                        "invalid_request",
+                        "unknown requested_actor",
+                        &redirect_uri,
+                        eff_state.as_deref(),
+                        &oidc_config.issuer,
+                        response_mode,
+                    );
+                }
+            }
+        }
+    };
+
     // --- User authentication gate ---
     // OIDC Core §3.1.2.1: handle `prompt` parameter (space-delimited list).
     let prompt_values: Vec<&str> = query
@@ -1076,6 +1126,28 @@ pub async fn authorize(
                 crate::handlers::client_resolver::client_display_name(&client),
             );
 
+            // Named-agent consent: tell the user, on the login page, which
+            // agent the client wants to act for them. Always written (or
+            // cleared) so a prompt left over from an abandoned authorization
+            // request is never shown against an unrelated one. Both parties
+            // are named the same way the requesting client is, since either
+            // may have been resolved from a metadata document.
+            match requested_actor {
+                Some(ref actor_client) => {
+                    let _ = session.insert(
+                        "requested_actor_display",
+                        format!(
+                            "{} wants {} to access your account on your behalf.",
+                            crate::handlers::client_resolver::client_display_name(&client),
+                            crate::handlers::client_resolver::client_display_name(actor_client),
+                        ),
+                    );
+                }
+                None => {
+                    session.remove("requested_actor_display");
+                }
+            }
+
             // Clear session so the login form is shown.
             if force_login || auth_expired {
                 session.remove("user_id");
@@ -1173,6 +1245,7 @@ pub async fn authorize(
             resource: eff_resource,
             authorization_details: eff_authorization_details,
             claims_request: eff_claims,
+            requested_actor: requested_actor.map(|c| c.client_id),
             span: tracing::Span::current(),
         })
         .await
@@ -1742,6 +1815,7 @@ pub async fn token(
                 storage.clone(),
                 metrics,
                 oidc_config,
+                keyset.clone(),
                 jwks_cache.clone(),
                 mtls_thumbprint.as_deref(),
                 mtls_subject_dn.as_deref(),
@@ -2119,6 +2193,97 @@ async fn handle_device_code_grant(
     Ok(no_store_headers(HttpResponse::Ok().json(response)))
 }
 
+/// `draft-oauth-ai-agents-on-behalf-of-user`: validate the `actor_token` that
+/// a code issued with `requested_actor` must be redeemed with, and build the
+/// `act` claim for the token about to be issued.
+///
+/// Returns `Ok(None)` when the code names no agent (or the feature is off),
+/// in which case no delegation is recorded — an `act` claim is only ever
+/// emitted against a validated basis.
+#[allow(clippy::too_many_arguments)]
+async fn resolve_named_actor(
+    auth_code: &oauth2_core::AuthorizationCode,
+    req: &TokenRequest,
+    agent: &oauth2_config::AgentConfig,
+    token_actor: &web::Data<TokenActorPool>,
+    storage: Option<&DynStorage>,
+    oidc_config: &OidcConfig,
+    keyset: Option<&std::sync::Arc<tokio::sync::RwLock<KeySet>>>,
+) -> Result<Option<serde_json::Value>, OAuth2Error> {
+    let actor_id = match auth_code
+        .requested_actor
+        .as_deref()
+        .map(str::trim)
+        .filter(|a| !a.is_empty() && agent.obo_enabled)
+    {
+        Some(actor_id) => actor_id,
+        None => return Ok(None),
+    };
+
+    let actor_token = req
+        .actor_token
+        .as_deref()
+        .filter(|t| !t.is_empty())
+        .ok_or_else(|| {
+            OAuth2Error::invalid_request(
+                "actor_token is required for a code issued with requested_actor",
+            )
+        })?;
+    let actor_token_type = req
+        .actor_token_type
+        .as_deref()
+        .filter(|t| !t.is_empty())
+        .ok_or_else(|| {
+            OAuth2Error::invalid_request("actor_token_type is required when actor_token is present")
+        })?;
+    if !matches!(
+        actor_token_type,
+        oauth2_core::token_types::ACCESS_TOKEN | oauth2_core::token_types::JWT
+    ) {
+        return Err(OAuth2Error::invalid_request(
+            "actor_token_type must be an access-token or jwt token type",
+        ));
+    }
+
+    let storage = storage.ok_or_else(|| {
+        OAuth2Error::new(
+            "server_error",
+            Some("Storage backend not configured for named-agent consent"),
+        )
+    })?;
+    let keyset_snapshot = match keyset {
+        Some(ks) => Some(ks.read().await.clone()),
+        None => None,
+    };
+
+    let resolved = crate::handlers::token_exchange::resolve_token(
+        actor_token,
+        actor_token_type,
+        "actor",
+        token_actor,
+        &req.client_id,
+        storage,
+        oidc_config,
+        keyset_snapshot.as_ref(),
+        false,
+    )
+    .await?;
+
+    // The consent the user gave names one agent; only that agent may collect
+    // the token it authorized.
+    if resolved.client_id.as_deref() != Some(actor_id) {
+        return Err(OAuth2Error::invalid_grant(
+            "actor_token was not issued to the requested_actor",
+        ));
+    }
+
+    Ok(Some(
+        oauth2_core::models::actor::Actor::new(actor_id, &oidc_config.issuer)
+            .with_profile(SUB_PROFILE_AI_AGENT)
+            .to_value(),
+    ))
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn handle_authorization_code_grant(
     req: TokenRequest,
@@ -2130,6 +2295,7 @@ async fn handle_authorization_code_grant(
     storage: Option<web::Data<DynStorage>>,
     metrics: web::Data<Metrics>,
     oidc_config: web::Data<OidcConfig>,
+    keyset: Option<web::Data<std::sync::Arc<tokio::sync::RwLock<KeySet>>>>,
     jwks_cache: Option<web::Data<JwksCache>>,
     mtls_thumbprint: Option<&str>,
     mtls_subject_dn: Option<&str>,
@@ -2252,6 +2418,22 @@ async fn handle_authorization_code_grant(
     // token rows below, which reference `clients(client_id)`.
     materialize_cimd_client(&client, client_actor.get_ref(), &agent).await?;
 
+    // --- draft-oauth-ai-agents-on-behalf-of-user: named-agent consent ---
+    // A code issued with `requested_actor` only redeems against proof that the
+    // named agent is really the party collecting the token: an `actor_token`
+    // issued to exactly that client. Checked before the code is burned so a
+    // malformed request does not cost the user a valid code.
+    let act_claim = resolve_named_actor(
+        &auth_code,
+        &req,
+        &agent,
+        &token_actor,
+        storage.as_ref().map(|d| d.get_ref()),
+        &oidc_config,
+        keyset.as_ref().map(|d| d.get_ref()),
+    )
+    .await?;
+
     // Only consume (burn) the authorization code after we've authenticated/authorized the client.
     // This prevents invalid_client errors from exhausting valid codes.
     auth_actor
@@ -2301,7 +2483,7 @@ async fn handle_authorization_code_grant(
             resources: auth_code.resource.clone().into_iter().collect(),
             cnf: cnf_claim.clone(),
             authorization_details: eff_auth_details,
-            act: None,
+            act: act_claim,
             ttl_override_secs: None,
             sub_profile: None,
             txn: None,
@@ -2642,7 +2824,9 @@ async fn handle_refresh_token_grant(
             resources: req.resource.clone(),
             cnf: old_cnf.clone(),
             authorization_details: None,
-            act: None,
+            // Phase 7 (7.C.4): a rotated token represents the same delegation
+            // as the one it replaces, so the recorded `act` chain carries over.
+            act: old_token.actor(),
             ttl_override_secs: None,
             sub_profile: None,
             txn: None,

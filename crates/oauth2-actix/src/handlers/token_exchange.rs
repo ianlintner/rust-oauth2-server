@@ -284,7 +284,7 @@ fn enforce_subject_proof_of_possession(
 // ---------------------------------------------------------------------------
 
 #[allow(clippy::too_many_arguments)]
-async fn resolve_token(
+pub(crate) async fn resolve_token(
     raw: &str,
     token_type: &str,
     which: &str,

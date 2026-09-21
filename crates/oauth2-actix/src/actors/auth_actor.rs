@@ -83,6 +83,10 @@ pub struct CreateAuthorizationCode {
     pub authorization_details: Option<String>,
     /// OIDC Core §5.5: JSON-encoded claims request parameter.
     pub claims_request: Option<String>,
+    /// `draft-oauth-ai-agents-on-behalf-of-user`: client_id of the agent the
+    /// user consented to act on their behalf. The token endpoint requires a
+    /// matching `actor_token` before it will honour the code.
+    pub requested_actor: Option<String>,
     pub span: tracing::Span,
 }
 
@@ -123,7 +127,7 @@ impl Handler<CreateAuthorizationCode> for AuthActor {
         Box::pin(
             async move {
                 let code = generate_code();
-                let auth_code = AuthorizationCode::new_with_ttl(
+                let mut auth_code = AuthorizationCode::new_with_ttl(
                     code,
                     msg.client_id.clone(),
                     msg.user_id.clone(),
@@ -137,6 +141,7 @@ impl Handler<CreateAuthorizationCode> for AuthActor {
                     msg.claims_request,
                     auth_code_ttl_secs,
                 );
+                auth_code.requested_actor = msg.requested_actor;
 
                 db.save_authorization_code(&auth_code).await?;
 
