@@ -35,6 +35,7 @@ fn agent_config_all_off() -> AgentConfig {
         cimd_enabled: false,
         cimd_allowed_hosts: vec![],
         cimd_denied_hosts: vec![],
+        cimd_max_clients: 1000,
         obo_enabled: false,
         a2a_profile_enabled: false,
         txn_token_ttl_secs: 300,

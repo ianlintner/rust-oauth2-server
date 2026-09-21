@@ -17,7 +17,9 @@ use crate::actors::{
     ValidateRefreshToken,
 };
 use crate::handlers::cimd::CimdFetcher;
-use crate::handlers::client_resolver::resolve_client;
+use crate::handlers::client_resolver::{
+    canonical_cimd_client_id, materialize_cimd_client, resolve_client,
+};
 use crate::handlers::dpop::{
     build_request_url_bounded, enforce_dpop_nonce, validate_dpop_proof, DpopReplayStore,
 };
@@ -1014,9 +1016,12 @@ pub async fn authorize(
             // Name the requesting client on the login page. A CIMD client is
             // shown with the host its metadata came from, so two agents
             // claiming the same name are distinguishable.
+            let display = crate::handlers::client_resolver::client_display_name(&client);
+            // The name comes from a self-asserted document, so bound what goes
+            // into the session cookie (and onto the login page).
             let _ = session.insert(
                 "client_display",
-                crate::handlers::client_resolver::client_display_name(&client),
+                display.chars().take(64).collect::<String>(),
             );
 
             // Clear session so the login form is shown.
@@ -1099,9 +1104,14 @@ pub async fn authorize(
         }
     }
 
+    // The request has now cleared redirect_uri, PKCE and user authentication,
+    // so a CIMD client may be persisted — the authorization code below carries
+    // a foreign key to `clients(client_id)`.
+    materialize_cimd_client(&client, client_actor.get_ref(), &agent).await?;
+
     let auth_code = auth_actor
         .send(CreateAuthorizationCode {
-            client_id: query.client_id.clone(),
+            client_id: client.client_id.clone(),
             user_id,
             redirect_uri: redirect_uri.clone(),
             scope,
@@ -1497,6 +1507,11 @@ pub async fn token(
         .or(basic_client_id)
         .or_else(|| form_map.get("client_id").cloned())
         .ok_or_else(|| OAuth2Error::invalid_request("Missing client_id"))?;
+    // Collapse the spellings of a metadata-document URL to one identifier, so
+    // client authentication, rate limiting and the rows written below all key
+    // on the same string the authorization code was issued against.
+    let client_id =
+        canonical_cimd_client_id(&client_id, cimd.as_ref().map(|d| d.get_ref()), &agent);
     let client_secret = body_client_secret.or(basic_client_secret);
 
     let client_assertion_type = form_map.get("client_assertion_type").cloned();
@@ -1855,6 +1870,10 @@ async fn handle_device_code_grant(
         mtls_subject_dn,
     )?;
 
+    // Client authentication succeeded; a CIMD client may now be persisted so
+    // the rows issued below satisfy the foreign key on `clients(client_id)`.
+    materialize_cimd_client(&client, client_actor.get_ref(), &agent).await?;
+
     if !client.supports_grant_type(DEVICE_CODE_GRANT_TYPE)
         && !client.supports_grant_type("device_code")
     {
@@ -2098,6 +2117,10 @@ async fn handle_authorization_code_grant(
         )?;
     }
 
+    // Client authentication succeeded; a CIMD client may now be persisted so
+    // the rows issued below satisfy the foreign key on `clients(client_id)`.
+    materialize_cimd_client(&client, client_actor.get_ref(), &agent).await?;
+
     // Only consume (burn) the authorization code after we've authenticated/authorized the client.
     // This prevents invalid_client errors from exhausting valid codes.
     auth_actor
@@ -2284,6 +2307,10 @@ async fn handle_client_credentials_grant(
         mtls_subject_dn,
     )?;
 
+    // Client authentication succeeded; a CIMD client may now be persisted so
+    // the rows issued below satisfy the foreign key on `clients(client_id)`.
+    materialize_cimd_client(&client, client_actor.get_ref(), &agent).await?;
+
     let scope = req.scope.unwrap_or_else(|| "read".to_string());
 
     validate_scope_subset(&scope, &client.scope)?;
@@ -2361,6 +2388,10 @@ async fn handle_refresh_token_grant(
             mtls_subject_dn,
         )?;
     }
+
+    // Client authentication succeeded; a CIMD client may now be persisted so
+    // the rows issued below satisfy the foreign key on `clients(client_id)`.
+    materialize_cimd_client(&client, client_actor.get_ref(), &agent).await?;
 
     // Verify the client is authorized to use the refresh_token grant type.
     if !client.supports_grant_type("refresh_token") {

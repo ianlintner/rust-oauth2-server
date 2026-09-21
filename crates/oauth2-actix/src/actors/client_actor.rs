@@ -557,14 +557,23 @@ impl Handler<DeleteClient> for ClientActor {
 /// authoritative — the row is rewritten whenever it drifts from the document —
 /// and a row that carries a client secret is never overwritten, so a metadata
 /// document can never take over a registered, credentialed client.
+///
+/// `max_clients` caps how many `cimd_managed` rows may exist. The `client_id`
+/// is attacker-chosen, so a *new* row is refused once the registry is full;
+/// refreshing rows that already exist keeps working.
 #[derive(Message)]
 #[rtype(result = "Result<(), OAuth2Error>")]
 pub struct MaterializeCimdClient {
     pub client: Client,
+    pub max_clients: usize,
     pub span: tracing::Span,
 }
 
 /// Compare the stored row against the document on the fields the document owns.
+///
+/// Deliberately excludes everything an operator controls (`enabled`,
+/// `allowed_actors`, `dpop_nonce_required`, …) — those are not the document's
+/// to change, so drift in them must not trigger a rewrite.
 fn cimd_row_matches(stored: &Client, doc: &Client) -> bool {
     stored.redirect_uris == doc.redirect_uris
         && stored.grant_types == doc.grant_types
@@ -576,7 +585,18 @@ fn cimd_row_matches(stored: &Client, doc: &Client) -> bool {
         && stored.jwks_uri == doc.jwks_uri
         && stored.client_uri == doc.client_uri
         && stored.logo_uri == doc.logo_uri
-        && stored.enabled
+        && stored.cimd_managed
+}
+
+/// Carry operator-owned state from the stored row onto the document-derived
+/// client, so refreshing from the document never reverts an operator decision.
+fn preserve_operator_state(doc: &mut Client, existing: &Client) {
+    doc.id = existing.id.clone();
+    doc.enabled = existing.enabled;
+    doc.allowed_actors = existing.allowed_actors.clone();
+    doc.dpop_nonce_required = existing.dpop_nonce_required;
+    doc.registration_access_token = existing.registration_access_token.clone();
+    doc.require_state = existing.require_state;
 }
 
 impl Handler<MaterializeCimdClient> for ClientActor {
@@ -604,9 +624,13 @@ impl Handler<MaterializeCimdClient> for ClientActor {
         );
         annotate_span_with_trace_ids(&actor_span);
 
+        let max_clients = msg.max_clients;
+
         Box::pin(
             async move {
                 let mut client = msg.client;
+                client.cimd_managed = true;
+
                 match db.get_client(&client.client_id).await? {
                     Some(existing) => {
                         if !existing.client_secret.is_empty() {
@@ -614,15 +638,36 @@ impl Handler<MaterializeCimdClient> for ClientActor {
                                 "client_id is already registered with credentials",
                             ));
                         }
+                        preserve_operator_state(&mut client, &existing);
                         if cimd_row_matches(&existing, &client) {
                             let _ = self_addr.try_send(CacheClient { client });
                             return Ok(());
                         }
-                        // Keep the row's primary key so the update targets it.
-                        client.id = existing.id;
                         db.update_client(&client).await?;
                     }
-                    None => db.save_client(&client).await?,
+                    None => {
+                        if max_clients > 0 && db.count_cimd_clients().await? >= max_clients as u64 {
+                            tracing::warn!(
+                                client_id = %client.client_id,
+                                max_clients,
+                                "CIMD client registry is full; refusing a new client"
+                            );
+                            return Err(OAuth2Error::invalid_client(
+                                "client metadata registry is full",
+                            ));
+                        }
+                        // A concurrent request may have inserted the same row
+                        // between the lookup and here; that is the outcome we
+                        // wanted, so adopt it instead of failing the request.
+                        if let Err(e) = db.save_client(&client).await {
+                            match db.get_client(&client.client_id).await? {
+                                Some(existing) => {
+                                    preserve_operator_state(&mut client, &existing);
+                                }
+                                None => return Err(e),
+                            }
+                        }
+                    }
                 }
 
                 let _ = self_addr.try_send(CacheClient {

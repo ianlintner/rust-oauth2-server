@@ -113,6 +113,14 @@ pub struct Client {
     #[serde(default = "default_allowed_actors")]
     #[cfg_attr(feature = "sqlx", sqlx(default))]
     pub allowed_actors: String,
+    /// Phase 7 (agent/A2A OAuth): `true` when this row was materialized from a
+    /// Client ID Metadata Document rather than created through registration.
+    /// The document stays authoritative for such a client; the row exists so
+    /// that authorization codes and tokens (which reference
+    /// `clients(client_id)`) can be stored against it. Defaults to `false`.
+    #[serde(default)]
+    #[cfg_attr(feature = "sqlx", sqlx(default))]
+    pub cimd_managed: bool,
 }
 
 fn default_true() -> bool {
@@ -164,6 +172,7 @@ impl Client {
             tls_client_certificate_subject_dn: String::new(),
             dpop_nonce_required: false,
             allowed_actors: default_allowed_actors(),
+            cimd_managed: false,
         }
     }
 

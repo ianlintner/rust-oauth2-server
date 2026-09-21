@@ -26,7 +26,7 @@ use oauth2_ports::DynStorage;
 
 use crate::actors::{ClientActor, CreateToken, TokenActorPool};
 use crate::handlers::cimd::CimdFetcher;
-use crate::handlers::client_resolver::resolve_client;
+use crate::handlers::client_resolver::{materialize_cimd_client, resolve_client};
 use crate::handlers::jwks_cache::JwksCache;
 use crate::handlers::oauth::{
     apply_dpop_token_type, authenticate_confidential_client, enforce_jti_replay, no_store_headers,
@@ -104,6 +104,10 @@ pub(crate) async fn handle_jwt_bearer_grant(
         mtls_thumbprint,
         mtls_subject_dn,
     )?;
+
+    // Client authentication succeeded; a CIMD client may now be persisted so
+    // the tokens issued below satisfy the foreign key on `clients(client_id)`.
+    materialize_cimd_client(&client, client_actor.get_ref(), &agent).await?;
 
     // --- 2. Resolve the trusted issuer from the unverified `iss` ---------
     let header = jsonwebtoken::decode_header(&assertion)

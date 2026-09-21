@@ -44,7 +44,7 @@ pub(crate) fn validate_redirect_uri(uri: &str) -> Result<(), OAuth2Error> {
     Ok(())
 }
 
-fn validate_grant_types(grant_types: &[String]) -> Result<(), OAuth2Error> {
+pub(crate) fn validate_grant_types(grant_types: &[String]) -> Result<(), OAuth2Error> {
     // Keep registration honest: only allow grant types that the server actually supports.
     // (prevents clients from registering for unsupported grants like implicit).
     const SUPPORTED: [&str; 4] = [
@@ -132,7 +132,7 @@ const PRIVILEGED_SCOPES: &[&str] = &["admin", "write"];
 
 /// True if any space-delimited token in `scope` is a privileged scope
 /// (case-insensitive, exact-token match — `"administrator"` does not match).
-fn scope_contains_privileged(scope: &str) -> bool {
+pub(crate) fn scope_contains_privileged(scope: &str) -> bool {
     scope
         .split_whitespace()
         .any(|s| PRIVILEGED_SCOPES.iter().any(|p| p.eq_ignore_ascii_case(s)))

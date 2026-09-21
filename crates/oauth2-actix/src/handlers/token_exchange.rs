@@ -29,7 +29,7 @@ use oauth2_ports::DynStorage;
 
 use crate::actors::{ClientActor, CreateToken, LookupToken, TokenActorPool};
 use crate::handlers::cimd::CimdFetcher;
-use crate::handlers::client_resolver::resolve_client;
+use crate::handlers::client_resolver::{materialize_cimd_client, resolve_client};
 use crate::handlers::jwks_cache::JwksCache;
 use crate::handlers::oauth::{
     authenticate_confidential_client, no_store_headers, resolve_client_jwks, validate_scope_subset,
@@ -132,6 +132,10 @@ pub(crate) async fn exchange(
         mtls_thumbprint,
         mtls_subject_dn,
     )?;
+
+    // Client authentication succeeded; a CIMD client may now be persisted so
+    // the tokens issued below satisfy the foreign key on `clients(client_id)`.
+    materialize_cimd_client(&client, client_actor.get_ref(), &config).await?;
 
     // --- Step 2: resolve the subject token. ---------------------------------
     let subject_token = req

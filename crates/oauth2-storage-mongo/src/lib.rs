@@ -364,6 +364,13 @@ impl Storage for MongoStorage {
             .map_err(Self::mongo_err_to_oauth)
     }
 
+    async fn count_cimd_clients(&self) -> Result<u64, OAuth2Error> {
+        self.clients
+            .count_documents(doc! { "cimd_managed": true })
+            .await
+            .map_err(Self::mongo_err_to_oauth)
+    }
+
     async fn update_client(&self, client: &Client) -> Result<(), OAuth2Error> {
         let filter = doc! { "client_id": &client.client_id };
         self.clients

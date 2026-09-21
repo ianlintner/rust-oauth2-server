@@ -10,9 +10,20 @@
 //!
 //! Routing that choice in one place keeps every endpoint — authorize, PAR and
 //! each token grant — agreeing on which clients exist and on the validation a
-//! CIMD-derived client must still pass.
+//! CIMD-derived client must still pass. A metadata document is self-asserted,
+//! so it is held to the same rules registration applies: no privileged scopes,
+//! no unsupported grant types, no dangerous redirect-URI schemes.
+//!
+//! Resolution never writes. Authorization codes and tokens carry a foreign key
+//! to `clients(client_id)`, so a CIMD client has to exist as a row before
+//! anything is issued against it — but that write happens later, through
+//! [`materialize_cimd_client`], once the request has proven itself (a matching
+//! redirect URI and PKCE at `/authorize`, successful client authentication at
+//! `/oauth/token`). An unauthenticated caller therefore cannot drive rows into
+//! the `clients` table by naming URLs.
 
 use actix::Addr;
+use url::Url;
 
 use oauth2_config::AgentConfig;
 use oauth2_core::{Client, OAuth2Error};
@@ -23,12 +34,16 @@ use crate::handlers::cimd::{is_client_id_url, CimdFetcher};
 /// Returned whenever a URL `client_id` arrives but CIMD is switched off.
 const CIMD_DISABLED: &str = "client_id metadata documents are not enabled";
 
-/// Resolve `client_id` to a [`Client`].
+/// Resolve `client_id` to a [`Client`], without writing anything.
 ///
 /// A URL `client_id` is dereferenced as a metadata document when CIMD is
 /// enabled and a fetcher is available, and rejected with `invalid_client`
 /// otherwise — never silently looked up in storage, which would let a URL
 /// collide with a registered identifier.
+///
+/// A client resolved from a document is returned with `cimd_managed = true`
+/// and a normalized `client_id`; pass it to [`materialize_cimd_client`] before
+/// issuing anything against it.
 pub(crate) async fn resolve_client(
     client_id: &str,
     client_actor: &Addr<ClientActor>,
@@ -37,28 +52,27 @@ pub(crate) async fn resolve_client(
 ) -> Result<Client, OAuth2Error> {
     let fetcher: Option<&CimdFetcher> = cimd.filter(|_| agent.cimd_enabled);
 
-    // A fetcher built for tests accepts loopback `http` URLs that the plain
-    // shape check rejects, so ask it when there is one.
-    let is_url: bool = match fetcher {
-        Some(f) => f.accepts_client_id(client_id),
-        None => is_client_id_url(client_id),
-    };
-
-    if is_url {
+    if let Some(canonical) = cimd_url_target(client_id, fetcher) {
         let fetcher: &CimdFetcher =
             fetcher.ok_or_else(|| OAuth2Error::invalid_client(CIMD_DISABLED))?;
-        let client: Client = fetcher.resolve(client_id).await?;
-        validate_metadata_redirect_uris(&client)?;
-        // Authorization codes and tokens are stored with a foreign key to
-        // `clients(client_id)`, so the document has to exist as a client row
-        // before anything can be issued against it.
-        client_actor
-            .send(MaterializeCimdClient {
-                client: client.clone(),
+        let mut client: Client = fetcher.resolve(&canonical).await?;
+        validate_metadata_document(&client)?;
+        client.cimd_managed = true;
+
+        // An operator who disabled the row must stay in control of it: the
+        // document cannot re-enable itself by changing.
+        if let Ok(Ok(existing)) = client_actor
+            .send(GetClient {
+                client_id: canonical.clone(),
                 span: tracing::Span::current(),
             })
             .await
-            .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))??;
+        {
+            if !existing.enabled {
+                return Err(OAuth2Error::invalid_client("client is disabled"));
+            }
+        }
+
         return Ok(client);
     }
 
@@ -71,14 +85,93 @@ pub(crate) async fn resolve_client(
         .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))?
 }
 
-/// Apply the registration-time redirect-URI rules to a fetched document.
+/// Persist the `clients` row for a client resolved from a metadata document.
 ///
-/// The document is attacker-supplied and never passed through
-/// `/clients/register`, so without this a CIMD client could declare
-/// `javascript:` or `data:` redirect URIs and have them accepted at
-/// `/authorize`. One bad entry rejects the whole document, matching what
-/// registration does.
-fn validate_metadata_redirect_uris(client: &Client) -> Result<(), OAuth2Error> {
+/// A no-op for every other client. Call this once the request has been
+/// validated (redirect URI + PKCE, or client authentication) and before
+/// storing an authorization code or token, so the foreign key on
+/// `clients(client_id)` resolves.
+pub(crate) async fn materialize_cimd_client(
+    client: &Client,
+    client_actor: &Addr<ClientActor>,
+    agent: &AgentConfig,
+) -> Result<(), OAuth2Error> {
+    if !client.cimd_managed {
+        return Ok(());
+    }
+
+    client_actor
+        .send(MaterializeCimdClient {
+            client: client.clone(),
+            max_clients: agent.cimd_max_clients,
+            span: tracing::Span::current(),
+        })
+        .await
+        .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))?
+}
+
+/// The canonical URL to dereference for `client_id`, or `None` when this is
+/// not a metadata-document identifier.
+///
+/// A fetcher built for tests accepts loopback `http` URLs that the plain shape
+/// check rejects, so ask it when there is one.
+fn cimd_url_target(client_id: &str, fetcher: Option<&CimdFetcher>) -> Option<String> {
+    let canonical: String = canonical_client_id(client_id);
+    let is_url: bool = match fetcher {
+        Some(f) => f.accepts_client_id(&canonical),
+        None => is_client_id_url(&canonical),
+    };
+    is_url.then_some(canonical)
+}
+
+/// The spelling of `client_id` every endpoint must key on.
+///
+/// A metadata-document identifier collapses to its canonical URL, so one
+/// document cannot end up with two `clients` rows, two cache entries or an
+/// authorization code whose `client_id` does not match the token request's.
+/// Every other identifier is returned unchanged.
+pub(crate) fn canonical_cimd_client_id(
+    client_id: &str,
+    cimd: Option<&CimdFetcher>,
+    agent: &AgentConfig,
+) -> String {
+    cimd_url_target(client_id, cimd.filter(|_| agent.cimd_enabled))
+        .unwrap_or_else(|| client_id.to_string())
+}
+
+/// Canonical spelling of a `client_id` URL.
+///
+/// `HTTPS://App.Example.COM:443/agent` and `https://app.example.com/agent`
+/// name the same document, so both must collapse to one cache key, one fetch
+/// target and one `clients` row. Anything that is not an http(s) URL — every
+/// registered, opaque `client_id` — is returned unchanged.
+pub(crate) fn canonical_client_id(client_id: &str) -> String {
+    match Url::parse(client_id) {
+        Ok(url) if matches!(url.scheme(), "https" | "http") => url.to_string(),
+        _ => client_id.to_string(),
+    }
+}
+
+/// Hold a fetched metadata document to the rules registration enforces.
+///
+/// The document is self-asserted by whoever controls the URL, so without this
+/// a client could hand itself `admin` scope, a grant type registration
+/// forbids, or a `javascript:` redirect URI.
+fn validate_metadata_document(client: &Client) -> Result<(), OAuth2Error> {
+    if crate::handlers::client::scope_contains_privileged(&client.scope) {
+        return Err(OAuth2Error::invalid_client(
+            "client metadata requests a privileged scope",
+        ));
+    }
+
+    let grant_types: Vec<String> = client.get_grant_types();
+    crate::handlers::client::validate_grant_types(&grant_types).map_err(|e| {
+        OAuth2Error::invalid_client(&format!(
+            "client metadata grant_types are not usable: {}",
+            e.error_description.as_deref().unwrap_or("invalid")
+        ))
+    })?;
+
     for uri in client.get_redirect_uris() {
         crate::handlers::client::validate_redirect_uri(&uri).map_err(|e| {
             OAuth2Error::invalid_client(&format!(
@@ -87,6 +180,7 @@ fn validate_metadata_redirect_uris(client: &Client) -> Result<(), OAuth2Error> {
             ))
         })?;
     }
+
     Ok(())
 }
 
@@ -103,7 +197,7 @@ pub(crate) fn client_display_name(client: &Client) -> String {
 }
 
 fn metadata_host(client_id: &str) -> Option<String> {
-    let url = url::Url::parse(client_id).ok()?;
+    let url = Url::parse(client_id).ok()?;
     if !matches!(url.scheme(), "https" | "http") {
         return None;
     }
@@ -141,21 +235,65 @@ mod tests {
     }
 
     #[test]
-    fn metadata_redirect_uris_reject_dangerous_schemes() {
+    fn canonical_client_id_collapses_url_spellings() {
+        assert_eq!(
+            canonical_client_id("HTTPS://App.Example.COM:443/agent"),
+            "https://app.example.com/agent"
+        );
+        assert_eq!(
+            canonical_client_id("https://app.example.com/agent"),
+            "https://app.example.com/agent"
+        );
+    }
+
+    #[test]
+    fn canonical_client_id_leaves_registered_identifiers_alone() {
+        assert_eq!(canonical_client_id("test-client"), "test-client");
+        assert_eq!(canonical_client_id("urn:example:app"), "urn:example:app");
+    }
+
+    #[test]
+    fn metadata_document_rejects_dangerous_redirect_schemes() {
         let c = client(
             "https://app.example.com/agent",
             vec!["javascript:alert(1)".to_string()],
         );
-        let err = validate_metadata_redirect_uris(&c).expect_err("javascript: must be rejected");
+        let err = validate_metadata_document(&c).expect_err("javascript: must be rejected");
         assert_eq!(err.error, "invalid_client");
     }
 
     #[test]
-    fn metadata_redirect_uris_accept_https() {
+    fn metadata_document_rejects_privileged_scopes() {
+        let mut c = client(
+            "https://app.example.com/agent",
+            vec!["https://app.example.com/cb".to_string()],
+        );
+        c.scope = "openid admin".to_string();
+        let err = validate_metadata_document(&c).expect_err("admin scope must be rejected");
+        assert_eq!(
+            err.error_description.as_deref(),
+            Some("client metadata requests a privileged scope")
+        );
+    }
+
+    #[test]
+    fn metadata_document_rejects_unsupported_grant_types() {
+        let mut c = client(
+            "https://app.example.com/agent",
+            vec!["https://app.example.com/cb".to_string()],
+        );
+        c.grant_types = serde_json::to_string(&["urn:ietf:params:oauth:grant-type:token-exchange"])
+            .expect("serialize");
+        let err = validate_metadata_document(&c).expect_err("token-exchange must be rejected");
+        assert_eq!(err.error, "invalid_client");
+    }
+
+    #[test]
+    fn metadata_document_accepts_an_ordinary_agent() {
         let c = client(
             "https://app.example.com/agent",
             vec!["https://app.example.com/cb".to_string()],
         );
-        assert!(validate_metadata_redirect_uris(&c).is_ok());
+        assert!(validate_metadata_document(&c).is_ok());
     }
 }

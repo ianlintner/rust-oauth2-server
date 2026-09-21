@@ -1,0 +1,11 @@
+-- Phase 7 (agent/A2A OAuth): mark client rows that were materialized from a
+-- Client ID Metadata Document (draft-ietf-oauth-client-id-metadata-document)
+-- rather than created through registration or the admin endpoint.
+--
+-- A CIMD client identifies itself with an HTTPS URL that the authorization
+-- server dereferences on demand. The row exists only so that authorization
+-- codes and tokens — which carry a foreign key to clients(client_id) — can be
+-- stored against it; the fetched document stays authoritative. Flagging these
+-- rows keeps them distinguishable from registered clients in the admin UI and
+-- lets the server cap how many of them may accumulate.
+ALTER TABLE clients ADD COLUMN cimd_managed BOOLEAN NOT NULL DEFAULT FALSE;
