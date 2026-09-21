@@ -1,3 +1,85 @@
+## [1.1.0] — 2026-09-21
+
+**Phase 7 — Agent & A2A Authorization.** AI agents (and agents calling
+agents) can now obtain, delegate and chain OAuth tokens. Every capability
+below is off by default and only advertised in discovery once its
+`OAUTH2_*` flag is enabled — see [`docs/agents/README.md`](docs/agents/README.md)
+for configuration and worked `curl` examples, and
+[`docs/oauth2-spec-audit.md` §10](docs/oauth2-spec-audit.md#10-phase-7--agent--a2a-authorization)
+for the full chunk tracker.
+
+### Added
+
+- RFC 8693 Token Exchange, fully implemented: `actor_token`/`act`/`may_act`
+  delegation, actor-profile `act` chains (depth-limited via
+  `OAUTH2_MAX_DELEGATION_DEPTH`), audience/resource validation against a new
+  protected-resources registry, and RAR (RFC 9396) subset enforcement across
+  exchanges.
+- `act`, `cnf`, and `resource` are now persisted on tokens and exposed by
+  introspection (`POST /oauth/introspect`).
+- Protected-resource registry (`resources` table) with admin CRUD at
+  `/admin/resources`, and per-resource Protected Resource Metadata at
+  `GET /.well-known/oauth-protected-resource/{id}` (RFC 9728 §3.1).
+- Trusted-issuer registry (`trusted_issuers` table) with admin CRUD at
+  `/admin/trusted-issuers`, backing a new
+  `urn:ietf:params:oauth:grant-type:jwt-bearer` authorization grant
+  (RFC 7523 §2.1) with JIT user provisioning.
+- Identity chaining and Identity Assertion Authorization Grant (ID-JAG)
+  support (`draft-ietf-oauth-identity-chaining`,
+  `draft-ietf-oauth-identity-assertion-authz-grant`): both acceptance (as an
+  assertion on the jwt-bearer grant) and issuance (via token exchange with
+  `requested_token_type=id-jag`), gated by `OAUTH2_ID_JAG_ENABLED`.
+- Transaction Tokens (`draft-ietf-oauth-transaction-tokens`) with the
+  draft-liu-oauth-a2a-profile claims (`purp`, immutable `tctx`), gated by
+  `OAUTH2_TXN_TOKENS_ENABLED` and `OAUTH2_TRUST_DOMAIN`, requiring asymmetric
+  client authentication.
+- Transaction Authorization Challenge
+  (`draft-rosomakho-oauth-txn-challenge`): `POST /oauth/transaction_authorization`,
+  a human approval page, and a polling grant
+  (`urn:ietf:params:oauth:grant-type:transaction-authorization`), gated by
+  `OAUTH2_TAC_ENABLED`.
+- Client ID Metadata Document (CIMD) support
+  (`draft-ietf-oauth-client-id-metadata-document`): URL-shaped `client_id`s
+  are resolved (SSRF-guarded, ≤5 KB, HTTPS-only) at `/authorize`, `/oauth/par`
+  and `/oauth/token`, gated by `OAUTH2_CIMD_ENABLED` and capped by
+  `OAUTH2_CIMD_MAX_CLIENTS`.
+- Named-agent consent: `requested_actor` on `/authorize` plus `actor_token`
+  at code exchange, so a consent screen can name the agent acting for the
+  user, gated by `OAUTH2_AGENT_OBO_ENABLED`.
+- Workload identity polish: SAN-based mTLS client auth
+  (`tls_client_auth_san_uri`/`_dns`), RFC 7591 §2.3 software statements
+  attested via trusted issuers, `sub_profile` classification (`user` /
+  `service` / `ai_agent`) on access tokens, and an optional AI-agent
+  access-token TTL cap (`OAUTH2_AI_AGENT_ACCESS_TOKEN_TTL_SECS`).
+- DPoP `ath` claim validation on introspection and a storage-backed DPoP
+  `jti` replay store (`dpop_jtis`), replacing the in-memory-only replay guard
+  for multi-instance deployments.
+- Migrations V23–V31 for all of the above (delegation columns on `tokens`,
+  the `resources` and `trusted_issuers` tables, `allowed_actors` on
+  `clients`, `requested_actor` on `authorization_codes`, `dpop_jtis`,
+  `transaction_authorizations`, workload-identity columns, `cimd_managed`).
+
+### Changed
+
+- `docs/oauth2-spec-audit.md` §1 (Current Implementation Inventory) corrected
+  for Token Exchange, the JWT authorization grant, DPoP, mutual-TLS, and RFC
+  9728 Protected Resource Metadata — these had shipped in earlier waves but
+  §1 had gone stale.
+
+### Security
+
+- Trusted issuers are an explicit, admin-controlled registry (`allowed_audiences`,
+  `subject_mapping`, `allowed_client_ids`, `jit_provision`); email-based
+  subject mapping trusts the issuer to assert accurate local email addresses.
+  See `docs/agents/README.md#security-considerations`.
+- CIMD fetches are SSRF-guarded (loopback, private/link-local/CGNAT ranges
+  blocked; HTTPS-only; no redirects; ≤5 KB); materialized `clients` rows are
+  capped by `OAUTH2_CIMD_MAX_CLIENTS` and never overwrite operator-set fields
+  on re-fetch. Row cleanup is not yet automated — a documented follow-up.
+  See `docs/agents/README.md#security-considerations`.
+- RFC 9470 step-up enforcement for the Transaction Authorization Challenge is
+  documented but not yet implemented — a documented follow-up.
+
 ## [1.0.0] — 2026-06-21
 
 **Breaking changes — consolidates all Dependabot dependency upgrades into a single major release.**

@@ -84,6 +84,7 @@ The default local path uses SQLite. If you want Postgres plus the supporting ser
 
 - OAuth2: Authorization Code + PKCE, Client Credentials, introspection, revocation
 - OIDC: discovery, JWKS, UserInfo
+- Agent / A2A OAuth (Phase 7, opt-in via `OAUTH2_*` flags): RFC 8693 token exchange with actor delegation chains, JWT-bearer grant + identity chaining / ID-JAG, transaction tokens with the A2A profile, the Transaction Authorization Challenge (human-in-the-loop approval), Client ID Metadata Document onboarding, named-agent consent — see [`docs/agents/README.md`](docs/agents/README.md)
 - Admin surface: HTML dashboard plus JSON admin API
 - Operations: `/health`, `/ready`, `/metrics`, OpenTelemetry export
 - Runtime controls: rate limiting, eventing, resilience middleware, Redis-backed distributed profile
@@ -94,12 +95,14 @@ Important reality checks:
 - refresh-token and password grants are present in code paths but disabled by default
 - Google, Microsoft, GitHub, and Azure login flows are wired; `/auth/login/azure` prefers `OAUTH2_AZURE_*` config and falls back to Microsoft if unset; Okta/Auth0 currently return `503`
 - the repo ships Kustomize manifests, not Helm charts
+- every agent/A2A OAuth capability defaults to off and is only advertised in discovery once its flag is set
 
 ## Docs by job
 
 - run it locally: [`docs/getting-started/quickstart.md`](docs/getting-started/quickstart.md)
 - configure it: [`docs/getting-started/configuration.md`](docs/getting-started/configuration.md)
 - integrate a client: [`docs/usage/oauth2-oidc.md`](docs/usage/oauth2-oidc.md)
+- integrate an AI agent / A2A flow: [`docs/agents/README.md`](docs/agents/README.md)
 - manage/administer it: [`docs/usage/admin-api.md`](docs/usage/admin-api.md)
 - deploy and operate it: [`docs/operations/deployment.md`](docs/operations/deployment.md), [`docs/operations/observability.md`](docs/operations/observability.md), [`docs/operations/runbooks.md`](docs/operations/runbooks.md)
 - extend the workspace: [`docs/development/architecture.md`](docs/development/architecture.md), [`docs/development/extending.md`](docs/development/extending.md)

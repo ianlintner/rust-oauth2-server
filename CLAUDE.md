@@ -174,6 +174,20 @@ existing clients (migration `V12__add_token_endpoint_auth_method.sql`).
 | `tests/device_flow.rs` | RFC 8628 Device Authorization Grant |
 | `tests/opaque_tokens.rs` | Opaque access token issuance + introspection |
 | `tests/bdd/` | Cucumber BDD feature tests (harness = false) |
+| `tests/dpop_ath_replay.rs` | DPoP `ath` claim validation + storage-backed `jti` replay store (Phase 7.B.4) |
+| `tests/agent_token_persistence.rs` | `act`/`cnf`/`resource` persisted on tokens, exposed via introspection (Phase 7.A) |
+| `tests/agent_resources_registry.rs` | Protected-resource registry storage + `/admin/resources` CRUD (Phase 7.B.3) |
+| `tests/agent_client_columns.rs` | `clients.allowed_actors` + `authorization_codes.requested_actor` persistence (Phase 7.C/7.A) |
+| `tests/agent_trusted_issuers.rs` | Trusted-issuer registry storage + `/admin/trusted-issuers` CRUD (Phase 7.D) |
+| `tests/agent_token_exchange.rs` | RFC 8693 token exchange: actor delegation, `may_act`/`allowed_actors`, audience/RAR narrowing (Phase 7.A) |
+| `tests/agent_jwt_bearer_grant.rs` | `urn:ietf:params:oauth:grant-type:jwt-bearer` grant + ID-JAG acceptance (Phase 7.D) |
+| `tests/agent_discovery.rs` | Discovery flags + per-resource Protected Resource Metadata (Phase 7.B/7.D) |
+| `tests/agent_id_jag_issue.rs` | ID-JAG / identity-chaining JWT issuance via token exchange (Phase 7.D) |
+| `tests/agent_txn_tokens.rs` | Transaction Token issuance, replacement, and the A2A profile (Phase 7.E) |
+| `tests/agent_tac.rs` | Transaction Authorization Challenge: challenge intake, approval, polling grant (Phase 7.F) |
+| `tests/agent_workload_identity.rs` | SAN mTLS auth, software statements, `sub_profile`, AI-agent TTL cap (Phase 7.G) |
+| `tests/agent_cimd_flow.rs` | CIMD resolution integrated into `/authorize`, `/oauth/par`, `/oauth/token` (Phase 7.B.1) |
+| `tests/agent_obo_consent.rs` | Named-agent consent: `requested_actor` at `/authorize`, `actor_token` at code exchange (Phase 7.C) |
 
 ### How to Run
 
@@ -254,6 +268,15 @@ code flows.
 If a handler panics with `500` in tests, the most common cause is a missing
 `app_data` entry — check this first.
 
+**Phase 7 (agent/A2A OAuth):** handlers that read `AgentConfig` (token
+exchange, jwt-bearer, ID-JAG, txn tokens, TAC, CIMD resolution, discovery)
+take it as `Option<web::Data<AgentConfig>>` and fall back to
+`AgentConfig::default()` (all flags off) when absent — per Global Constraints,
+this keeps every pre-existing inline `App::new()` builder in
+`tests/security_http.rs` and `tests/rfc_compliance.rs` compiling without
+changes. Only tests that exercise a Phase 7 flag need to add
+`.app_data(web::Data::new(agent_config))` explicitly.
+
 ---
 
 ## Current Phase 1 Progress
@@ -299,7 +322,23 @@ steps 3–5 in one (slower) command.
 3. **DB migration** → every column added to `clients` / `tokens` / `users` needs
    a new `migrations/sql/Vn__description.sql` file AND the `save_*` functions in
    `crates/oauth2-storage-sqlx/src/sqlx.rs` (both SQLite and Postgres branches)
-   AND the MongoDB equivalent in `crates/oauth2-storage-mongo/`.
+   AND the MongoDB equivalent in `crates/oauth2-storage-mongo/`. Current
+   highest migration: **V31** (`V23`–`V31` are the Phase 7 agent/A2A
+   migrations — delegation columns on `tokens`, `resources`,
+   `trusted_issuers`, `allowed_actors` on `clients`, `requested_actor` on
+   `authorization_codes`, `dpop_jtis`, `transaction_authorizations`, workload
+   identity columns, `cimd_managed`; see `docs/oauth2-spec-audit.md` §10.3).
+
+3a. **New `Storage` trait method** → also add a delegating override in
+    `ObservedStorage` (`crates/oauth2-observability/src/storage.rs`), even
+    though the trait's default implementation would compile without one.
+    Without an override the method silently loses tracing spans and metrics
+    whenever storage is wrapped for observability — every Phase 7 storage
+    method (`save_resource`, `get_resource_by_uri`, `list_resources`,
+    `delete_resource`, `save_trusted_issuer`, `get_trusted_issuer`,
+    `list_trusted_issuers`, `delete_trusted_issuer`,
+    `dpop_jti_check_and_insert`, `save_transaction_authorization`, …) follows
+    this pattern.
 
 4. **RFC test type errors** — do NOT return `impl Service<actix_http::Request>`
    from a helper. Return the raw component tuple and build `App` inline in each
@@ -332,3 +371,11 @@ steps 3–5 in one (slower) command.
 | RFC 9207 | AS Issuer Identification | `crates/oauth2-actix/src/handlers/oauth.rs` (authorize redirect) |
 | RFC 9700 | Security BCP | `crates/oauth2-actix/src/handlers/oauth.rs` + middleware |
 | OIDC Core | ID tokens, UserInfo | `crates/oauth2-actix/src/handlers/wellknown.rs` + `oauth.rs` |
+| RFC 8693 | Token Exchange (agent delegation) | `crates/oauth2-actix/src/handlers/token_exchange.rs` |
+| RFC 7523 §2.1 | JWT authorization grant + ID-JAG acceptance | `crates/oauth2-actix/src/handlers/jwt_bearer.rs` |
+| RFC 9728 | Protected Resource Metadata (incl. per-resource) | `crates/oauth2-actix/src/handlers/wellknown.rs` + `admin_resources.rs` |
+
+Phase 7 (agent/A2A OAuth) is documented separately in
+[`docs/agents/README.md`](docs/agents/README.md) (operator/integrator guide)
+and `docs/oauth2-spec-audit.md` §10 (chunk tracker) rather than duplicated
+here.
