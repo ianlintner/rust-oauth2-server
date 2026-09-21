@@ -6,11 +6,34 @@
 
 use actix_web::{web, HttpResponse, Result};
 use serde::Deserialize;
+use url::Url;
 
 use oauth2_core::TrustedIssuer;
 use oauth2_ports::DynStorage;
 
 const ALLOWED_SUBJECT_MAPPINGS: &[&str] = &["sub", "email"];
+
+/// Validate that `jwks_uri` is a well-formed, `https`-only URL with a host
+/// and no fragment. Rejects `http://`, `file://`, and malformed values to
+/// close an SSRF / MITM signature-verification gap: this URI is later
+/// fetched to obtain the keys used to verify JWT-bearer assertions.
+fn validate_jwks_uri(uri: &str) -> Result<(), String> {
+    let parsed = Url::parse(uri).map_err(|_| "jwks_uri must be a valid URL".to_string())?;
+
+    if parsed.scheme() != "https" {
+        return Err("jwks_uri must use the https scheme".to_string());
+    }
+
+    if parsed.host_str().unwrap_or("").is_empty() {
+        return Err("jwks_uri must include a host".to_string());
+    }
+
+    if parsed.fragment().is_some() {
+        return Err("jwks_uri must not contain a fragment".to_string());
+    }
+
+    Ok(())
+}
 
 #[derive(Deserialize)]
 pub struct CreateTrustedIssuerRequest {
@@ -47,6 +70,13 @@ pub async fn create_trusted_issuer(
         return Ok(HttpResponse::BadRequest().json(serde_json::json!({
             "error": "invalid_request",
             "error_description": "issuer and jwks_uri are required"
+        })));
+    }
+
+    if let Err(description) = validate_jwks_uri(&body.jwks_uri) {
+        return Ok(HttpResponse::BadRequest().json(serde_json::json!({
+            "error": "invalid_request",
+            "error_description": description
         })));
     }
 

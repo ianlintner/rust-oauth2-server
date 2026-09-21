@@ -241,6 +241,50 @@ async fn admin_trusted_issuers_post_get_delete_round_trip() {
     let bad_body: serde_json::Value = test::read_body_json(bad_resp).await;
     assert_eq!(bad_body["error"], "invalid_request");
 
+    // A plain-http jwks_uri is rejected (SSRF / MITM signature-verification gap).
+    let http_jwks_req = test::TestRequest::post()
+        .uri("/admin/trusted-issuers")
+        .insert_header(("Cookie", session_cookie.clone()))
+        .set_json(serde_json::json!({
+            "issuer": "https://insecure-issuer.example",
+            "jwks_uri": "http://insecure-issuer.example/jwks.json"
+        }))
+        .to_request();
+    let http_jwks_resp = test::call_service(&app, http_jwks_req).await;
+    assert_eq!(http_jwks_resp.status(), 400);
+    let http_jwks_body: serde_json::Value = test::read_body_json(http_jwks_resp).await;
+    assert_eq!(http_jwks_body["error"], "invalid_request");
+
+    // A malformed jwks_uri is rejected.
+    let malformed_jwks_req = test::TestRequest::post()
+        .uri("/admin/trusted-issuers")
+        .insert_header(("Cookie", session_cookie.clone()))
+        .set_json(serde_json::json!({
+            "issuer": "https://malformed-issuer.example",
+            "jwks_uri": "not a url"
+        }))
+        .to_request();
+    let malformed_jwks_resp = test::call_service(&app, malformed_jwks_req).await;
+    assert_eq!(malformed_jwks_resp.status(), 400);
+    let malformed_jwks_body: serde_json::Value = test::read_body_json(malformed_jwks_resp).await;
+    assert_eq!(malformed_jwks_body["error"], "invalid_request");
+
+    // Neither of the rejected attempts was persisted.
+    let list_req_after_rejections = test::TestRequest::get()
+        .uri("/admin/trusted-issuers")
+        .insert_header(("Cookie", session_cookie.clone()))
+        .to_request();
+    let list_resp_after_rejections = test::call_service(&app, list_req_after_rejections).await;
+    let body_after_rejections: serde_json::Value =
+        test::read_body_json(list_resp_after_rejections).await;
+    assert_eq!(
+        body_after_rejections["trusted_issuers"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+
     // DELETE removes it.
     let del_req = test::TestRequest::delete()
         .uri(&format!("/admin/trusted-issuers/{created_id}"))
