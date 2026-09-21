@@ -104,9 +104,27 @@ pub struct LoginForm {
 /// Serve the login page.
 ///
 /// If `?error=…` is present the page will display an alert banner.
-pub async fn login_page(query: web::Query<LoginQuery>) -> actix_web::Result<HttpResponse> {
+pub async fn login_page(
+    query: web::Query<LoginQuery>,
+    session: Session,
+) -> actix_web::Result<HttpResponse> {
     let mut html = std::fs::read_to_string("templates/login.html")
         .unwrap_or_else(|_| include_str!("../../../../templates/login.html").to_string());
+
+    // `draft-oauth-ai-agents-on-behalf-of-user`: when the pending authorization
+    // request named an agent to act for the user, say so before they sign in.
+    // Written by the authorize handler; cleared once the login succeeds.
+    let requested_actor_display: Option<String> =
+        session.get("requested_actor_display").unwrap_or(None);
+    if let Some(prompt) = requested_actor_display {
+        let prompt_html = format!(
+            r#"<div class="bg-amber-50 border border-amber-300 text-amber-800 dark:bg-amber-900/30 dark:border-amber-800/70 dark:text-amber-200 px-4 py-3 rounded-lg mb-4" role="status">
+                <span>{}</span>
+            </div>"#,
+            html_escape(&prompt)
+        );
+        html = html.replace("<!--ACTOR_PROMPT-->", &prompt_html);
+    }
 
     // Inject a server-side error banner when the query string contains `?error=…`
     if let Some(ref error) = query.error {
@@ -262,6 +280,9 @@ pub async fn login_submit(
     let return_to_ts: Option<i64> = session.get("return_to_ts").unwrap_or(None);
     session.remove("return_to");
     session.remove("return_to_ts");
+    // The named-agent consent prompt is bound to the pending authorization
+    // request; it must not linger on a later, unrelated login page.
+    session.remove("requested_actor_display");
 
     // Only honor return_to when it was stamped by a recent authorize redirect.
     // A stale (or unstamped) value from an abandoned authorization request must
