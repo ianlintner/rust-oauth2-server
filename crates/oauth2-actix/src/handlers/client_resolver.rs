@@ -184,16 +184,33 @@ fn validate_metadata_document(client: &Client) -> Result<(), OAuth2Error> {
     Ok(())
 }
 
+/// Longest client name shown on the login page.
+///
+/// The name comes from a self-asserted document, so it is bounded — and
+/// bounded on its own, before the host is appended, so a padded name cannot
+/// push the host (the part that actually identifies the client) out of view.
+const MAX_DISPLAY_NAME_CHARS: usize = 40;
+
 /// How to name `client` on a login / consent screen.
 ///
 /// A URL `client_id` is shown with the host its metadata came from
 /// (`Example MCP Client (app.example.com)`) so the user can tell two agents
 /// claiming the same name apart.
 pub(crate) fn client_display_name(client: &Client) -> String {
+    let name: String = truncate_chars(&client.name, MAX_DISPLAY_NAME_CHARS);
     match metadata_host(&client.client_id) {
-        Some(host) => format!("{} ({})", client.name, host),
-        None => client.name.clone(),
+        Some(host) => format!("{name} ({host})"),
+        None => name,
     }
+}
+
+/// Keep at most `max` characters, marking the cut with an ellipsis.
+fn truncate_chars(value: &str, max: usize) -> String {
+    if value.chars().count() <= max {
+        return value.to_string();
+    }
+    let kept: String = value.chars().take(max.saturating_sub(1)).collect();
+    format!("{kept}…")
 }
 
 fn metadata_host(client_id: &str) -> Option<String> {
@@ -225,6 +242,21 @@ mod tests {
         assert_eq!(
             client_display_name(&c),
             "Example MCP Client (app.example.com)"
+        );
+    }
+
+    #[test]
+    fn display_name_truncates_the_name_but_keeps_the_host() {
+        let mut c = client("https://app.example.com/agent", vec![]);
+        c.name = "A".repeat(200);
+        let display = client_display_name(&c);
+        assert!(
+            display.ends_with(" (app.example.com)"),
+            "the host must survive a long name: {display}"
+        );
+        assert_eq!(
+            display.chars().count(),
+            40 + " (app.example.com)".chars().count()
         );
     }
 

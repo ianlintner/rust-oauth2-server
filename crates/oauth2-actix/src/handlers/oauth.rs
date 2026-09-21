@@ -1016,12 +1016,9 @@ pub async fn authorize(
             // Name the requesting client on the login page. A CIMD client is
             // shown with the host its metadata came from, so two agents
             // claiming the same name are distinguishable.
-            let display = crate::handlers::client_resolver::client_display_name(&client);
-            // The name comes from a self-asserted document, so bound what goes
-            // into the session cookie (and onto the login page).
             let _ = session.insert(
                 "client_display",
-                display.chars().take(64).collect::<String>(),
+                crate::handlers::client_resolver::client_display_name(&client),
             );
 
             // Clear session so the login form is shown.
@@ -1870,10 +1867,6 @@ async fn handle_device_code_grant(
         mtls_subject_dn,
     )?;
 
-    // Client authentication succeeded; a CIMD client may now be persisted so
-    // the rows issued below satisfy the foreign key on `clients(client_id)`.
-    materialize_cimd_client(&client, client_actor.get_ref(), &agent).await?;
-
     if !client.supports_grant_type(DEVICE_CODE_GRANT_TYPE)
         && !client.supports_grant_type("device_code")
     {
@@ -1912,6 +1905,12 @@ async fn handle_device_code_grant(
             Some("End-user authorization is pending"),
         ));
     }
+
+    // The device code exists, belongs to this client and is approved, so a
+    // CIMD client may now be persisted — before the token below, which
+    // references `clients(client_id)`. Deferring to here keeps a caller who
+    // only guesses device codes from writing rows at all.
+    materialize_cimd_client(&client, client_actor.get_ref(), &agent).await?;
 
     let user_id = device_auth
         .user_id
@@ -2117,8 +2116,10 @@ async fn handle_authorization_code_grant(
         )?;
     }
 
-    // Client authentication succeeded; a CIMD client may now be persisted so
-    // the rows issued below satisfy the foreign key on `clients(client_id)`.
+    // The authorization code was validated against this `client_id` above and
+    // the client has authenticated (or is a public client redeeming its own
+    // PKCE-bound code), so a CIMD client may now be persisted — before the
+    // token rows below, which reference `clients(client_id)`.
     materialize_cimd_client(&client, client_actor.get_ref(), &agent).await?;
 
     // Only consume (burn) the authorization code after we've authenticated/authorized the client.
@@ -2389,10 +2390,6 @@ async fn handle_refresh_token_grant(
         )?;
     }
 
-    // Client authentication succeeded; a CIMD client may now be persisted so
-    // the rows issued below satisfy the foreign key on `clients(client_id)`.
-    materialize_cimd_client(&client, client_actor.get_ref(), &agent).await?;
-
     // Verify the client is authorized to use the refresh_token grant type.
     if !client.supports_grant_type("refresh_token") {
         return Err(OAuth2Error::unauthorized_client(
@@ -2416,6 +2413,14 @@ async fn handle_refresh_token_grant(
             "Refresh token does not belong to this client",
         ));
     }
+
+    // Only now may a CIMD client be persisted. A public client presents no
+    // credential here, so anything earlier would let an unauthenticated caller
+    // write a `clients` row (and exhaust the registry cap) by naming a
+    // document URL with a junk refresh token. Holding a genuine refresh token
+    // means the row already exists, so this degrades to a document refresh —
+    // and it still precedes the token rows written below.
+    materialize_cimd_client(&client, client_actor.get_ref(), &agent).await?;
 
     // Determine scope: if the request includes a scope, it must be a subset of the
     // original token's scope. If omitted, inherit the original scope.

@@ -115,6 +115,16 @@ async fn metadata(req: HttpRequest, hits: web::Data<Arc<AtomicUsize>>) -> HttpRe
                 "scope": "openid read",
             }))
         }
+        // Confidential agent allowed to use the device-code grant.
+        "/device-agent" => HttpResponse::Ok().json(json!({
+            "client_id": client_id,
+            "client_name": "Device Agent",
+            "redirect_uris": [REDIRECT_URI],
+            "grant_types": ["urn:ietf:params:oauth:grant-type:device_code"],
+            "token_endpoint_auth_method": "private_key_jwt",
+            "scope": "openid read",
+            "jwks": { "keys": [signer().1.clone()] },
+        })),
         // Hands itself a scope registration refuses to self-assign.
         "/privileged-agent" => HttpResponse::Ok().json(json!({
             "client_id": client_id,
@@ -816,4 +826,75 @@ async fn operator_flags_survive_a_document_change() {
         "operator allow-list must survive"
     );
     assert_eq!(cimd_rows(&storage).await, 1, "still one row");
+}
+
+#[actix_web::test]
+async fn a_junk_refresh_token_writes_no_client_row() {
+    let base = spawn_metadata_server();
+    let client_id = format!("{base}/public-agent");
+    let storage = storage().await;
+    let app = cimd_app!(storage, agent_config(true), Some(fetcher()));
+
+    // A CIMD document defaults to `token_endpoint_auth_method: none`, so this
+    // request carries no credential at all.
+    let resp = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri("/oauth/token")
+            .insert_header(("Content-Type", "application/x-www-form-urlencoded"))
+            .set_payload(form(&[
+                ("grant_type", "refresh_token"),
+                ("client_id", &client_id),
+                ("refresh_token", "not-a-real-refresh-token"),
+            ]))
+            .to_request(),
+    )
+    .await;
+
+    assert_eq!(resp.status(), 400);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["error"], "invalid_grant");
+    assert_eq!(
+        cimd_rows(&storage).await,
+        0,
+        "an unauthenticated refresh attempt must not populate the registry"
+    );
+}
+
+#[actix_web::test]
+async fn an_unknown_device_code_writes_no_client_row() {
+    let base = spawn_metadata_server();
+    let client_id = format!("{base}/device-agent");
+    let storage = storage().await;
+    let app = cimd_app!(storage, agent_config(true), Some(fetcher()));
+
+    // The client authenticates successfully; only the device code is bogus.
+    let assertion = client_assertion(&client_id);
+    let resp = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri("/oauth/token")
+            .insert_header(("Content-Type", "application/x-www-form-urlencoded"))
+            .set_payload(form(&[
+                ("grant_type", "urn:ietf:params:oauth:grant-type:device_code"),
+                ("client_id", &client_id),
+                ("device_code", "not-a-real-device-code"),
+                (
+                    "client_assertion_type",
+                    "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
+                ),
+                ("client_assertion", &assertion),
+            ]))
+            .to_request(),
+    )
+    .await;
+
+    assert_eq!(resp.status(), 400);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["error"], "invalid_grant");
+    assert_eq!(
+        cimd_rows(&storage).await,
+        0,
+        "guessing device codes must not populate the registry"
+    );
 }
