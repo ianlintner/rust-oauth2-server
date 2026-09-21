@@ -16,12 +16,13 @@
 //! Successful documents are cached; failures never are.
 
 use std::{
-    collections::HashMap,
     net::{IpAddr, SocketAddr},
+    num::NonZeroUsize,
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
 
+use lru::LruCache;
 use serde_json::Value;
 use url::Url;
 
@@ -38,6 +39,19 @@ const MAX_TTL_SECS: u64 = 3600; // 1 hour
 
 /// Per-request timeout for the metadata fetch.
 const FETCH_TIMEOUT_SECS: u64 = 5;
+
+/// Maximum number of cached metadata documents.
+///
+/// The cache key is an attacker-influenced URL, so the map is bounded and
+/// least-recently-used entries are evicted rather than accumulating.
+const CACHE_MAX_ENTRIES: usize = 1024;
+
+/// Description returned for every DNS/connection/read failure.
+///
+/// The underlying error is logged but never returned: interpolating it would
+/// let an unauthenticated caller tell connection-refused from timeout from TLS
+/// failure for an arbitrary `host:port`, turning this into a port scanner.
+const FETCH_FAILED_DESC: &str = "client_id metadata could not be retrieved";
 
 /// Default grant types when the document does not list any.
 const DEFAULT_GRANT_TYPES: [&str; 2] = ["authorization_code", "refresh_token"];
@@ -70,17 +84,19 @@ pub struct CimdFetcher {
     /// Test-only escape hatch: permit loopback addresses (and `http` on
     /// loopback hosts) so unit tests can serve documents in-process.
     allow_loopback: bool,
-    /// `client_id` -> (metadata, expiry).
-    cache: Arc<Mutex<HashMap<String, (Client, Instant)>>>,
+    /// `client_id` -> (metadata, expiry), bounded at [`CACHE_MAX_ENTRIES`].
+    cache: Arc<Mutex<LruCache<String, (Client, Instant)>>>,
 }
 
 impl CimdFetcher {
     pub fn new(allowed_hosts: Vec<String>, denied_hosts: Vec<String>) -> Self {
         Self {
-            allowed_hosts: lowercase_all(allowed_hosts),
-            denied_hosts: lowercase_all(denied_hosts),
+            allowed_hosts: normalize_hosts(allowed_hosts),
+            denied_hosts: normalize_hosts(denied_hosts),
             allow_loopback: false,
-            cache: Arc::new(Mutex::new(HashMap::new())),
+            cache: Arc::new(Mutex::new(LruCache::new(
+                NonZeroUsize::new(CACHE_MAX_ENTRIES).expect("non-zero"),
+            ))),
         }
     }
 
@@ -98,10 +114,22 @@ impl CimdFetcher {
     /// metadata that fails validation.
     pub async fn resolve(&self, client_id: &str) -> Result<Client, OAuth2Error> {
         let url: Url = validate_client_id_url(client_id, self.allow_loopback)?;
-        let host: String = url
+
+        // `raw_host` is the host exactly as the URL carries it; `host` is the
+        // normalized form. They differ for a trailing-dot FQDN such as
+        // `evil.example.`, which DNS resolves identically to `evil.example` —
+        // so policy decisions must use the normalized form or the deny list
+        // fails open. The address pin, in contrast, must use the raw form,
+        // because reqwest matches it against the host string in the request
+        // URL; pinning the normalized name would leave the raw name unpinned
+        // and hand DNS resolution back to reqwest.
+        let raw_host: &str = url
             .host_str()
-            .ok_or_else(|| OAuth2Error::invalid_client("client_id URL has no host"))?
-            .to_ascii_lowercase();
+            .ok_or_else(|| OAuth2Error::invalid_client("client_id URL has no host"))?;
+        let host: String = normalize_host(raw_host);
+        if host.is_empty() {
+            return Err(OAuth2Error::invalid_client("client_id URL has no host"));
+        }
 
         self.check_host_lists(&host)?;
 
@@ -112,7 +140,7 @@ impl CimdFetcher {
         let port: u16 = url.port_or_known_default().unwrap_or(443);
         let addrs: Vec<SocketAddr> = self.resolve_host(&host, port).await?;
 
-        let (doc, ttl) = fetch_document(&host, &addrs, client_id).await?;
+        let (doc, ttl) = fetch_document(raw_host, &addrs, client_id).await?;
         let client: Client = document_to_client(&doc, client_id, &host)?;
 
         self.store(client_id, &client, ttl)?;
@@ -143,16 +171,14 @@ impl CimdFetcher {
         let addrs: Vec<SocketAddr> = tokio::net::lookup_host((host, port))
             .await
             .map_err(|e| {
-                OAuth2Error::invalid_client(&format!(
-                    "client_id host '{host}' did not resolve: {e}"
-                ))
+                tracing::warn!(host, port, error = %e, "CIMD host did not resolve");
+                OAuth2Error::invalid_client(FETCH_FAILED_DESC)
             })?
             .collect();
 
         if addrs.is_empty() {
-            return Err(OAuth2Error::invalid_client(&format!(
-                "client_id host '{host}' did not resolve"
-            )));
+            tracing::warn!(host, port, "CIMD host resolved to no addresses");
+            return Err(OAuth2Error::invalid_client(FETCH_FAILED_DESC));
         }
 
         for addr in &addrs {
@@ -167,15 +193,21 @@ impl CimdFetcher {
     }
 
     fn cached(&self, client_id: &str) -> Result<Option<Client>, OAuth2Error> {
-        let guard = self.lock()?;
-        Ok(guard.get(client_id).and_then(|(client, expires_at)| {
-            (Instant::now() < *expires_at).then(|| client.clone())
-        }))
+        let mut guard = self.lock()?;
+        match guard.get(client_id) {
+            Some((client, expires_at)) if Instant::now() < *expires_at => Ok(Some(client.clone())),
+            Some(_) => {
+                // Drop the stale entry instead of waiting for LRU pressure.
+                guard.pop(client_id);
+                Ok(None)
+            }
+            None => Ok(None),
+        }
     }
 
     fn store(&self, client_id: &str, client: &Client, ttl: Duration) -> Result<(), OAuth2Error> {
         let mut guard = self.lock()?;
-        guard.insert(
+        guard.put(
             client_id.to_string(),
             (client.clone(), Instant::now() + ttl),
         );
@@ -185,15 +217,26 @@ impl CimdFetcher {
     #[allow(clippy::type_complexity)]
     fn lock(
         &self,
-    ) -> Result<std::sync::MutexGuard<'_, HashMap<String, (Client, Instant)>>, OAuth2Error> {
+    ) -> Result<std::sync::MutexGuard<'_, LruCache<String, (Client, Instant)>>, OAuth2Error> {
         self.cache
             .lock()
             .map_err(|_| OAuth2Error::new("server_error", Some("CIMD cache lock poisoned")))
     }
 }
 
-fn lowercase_all(hosts: Vec<String>) -> Vec<String> {
-    hosts.into_iter().map(|h| h.to_ascii_lowercase()).collect()
+fn normalize_hosts(hosts: Vec<String>) -> Vec<String> {
+    hosts.iter().map(|h| normalize_host(h)).collect()
+}
+
+/// Canonicalize a host for policy comparison: lowercase, with the DNS root
+/// label (`example.com.`) stripped.
+///
+/// WHATWG host parsing preserves a trailing dot, but the resolver treats
+/// `example.com.` and `example.com` as the same name, so comparing the raw
+/// form against an operator's list would let a trailing dot slip past the
+/// deny list.
+fn normalize_host(host: &str) -> String {
+    host.trim_end_matches('.').to_ascii_lowercase()
 }
 
 /// Validate the client ID URL shape, returning the parsed URL.
@@ -332,7 +375,8 @@ async fn fetch_document(
         .send()
         .await
         .map_err(|e| {
-            OAuth2Error::invalid_client(&format!("Failed to fetch client_id '{client_id}': {e}"))
+            tracing::warn!(client_id, error = %e, "CIMD fetch failed");
+            OAuth2Error::invalid_client(FETCH_FAILED_DESC)
         })?;
 
     // Redirects are not followed, so a 3xx lands here and is rejected.
@@ -358,9 +402,8 @@ async fn fetch_document(
 
     let mut body: Vec<u8> = Vec::new();
     while let Some(chunk) = response.chunk().await.map_err(|e| {
-        OAuth2Error::invalid_client(&format!(
-            "Failed to read client_id '{client_id}' metadata: {e}"
-        ))
+        tracing::warn!(client_id, error = %e, "CIMD metadata read failed");
+        OAuth2Error::invalid_client(FETCH_FAILED_DESC)
     })? {
         if body.len() + chunk.len() > MAX_BYTES {
             return Err(OAuth2Error::invalid_client(&format!(
@@ -727,6 +770,123 @@ mod tests {
             .expect_err("host not allow-listed");
         assert_eq!(err.error, "invalid_client");
         assert!(err.error_description.unwrap().contains("is not allowed"));
+    }
+
+    /// A trailing-dot FQDN resolves identically to the bare name, so it must
+    /// not slip past the deny list.
+    #[actix_web::test]
+    async fn resolve_denies_trailing_dot_form_of_denied_host() {
+        let f = CimdFetcher::new(vec![], vec!["evil.example".to_string()]);
+        let err = f
+            .resolve("https://evil.example./agent")
+            .await
+            .expect_err("trailing-dot host must still be denied");
+        assert_eq!(err.error, "invalid_client");
+        assert!(err.error_description.unwrap().contains("is denied"));
+    }
+
+    /// The same normalization applies to the operator's own list entries.
+    #[actix_web::test]
+    async fn resolve_denies_host_when_deny_entry_has_trailing_dot() {
+        let f = CimdFetcher::new(vec![], vec!["evil.example.".to_string()]);
+        let err = f
+            .resolve("https://evil.example/agent")
+            .await
+            .expect_err("deny entry written with a trailing dot must still match");
+        assert_eq!(err.error, "invalid_client");
+        assert!(err.error_description.unwrap().contains("is denied"));
+    }
+
+    /// The allow list normalizes too: a trailing-dot host that is allow-listed
+    /// gets past the policy check (and then fails on DNS, with the opaque
+    /// description rather than "is not allowed").
+    #[actix_web::test]
+    async fn resolve_allows_trailing_dot_form_of_allowed_host() {
+        let f = CimdFetcher::new(vec!["allowed.invalid".to_string()], vec![]);
+        let err = f
+            .resolve("https://allowed.invalid./agent")
+            .await
+            .expect_err("host does not resolve");
+        assert_eq!(err.error, "invalid_client");
+        let desc = err.error_description.unwrap();
+        assert!(!desc.contains("is not allowed"), "got: {desc}");
+        assert_eq!(desc, FETCH_FAILED_DESC);
+    }
+
+    /// A DNS failure must not report *why* it failed — that would let an
+    /// unauthenticated caller probe arbitrary hosts.
+    #[actix_web::test]
+    async fn resolve_failure_description_is_opaque() {
+        let f = fetcher();
+        let err = f
+            .resolve("https://does-not-exist.invalid/agent")
+            .await
+            .expect_err("unresolvable host");
+        assert_eq!(err.error, "invalid_client");
+        assert_eq!(err.error_description.unwrap(), FETCH_FAILED_DESC);
+    }
+
+    // ---------------------------------------------------------------
+    // Cache bounds
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn cache_evicts_least_recently_used_beyond_capacity() {
+        let f = fetcher();
+        let ttl: Duration = Duration::from_secs(300);
+        let make = |id: &str| {
+            Client::new(
+                id.to_string(),
+                String::new(),
+                vec!["https://app.example/cb".to_string()],
+                vec!["authorization_code".to_string()],
+                String::new(),
+                "agent".to_string(),
+            )
+        };
+        let key = |i: usize| format!("https://h.example/{i}");
+
+        for i in 0..CACHE_MAX_ENTRIES {
+            f.store(&key(i), &make(&key(i)), ttl).expect("store");
+        }
+        assert_eq!(f.lock().expect("lock").len(), CACHE_MAX_ENTRIES);
+
+        // One past capacity evicts the least-recently-used entry (the first).
+        let extra: String = key(CACHE_MAX_ENTRIES);
+        f.store(&extra, &make(&extra), ttl).expect("store");
+
+        assert_eq!(f.lock().expect("lock").len(), CACHE_MAX_ENTRIES);
+        assert!(
+            f.cached(&key(0)).expect("cached").is_none(),
+            "oldest evicted"
+        );
+        assert!(
+            f.cached(&key(1)).expect("cached").is_some(),
+            "next-oldest kept"
+        );
+        assert!(f.cached(&extra).expect("cached").is_some(), "newest kept");
+    }
+
+    #[test]
+    fn cache_drops_expired_entries_on_read() {
+        let f = fetcher();
+        let id = "https://h.example/expiring";
+        let client = Client::new(
+            id.to_string(),
+            String::new(),
+            vec!["https://app.example/cb".to_string()],
+            vec!["authorization_code".to_string()],
+            String::new(),
+            "agent".to_string(),
+        );
+        f.store(id, &client, Duration::from_millis(0))
+            .expect("store");
+
+        assert!(
+            f.cached(id).expect("cached").is_none(),
+            "expired entry not served"
+        );
+        assert_eq!(f.lock().expect("lock").len(), 0, "expired entry pruned");
     }
 
     // ---------------------------------------------------------------
