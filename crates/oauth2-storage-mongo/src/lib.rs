@@ -16,6 +16,7 @@ use oauth2_ports::Storage;
 /// Notes:
 /// - Uses the core models as documents via `serde`.
 /// - Uses unique indexes on the same fields that are unique in SQL.
+#[derive(Debug)]
 pub struct MongoStorage {
     db: Database,
     clients: Collection<Client>,
