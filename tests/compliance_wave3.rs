@@ -464,6 +464,7 @@ async fn rfc9701_jwt_accept_header_returns_jwt_introspection_response() {
             resource: None,
             cnf: None,
             authorization_details: None,
+            act: None,
             span: tracing::Span::current(),
         })
         .await
@@ -552,6 +553,7 @@ async fn rfc9701_standard_accept_returns_json_introspection_response() {
             resource: None,
             cnf: None,
             authorization_details: None,
+            act: None,
             span: tracing::Span::current(),
         })
         .await
@@ -625,6 +627,7 @@ async fn rfc9701_jwt_payload_contains_token_introspection_claim() {
             resource: None,
             cnf: None,
             authorization_details: None,
+            act: None,
             span: tracing::Span::current(),
         })
         .await

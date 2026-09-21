@@ -475,6 +475,23 @@ pub struct Token {
     /// token in the family is revoked (OAuth 2.0 Security BCP §4.13.2).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub token_family: Option<String>,
+    /// RFC 8693 §4.1: JSON-encoded actor (`act`) claim. Persisted on the row
+    /// (not only embedded in the JWT) so opaque access tokens can still
+    /// surface delegation info at introspection time. `None` means the token
+    /// was not delegated.
+    #[serde(default)]
+    #[cfg_attr(feature = "sqlx", sqlx(default))]
+    pub act: Option<String>,
+    /// RFC 9449 §6 / RFC 8705 §3: JSON-encoded confirmation (`cnf`) claim,
+    /// persisted for the same reason as `act` above.
+    #[serde(default)]
+    #[cfg_attr(feature = "sqlx", sqlx(default))]
+    pub cnf: Option<String>,
+    /// RFC 8707: JSON-encoded array of resource indicator URIs this token is
+    /// scoped to.
+    #[serde(default)]
+    #[cfg_attr(feature = "sqlx", sqlx(default))]
+    pub resource: Option<String>,
 }
 
 impl Token {
@@ -503,6 +520,9 @@ impl Token {
             expires_at,
             revoked: false,
             token_family,
+            act: None,
+            cnf: None,
+            resource: None,
         }
     }
 
@@ -512,6 +532,54 @@ impl Token {
 
     pub fn is_valid(&self) -> bool {
         !self.revoked && !self.is_expired()
+    }
+
+    /// Attach delegation/confirmation/resource metadata to the token row so
+    /// opaque tokens (which have no JWT claims to decode) can still surface
+    /// them at introspection time (RFC 8693 §4.1, RFC 9449 §6 / RFC 8705 §3,
+    /// RFC 8707).
+    pub fn with_delegation(
+        mut self,
+        act: Option<&serde_json::Value>,
+        cnf: Option<&serde_json::Value>,
+        resources: &[String],
+    ) -> Self {
+        self.act = act.map(|v| v.to_string());
+        self.cnf = cnf.map(|v| v.to_string());
+        self.resource = if resources.is_empty() {
+            None
+        } else {
+            Some(serde_json::to_string(resources).unwrap_or_default())
+        };
+        self
+    }
+
+    /// Parse the persisted `act` column back into a JSON value.
+    ///
+    /// Returns `Option<serde_json::Value>` rather than a typed `Actor` shape,
+    /// since `Actor` does not yet exist in `oauth2-core` (introduced by a
+    /// separate, concurrently-developed task). Callers that need the typed
+    /// shape should parse this value once `Actor` lands.
+    pub fn actor(&self) -> Option<serde_json::Value> {
+        self.act
+            .as_deref()
+            .and_then(|s| serde_json::from_str(s).ok())
+    }
+
+    /// Parse the persisted `cnf` column back into a JSON value.
+    pub fn cnf_value(&self) -> Option<serde_json::Value> {
+        self.cnf
+            .as_deref()
+            .and_then(|s| serde_json::from_str(s).ok())
+    }
+
+    /// Parse the persisted `resource` column back into a list of resource
+    /// indicator URIs. Returns an empty vec if unset or unparseable.
+    pub fn resources(&self) -> Vec<String> {
+        self.resource
+            .as_deref()
+            .and_then(|s| serde_json::from_str(s).ok())
+            .unwrap_or_default()
     }
 }
 
@@ -592,6 +660,10 @@ pub struct IntrospectionResponse {
     /// Carries `jkt` (DPoP key thumbprint) or `x5t#S256` (mTLS cert thumbprint).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cnf: Option<serde_json::Value>,
+    /// RFC 8693 §4.1: actor (`act`) claim, present when the token represents
+    /// a delegated/impersonated identity.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub act: Option<serde_json::Value>,
 }
 
 #[cfg(test)]

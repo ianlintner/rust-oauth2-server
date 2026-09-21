@@ -1792,6 +1792,7 @@ async fn handle_device_code_grant(
             resource: None,
             cnf: None,
             authorization_details: None,
+            act: None,
             span: tracing::Span::current(),
         })
         .await
@@ -2024,6 +2025,7 @@ async fn handle_authorization_code_grant(
             resource: auth_code.resource.clone(),
             cnf: cnf_claim.clone(),
             authorization_details: eff_auth_details,
+            act: None,
             span: tracing::Span::current(),
         })
         .await
@@ -2173,6 +2175,7 @@ async fn handle_client_credentials_grant(
             resource: req.resource,
             cnf: cnf_claim.clone(),
             authorization_details: rar_details,
+            act: None,
             span: tracing::Span::current(),
         })
         .await
@@ -2286,6 +2289,7 @@ async fn handle_token_exchange_grant(
             resource: req.resource.clone(),
             cnf: cnf_claim.clone(),
             authorization_details: None,
+            act: None,
             span: tracing::Span::current(),
         })
         .await
@@ -2450,6 +2454,7 @@ async fn handle_refresh_token_grant(
             resource: req.resource.clone(),
             cnf: old_cnf.clone(),
             authorization_details: None,
+            act: None,
             span: tracing::Span::current(),
         })
         .await
