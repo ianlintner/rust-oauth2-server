@@ -476,6 +476,81 @@ async fn non_array_authorization_details_is_rejected() {
     assert_eq!(body["error"], "invalid_request");
 }
 
+/// A `depth`-level `act` chain, outermost actor first.
+fn nested_act(depth: usize) -> Value {
+    let mut chain = json!({ "sub": "agent-0", "iss": "https://agent0.example" });
+    for i in 1..depth {
+        chain = json!({
+            "sub": format!("agent-{i}"),
+            "iss": format!("https://agent{i}.example"),
+            "act": chain,
+        });
+    }
+    chain
+}
+
+/// A resource must not be able to inject a delegation chain deeper than the
+/// server's limit (default 4) into an issued token.
+#[actix_web::test]
+async fn deeply_nested_act_chain_is_rejected() {
+    let jwks_uri = spawn_jwks_server();
+    let storage = setup(Some(&jwks_uri)).await;
+    let app = tac_app!(storage, deps(&storage, true));
+
+    assert_eq!(AgentConfig::default().max_delegation_depth, 4);
+
+    let mut claims = base_claims("deep-act-1");
+    claims["act"] = nested_act(5);
+    let challenge = sign_challenge(&claims, true);
+
+    let (status, body) = submit!(app, &challenge);
+    assert_eq!(status, 400, "body: {body}");
+    assert_eq!(body["error"], "invalid_request");
+}
+
+/// An `act` chain within the limit survives challenge → approval page →
+/// issued token.
+#[actix_web::test]
+async fn act_chain_flows_from_challenge_to_token() {
+    let jwks_uri = spawn_jwks_server();
+    let storage = setup(Some(&jwks_uri)).await;
+    let app = tac_app!(storage, deps(&storage, true));
+
+    let mut claims = base_claims("act-flow-1");
+    claims["act"] = nested_act(1);
+    let challenge = sign_challenge(&claims, true);
+
+    let (status, body) = submit!(app, &challenge);
+    assert_eq!(status, 200, "body: {body}");
+    let id = body["transaction_authorization_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let cookie = login!(app);
+
+    // The approving human is told which agent is acting.
+    let req = test::TestRequest::get()
+        .uri(&format!(
+            "/oauth/transaction_authorization/approve?transaction_authorization_id={id}"
+        ))
+        .insert_header(("Cookie", cookie.clone()))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let html = String::from_utf8(test::read_body(resp).await.to_vec()).expect("utf-8 body");
+    assert!(html.contains("Acting agent: agent-0"), "html: {html}");
+
+    assert_eq!(decide!(app, &cookie, &id, "approve"), 200);
+
+    let (status, body) = poll!(app, &id);
+    assert_eq!(status, 200, "body: {body}");
+    let token_claims = decode_access_token(body["access_token"].as_str().expect("access_token"));
+    assert_eq!(token_claims["act"]["sub"], "agent-0");
+    assert_eq!(token_claims["act"]["iss"], "https://agent0.example");
+    assert!(token_claims["act"]["act"].is_null());
+}
+
 /// The same challenge may not open two pending approvals (`jti` replay).
 #[actix_web::test]
 async fn replayed_challenge_jti_is_rejected() {
@@ -519,6 +594,38 @@ async fn approval_page_requires_a_session() {
         resp.headers().get("Location").unwrap().to_str().unwrap(),
         "/auth/login"
     );
+}
+
+/// An unauthenticated POST cannot settle a pending approval either — the
+/// redirect on the GET is a convenience, not the access control.
+#[actix_web::test]
+async fn approval_submit_requires_a_session() {
+    let jwks_uri = spawn_jwks_server();
+    let storage = setup(Some(&jwks_uri)).await;
+    let app = tac_app!(storage, deps(&storage, true));
+
+    let challenge = sign_challenge(&base_claims("submit-auth-1"), true);
+    let (_, body) = submit!(app, &challenge);
+    let id = body["transaction_authorization_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let req = test::TestRequest::post()
+        .uri("/oauth/transaction_authorization/approve")
+        .insert_header(("Content-Type", "application/x-www-form-urlencoded"))
+        .set_payload(format!(
+            "transaction_authorization_id={}&action=approve",
+            enc(&id)
+        ))
+        .to_request();
+    assert_eq!(test::call_service(&app, req).await.status(), 403);
+
+    // The transaction is still pending, so the unauthenticated POST changed
+    // nothing.
+    let (status, body) = poll!(app, &id);
+    assert_eq!(status, 400, "body: {body}");
+    assert_eq!(body["error"], "authorization_pending");
 }
 
 /// The page shows the reason, the requesting client and the requested

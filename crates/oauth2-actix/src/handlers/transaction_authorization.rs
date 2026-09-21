@@ -222,6 +222,7 @@ pub async fn transaction_authorization(
         storage.as_ref(),
         jwks_cache.as_ref().map(|d| d.as_ref()),
         &oidc_config.issuer,
+        &agent,
     )
     .await?;
 
@@ -292,6 +293,7 @@ async fn verify_challenge(
     storage: &DynStorage,
     jwks_cache: Option<&JwksCache>,
     our_issuer: &str,
+    agent: &AgentConfig,
 ) -> Result<VerifiedChallenge, OAuth2Error> {
     let header = jsonwebtoken::decode_header(challenge)
         .map_err(|_| OAuth2Error::invalid_request("malformed transaction_challenge JWT header"))?;
@@ -388,16 +390,22 @@ async fn verify_challenge(
         .unwrap_or_default()
         .to_string();
 
-    // The signed challenge is the delegation basis for any `act` it carries;
-    // normalize it so a malformed chain never reaches an issued token.
+    // The signed challenge is the delegation basis for any `act` it carries.
+    // Normalize it so a malformed chain never reaches an issued token, and
+    // hold it to the same depth limit as every other delegation path — a
+    // registered resource must not be able to inject an unbounded chain.
     let act = match claims.get("act") {
-        Some(value) => Some(
-            DelegationActor::from_value(value)
+        Some(value) => {
+            let chain = DelegationActor::from_value(value).map_err(|e| {
+                OAuth2Error::invalid_request(&format!("transaction_challenge act claim: {e}"))
+            })?;
+            chain
+                .validate_chain(agent.max_delegation_depth)
                 .map_err(|e| {
                     OAuth2Error::invalid_request(&format!("transaction_challenge act claim: {e}"))
-                })?
-                .to_value(),
-        ),
+                })?;
+            Some(chain.to_value())
+        }
         None => None,
     };
 
@@ -420,6 +428,19 @@ async fn verify_challenge(
 // Approval page
 // ---------------------------------------------------------------------------
 
+/// Return `reason_uri` only when it is an absolute `http`/`https` URL, so no
+/// other scheme can ever reach an `href` on the approval page.
+fn safe_reason_link(reason_uri: &str) -> Option<String> {
+    let trimmed = reason_uri.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    match url::Url::parse(trimmed) {
+        Ok(url) if matches!(url.scheme(), "http" | "https") => Some(trimmed.to_string()),
+        _ => None,
+    }
+}
+
 fn render_approval_page(
     record: &TransactionAuthorization,
     client_name: &str,
@@ -427,13 +448,15 @@ fn render_approval_page(
 ) -> String {
     let details = serde_json::to_string_pretty(&record.authorization_details_value())
         .unwrap_or_else(|_| record.authorization_details.clone());
-    let reason_block = if record.reason_uri.trim().is_empty() {
-        String::new()
-    } else {
-        format!(
+    // The resource controls `reason_uri`, and this page renders inside the
+    // user's authenticated session. HTML-escaping alone leaves `javascript:`
+    // and `data:` URIs intact, so only http(s) links are rendered at all.
+    let reason_block = match safe_reason_link(&record.reason_uri) {
+        Some(uri) => format!(
             r#"<p><a href="{uri}" rel="noreferrer noopener">More about this request</a></p>"#,
-            uri = html_escape(&record.reason_uri)
-        )
+            uri = html_escape(&uri)
+        ),
+        None => String::new(),
     };
     let actor_block = match acting_agent {
         Some(sub) => format!("<p>Acting agent: {}</p>", html_escape(sub)),
@@ -770,6 +793,37 @@ mod tests {
         assert!(!html.contains("<script>bad()</script>"));
         assert!(!html.contains(r#"href="https://rs.example/"><"#));
         assert!(html.contains("&lt;script&gt;"));
+
+        // Escaping leaves a `javascript:` URI intact, so the scheme check —
+        // not the escaper — is what keeps it off the page.
+        r.reason = "Transfer 42.00 EUR".to_string();
+        r.reason_uri = "javascript:alert(1)".to_string();
+        let html = render_approval_page(&r, "Agent Client", None);
+        assert!(!html.contains(r#"href="javascript:"#));
+        assert!(!html.contains("javascript:"));
+        assert!(!html.contains("More about this request"));
+    }
+
+    #[test]
+    fn only_http_reason_links_are_rendered() {
+        assert_eq!(
+            safe_reason_link("https://rs.example/tx/1"),
+            Some("https://rs.example/tx/1".to_string())
+        );
+        assert_eq!(
+            safe_reason_link("  http://rs.example/tx/1  "),
+            Some("http://rs.example/tx/1".to_string())
+        );
+        for hostile in [
+            "",
+            "   ",
+            "javascript:alert(1)",
+            "JavaScript:alert(1)",
+            "data:text/html,<script>alert(1)</script>",
+            "/relative/path",
+        ] {
+            assert_eq!(safe_reason_link(hostile), None, "{hostile}");
+        }
     }
 
     #[test]
