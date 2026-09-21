@@ -16,7 +16,7 @@ use jsonwebtoken::{encode, Algorithm, EncodingKey, Header as JwtHeader};
 use serde_json::{json, Value};
 
 use oauth2_actix::actors::{CreateToken, TokenActor, TokenActorPool};
-use oauth2_actix::handlers::dpop::compute_ath;
+use oauth2_actix::handlers::dpop::{compute_ath, validate_dpop_proof, DpopReplayStore};
 use oauth2_actix::handlers::wellknown::OidcConfig;
 use oauth2_config::{AgentConfig, Config};
 use oauth2_core::{Claims, Client, ProtectedResource, Token, User};
@@ -316,6 +316,182 @@ async fn jwt_subject_token_type_is_accepted_for_a_client_only_token() {
     assert_eq!(resp.status(), 200);
     let body: Value = test::read_body_json(resp).await;
     assert_eq!(body["scope"], "read", "body: {body}");
+}
+
+/// RFC 8693 §3 lists `refresh_token` as a token type identifier, but this
+/// server does not accept refresh tokens as an exchange subject.
+#[actix_web::test]
+async fn refresh_token_subject_type_is_invalid_request() {
+    let storage = storage().await;
+    storage
+        .save_client(&client("tx_client", &[TOKEN_EXCHANGE]))
+        .await
+        .expect("save client");
+    save_user(&storage, "alice").await;
+    let subject = mint(&storage, Some("alice"), "tx_client", "read", vec![], None).await;
+
+    let app = oauth_app!(storage, AgentConfig::default());
+    let resp = post_token!(
+        app,
+        "tx_client",
+        &[
+            ("grant_type", TOKEN_EXCHANGE),
+            ("subject_token", subject.access_token.as_str()),
+            (
+                "subject_token_type",
+                "urn:ietf:params:oauth:token-type:refresh_token"
+            ),
+        ]
+    );
+    assert_eq!(resp.status(), 400);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["error"], "invalid_request", "body: {body}");
+}
+
+/// A refresh token is the same `Claims` payload signed with the same key as an
+/// access token and differs only by the JOSE `typ` header, so the `...:jwt`
+/// subject type must reject it — otherwise a revoked or rotated refresh token
+/// could be laundered into a fresh access token.
+#[actix_web::test]
+async fn refresh_token_presented_as_a_jwt_subject_is_rejected() {
+    let storage = storage().await;
+    storage
+        .save_client(&client("tx_client", &[TOKEN_EXCHANGE]))
+        .await
+        .expect("save client");
+    save_user(&storage, "alice").await;
+
+    let pair = fixture_actor(&storage)
+        .send(CreateToken {
+            user_id: Some("alice".to_string()),
+            client_id: "tx_client".to_string(),
+            scope: "read".to_string(),
+            include_refresh: true,
+            token_family: None,
+            resources: Vec::new(),
+            cnf: None,
+            authorization_details: None,
+            act: None,
+            span: tracing::Span::current(),
+        })
+        .await
+        .expect("send CreateToken")
+        .expect("create token");
+    let refresh = pair.refresh_token.expect("refresh token");
+
+    let app = oauth_app!(storage, AgentConfig::default());
+    let resp = post_token!(
+        app,
+        "tx_client",
+        &[
+            ("grant_type", TOKEN_EXCHANGE),
+            ("subject_token", refresh.as_str()),
+            ("subject_token_type", "urn:ietf:params:oauth:token-type:jwt"),
+        ]
+    );
+    assert_eq!(resp.status(), 400);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["error"], "invalid_request", "body: {body}");
+}
+
+/// The issued scope must also fit inside the requesting client's own
+/// registration, exactly as the client_credentials grant enforces.
+#[actix_web::test]
+async fn scope_beyond_the_requesting_clients_registration_is_invalid_scope() {
+    let storage = storage().await;
+    let mut narrow = client("tx_client", &[TOKEN_EXCHANGE]);
+    narrow.scope = "read".to_string();
+    storage.save_client(&narrow).await.expect("save client");
+    save_user(&storage, "alice").await;
+    // The subject token itself was granted more than the client now holds.
+    let subject = mint(
+        &storage,
+        Some("alice"),
+        "tx_client",
+        "read write",
+        vec![],
+        None,
+    )
+    .await;
+
+    let app = oauth_app!(storage, AgentConfig::default());
+    let resp = post_token!(
+        app,
+        "tx_client",
+        &[
+            ("grant_type", TOKEN_EXCHANGE),
+            ("subject_token", subject.access_token.as_str()),
+            ("subject_token_type", ACCESS_TOKEN),
+            ("scope", "write"),
+        ]
+    );
+    assert_eq!(resp.status(), 400);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["error"], "invalid_scope", "body: {body}");
+}
+
+// ---------------------------------------------------------------------------
+// 2b. Cross-client exchange without an actor token
+// ---------------------------------------------------------------------------
+
+/// Two clients plus a subject token issued to `sub_client`. `allowed_actors`
+/// on the issuing client decides whether `agent_client` may exchange it.
+async fn cross_client_fixture(allowed_actors: Option<&str>) -> (DynStorage, String) {
+    let storage = storage().await;
+    storage
+        .save_client(&client("agent_client", &[TOKEN_EXCHANGE]))
+        .await
+        .expect("save agent client");
+    let mut subject_client = client("sub_client", &["client_credentials"]);
+    if let Some(actor) = allowed_actors {
+        subject_client.allowed_actors = json!([actor]).to_string();
+    }
+    storage
+        .save_client(&subject_client)
+        .await
+        .expect("save subject client");
+    save_user(&storage, "alice").await;
+    let subject = mint(&storage, Some("alice"), "sub_client", "read", vec![], None).await;
+    (storage, subject.access_token)
+}
+
+#[actix_web::test]
+async fn cross_client_exchange_without_allowed_actors_is_invalid_grant() {
+    let (storage, subject) = cross_client_fixture(None).await;
+    let app = oauth_app!(storage, AgentConfig::default());
+    let resp = post_token!(
+        app,
+        "agent_client",
+        &[
+            ("grant_type", TOKEN_EXCHANGE),
+            ("subject_token", subject.as_str()),
+            ("subject_token_type", ACCESS_TOKEN),
+        ]
+    );
+    assert_eq!(resp.status(), 400);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["error"], "invalid_grant", "body: {body}");
+}
+
+#[actix_web::test]
+async fn cross_client_exchange_with_allowed_actors_succeeds() {
+    let (storage, subject) = cross_client_fixture(Some("agent_client")).await;
+    let app = oauth_app!(storage, AgentConfig::default());
+    let resp = post_token!(
+        app,
+        "agent_client",
+        &[
+            ("grant_type", TOKEN_EXCHANGE),
+            ("subject_token", subject.as_str()),
+            ("subject_token_type", ACCESS_TOKEN),
+        ]
+    );
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    assert!(
+        body.get("act").is_none(),
+        "no actor token was presented, so nothing is delegated: {body}"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -943,5 +1119,147 @@ async fn dpop_proof_at_exchange_rebinds_the_new_token() {
     assert!(
         intro["cnf"]["jkt"].is_string(),
         "the exchanged token must be DPoP-bound: {intro}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 13. Proof of possession for a sender-constrained subject token
+// ---------------------------------------------------------------------------
+
+/// The JWK thumbprint of the test signer, obtained through the public DPoP
+/// validation path rather than by re-implementing the thumbprint algorithm.
+async fn signer_jkt() -> String {
+    const PROBE_URL: &str = "http://jkt.probe.test/probe";
+    let store = DpopReplayStore::new();
+    let proof = dpop_proof(
+        "POST",
+        PROBE_URL,
+        &format!("jkt-probe-{}", uuid::Uuid::new_v4()),
+        None,
+    );
+    validate_dpop_proof(&proof, "POST", PROBE_URL, &store, None)
+        .await
+        .expect("probe proof must validate")
+        .jkt
+}
+
+/// Mint a subject token bound to `jkt` and return its access token.
+async fn dpop_bound_subject(storage: &DynStorage, jkt: &str) -> String {
+    fixture_actor(storage)
+        .send(CreateToken {
+            user_id: Some("alice".to_string()),
+            client_id: "tx_client".to_string(),
+            scope: "read".to_string(),
+            include_refresh: false,
+            token_family: None,
+            resources: Vec::new(),
+            cnf: Some(json!({ "jkt": jkt })),
+            authorization_details: None,
+            act: None,
+            span: tracing::Span::current(),
+        })
+        .await
+        .expect("send CreateToken")
+        .expect("create token")
+        .access_token
+}
+
+async fn pop_fixture(jkt: &str) -> (DynStorage, String) {
+    let storage = storage().await;
+    storage
+        .save_client(&client("tx_client", &[TOKEN_EXCHANGE]))
+        .await
+        .expect("save client");
+    save_user(&storage, "alice").await;
+    let subject = dpop_bound_subject(&storage, jkt).await;
+    (storage, subject)
+}
+
+#[actix_web::test]
+async fn dpop_bound_subject_without_a_proof_is_invalid_grant() {
+    let jkt = signer_jkt().await;
+    let (storage, subject) = pop_fixture(&jkt).await;
+
+    let app = oauth_app!(storage, AgentConfig::default());
+    let resp = post_token!(
+        app,
+        "tx_client",
+        &[
+            ("grant_type", TOKEN_EXCHANGE),
+            ("subject_token", subject.as_str()),
+            ("subject_token_type", ACCESS_TOKEN),
+        ]
+    );
+    assert_eq!(resp.status(), 400);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["error"], "invalid_grant", "body: {body}");
+}
+
+#[actix_web::test]
+async fn dpop_bound_subject_with_a_different_key_is_invalid_grant() {
+    // Bound to a key the test signer does not hold.
+    let (storage, subject) = pop_fixture("not-the-test-signers-thumbprint").await;
+
+    let app = oauth_app!(storage, AgentConfig::default());
+    let proof = dpop_proof(
+        "POST",
+        &format!("http://{HOST}/oauth/token"),
+        "tx-pop-wrong-key",
+        None,
+    );
+    let req = test::TestRequest::post()
+        .uri("/oauth/token")
+        .insert_header(("Host", HOST))
+        .insert_header(("Authorization", basic("tx_client")))
+        .insert_header(("Content-Type", "application/x-www-form-urlencoded"))
+        .insert_header(("DPoP", proof))
+        .set_payload(form(&[
+            ("grant_type", TOKEN_EXCHANGE),
+            ("subject_token", subject.as_str()),
+            ("subject_token_type", ACCESS_TOKEN),
+        ]))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+
+    assert_eq!(resp.status(), 400);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["error"], "invalid_grant", "body: {body}");
+}
+
+#[actix_web::test]
+async fn dpop_bound_subject_with_the_matching_key_is_exchanged() {
+    let jkt = signer_jkt().await;
+    let (storage, subject) = pop_fixture(&jkt).await;
+
+    let app = oauth_app!(storage, AgentConfig::default());
+    let proof = dpop_proof(
+        "POST",
+        &format!("http://{HOST}/oauth/token"),
+        "tx-pop-right-key",
+        None,
+    );
+    let req = test::TestRequest::post()
+        .uri("/oauth/token")
+        .insert_header(("Host", HOST))
+        .insert_header(("Authorization", basic("tx_client")))
+        .insert_header(("Content-Type", "application/x-www-form-urlencoded"))
+        .insert_header(("DPoP", proof))
+        .set_payload(form(&[
+            ("grant_type", TOKEN_EXCHANGE),
+            ("subject_token", subject.as_str()),
+            ("subject_token_type", ACCESS_TOKEN),
+        ]))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["token_type"], "DPoP", "body: {body}");
+    let issued = body["access_token"].as_str().expect("access_token");
+    let claims = Claims::decode_unverified(issued).expect("issued token is a JWT");
+    assert_eq!(
+        claims.cnf.as_ref().and_then(|c| c["jkt"].as_str()),
+        Some(jkt.as_str()),
+        "the new token must stay bound to the presented key"
     );
 }

@@ -61,7 +61,6 @@ pub(crate) struct ResolvedToken {
 /// authenticated and both tokens resolved.
 pub(crate) struct ExchangeContext {
     pub req: TokenRequest,
-    #[allow(dead_code)] // consumed by the ID-JAG / Txn-Token arms (Tasks 12/13)
     pub client: oauth2_core::Client,
     pub cnf_claim: Option<Value>,
     #[allow(dead_code)] // consumed by the ID-JAG / Txn-Token arms (Tasks 12/13)
@@ -155,6 +154,11 @@ pub(crate) async fn exchange(
     )
     .await?;
 
+    // RFC 8693 §2.1 + RFC 9449 §7 / RFC 8705 §3: a sender-constrained subject
+    // token may only be exchanged by the holder of the key it is bound to.
+    // Without this the exchange is a proof-of-possession → bearer downgrade.
+    enforce_subject_proof_of_possession(&subject, cnf_claim.as_ref(), mtls_thumbprint)?;
+
     // --- Step 3: resolve the optional actor token. --------------------------
     let actor = match req.actor_token.clone() {
         None => None,
@@ -195,6 +199,44 @@ pub(crate) async fn exchange(
         oidc_config,
     })
     .await
+}
+
+/// A subject token carrying a `cnf` claim is sender-constrained: the caller
+/// must demonstrate possession of the same key at this endpoint.
+///
+/// `presented_cnf` is the confirmation built from the request's DPoP proof
+/// (`jkt`) or mTLS certificate (`x5t#S256`); `mtls_thumbprint` is consulted
+/// separately because a request presenting both only surfaces `jkt` there.
+fn enforce_subject_proof_of_possession(
+    subject: &ResolvedToken,
+    presented_cnf: Option<&Value>,
+    mtls_thumbprint: Option<&str>,
+) -> Result<(), OAuth2Error> {
+    let subject_cnf = match subject.cnf.as_ref() {
+        None => return Ok(()),
+        Some(cnf) => cnf,
+    };
+
+    if let Some(expected) = subject_cnf.get("jkt").and_then(Value::as_str) {
+        let presented = presented_cnf
+            .and_then(|c| c.get("jkt"))
+            .and_then(Value::as_str);
+        if presented != Some(expected) {
+            return Err(OAuth2Error::invalid_grant(
+                "subject token is sender-constrained; matching DPoP proof required",
+            ));
+        }
+    }
+
+    if let Some(expected) = subject_cnf.get("x5t#S256").and_then(Value::as_str) {
+        if mtls_thumbprint != Some(expected) {
+            return Err(OAuth2Error::invalid_grant(
+                "subject token is sender-constrained; matching client certificate required",
+            ));
+        }
+    }
+
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -263,11 +305,39 @@ async fn resolve_token(
             })
         }
         token_types::JWT => {
+            // RFC 9068 §2.1: access tokens carry `typ: "at+JWT"`. Refresh
+            // tokens are the same `Claims` payload signed with the same key
+            // and differ ONLY by this header, so without the check a revoked
+            // or already-rotated refresh token could be exchanged for a fresh
+            // access token.
+            let header = jsonwebtoken::decode_header(raw).map_err(|_| {
+                OAuth2Error::invalid_request(&format!("{which}_token header is malformed"))
+            })?;
+            if header.typ.as_deref() != Some("at+JWT") {
+                return Err(OAuth2Error::invalid_request(&format!(
+                    "{which}_token is not an access token"
+                )));
+            }
+
             let claims: Claims = verify_jwt(raw, oidc_config, keyset).map_err(|_| {
                 OAuth2Error::invalid_grant(&format!("{which}_token signature is not valid"))
             })?;
-            // A JWT we also persisted must not have been revoked meanwhile.
-            if let Some(row) = lookup(raw, token_actor, routing_client_id).await? {
+            // A JWT this server issued must still be on record and valid. The
+            // lookup is by access token, so anything not stored as one (a
+            // refresh token, a replayed copy of a deleted token) is refused.
+            let row = lookup(raw, token_actor, routing_client_id).await?;
+            if claims.iss == oidc_config.issuer {
+                let row = row.as_ref().ok_or_else(|| {
+                    OAuth2Error::invalid_grant(&format!(
+                        "{which}_token is not a known access token"
+                    ))
+                })?;
+                if !row.is_valid() {
+                    return Err(OAuth2Error::invalid_grant(&format!(
+                        "{which}_token is expired or revoked"
+                    )));
+                }
+            } else if let Some(row) = row {
                 if !row.is_valid() {
                     return Err(OAuth2Error::invalid_grant(&format!(
                         "{which}_token is expired or revoked"
@@ -401,7 +471,13 @@ pub(crate) async fn handle_token_exchange_grant(
 
     // --- Steps 4 + 5: delegation policy and `act` chain construction. -------
     let act_claim: Option<Value> = match ctx.actor.as_ref() {
-        None => ctx.subject.act.clone(),
+        None => {
+            // Without an actor token there is no delegation to record, but the
+            // exchange still moves a token from one client to another, so the
+            // issuing client must have authorized this client to do so.
+            enforce_cross_client_exchange(&ctx).await?;
+            ctx.subject.act.clone()
+        }
         Some(actor) => {
             authorize_delegation(&ctx, actor).await?;
 
@@ -448,6 +524,9 @@ pub(crate) async fn handle_token_exchange_grant(
         }
         None => ctx.subject.scope.clone(),
     };
+    // …and within what the requesting client is itself registered for, as the
+    // client_credentials grant already enforces.
+    validate_scope_subset(&scope, &ctx.client.scope)?;
 
     // --- Step 8: RFC 9396 authorization_details must stay a subset. ---------
     let authorization_details = resolve_authorization_details(
@@ -524,6 +603,36 @@ pub(crate) async fn handle_token_exchange_grant(
             "scope": new_token.scope,
         }),
     )))
+}
+
+/// Step 4 (no actor token): exchanging a token that was issued to a *different*
+/// client requires that client's explicit opt-in via `allowed_actors`. Without
+/// it, any client holding the grant could launder another client's token into
+/// one of its own.
+async fn enforce_cross_client_exchange(ctx: &ExchangeContext) -> Result<(), OAuth2Error> {
+    let subject_client_id = match ctx.subject.client_id.as_deref() {
+        // Same-client exchange (the common narrowing case) is always allowed.
+        Some(id) if id == ctx.req.client_id => return Ok(()),
+        Some(id) => id,
+        None => {
+            return Err(OAuth2Error::invalid_grant(
+                "subject_token is not bound to a known client",
+            ))
+        }
+    };
+
+    let allowed = ctx
+        .storage
+        .get_client(subject_client_id)
+        .await?
+        .is_some_and(|issuing| issuing.allows_actor(&ctx.req.client_id));
+    if allowed {
+        return Ok(());
+    }
+
+    Err(OAuth2Error::invalid_grant(
+        "client not authorized to exchange tokens issued to another client",
+    ))
 }
 
 /// Step 4: an actor may act for the subject when the subject token names it in
