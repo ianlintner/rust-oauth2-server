@@ -517,6 +517,11 @@ pub struct AgentConfig {
     /// `OAUTH2_CIMD_DENIED_HOSTS` (comma-separated).
     #[serde(default)]
     pub cimd_denied_hosts: Vec<String>,
+    /// Upper bound on client rows materialized from metadata documents.
+    /// A CIMD `client_id` is attacker-chosen, so the registry is capped and
+    /// fails closed once full. `OAUTH2_CIMD_MAX_CLIENTS` (default 1000).
+    #[serde(default = "default_cimd_max_clients")]
+    pub cimd_max_clients: usize,
     /// Enable the on-behalf-of (OBO) delegation grant. `OAUTH2_AGENT_OBO_ENABLED`.
     #[serde(default)]
     pub obo_enabled: bool,
@@ -550,6 +555,13 @@ fn default_max_delegation_depth() -> usize {
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(4)
+}
+
+fn default_cimd_max_clients() -> usize {
+    std::env::var("OAUTH2_CIMD_MAX_CLIENTS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(1000)
 }
 
 fn default_txn_token_ttl_secs() -> u64 {
@@ -596,6 +608,7 @@ impl Default for AgentConfig {
             cimd_enabled: env_bool_flag("OAUTH2_CIMD_ENABLED"),
             cimd_allowed_hosts: env_csv_list("OAUTH2_CIMD_ALLOWED_HOSTS"),
             cimd_denied_hosts: env_csv_list("OAUTH2_CIMD_DENIED_HOSTS"),
+            cimd_max_clients: default_cimd_max_clients(),
             obo_enabled: env_bool_flag("OAUTH2_AGENT_OBO_ENABLED"),
             a2a_profile_enabled: env_bool_flag("OAUTH2_A2A_PROFILE_ENABLED"),
             txn_token_ttl_secs: default_txn_token_ttl_secs(),

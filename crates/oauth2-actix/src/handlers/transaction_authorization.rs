@@ -52,6 +52,8 @@ use oauth2_observability::Metrics;
 use oauth2_ports::DynStorage;
 
 use crate::actors::{ClientActor, CreateToken, GetClient, TokenActorPool};
+use crate::handlers::cimd::CimdFetcher;
+use crate::handlers::client_resolver::{materialize_cimd_client, resolve_client};
 use crate::handlers::jwks_cache::JwksCache;
 use crate::handlers::jwt_bearer::{decode_unverified_claims, select_key};
 use crate::handlers::login::html_escape;
@@ -155,6 +157,7 @@ fn client_auth_request(
 
 /// `POST /oauth/transaction_authorization` — accept a signed challenge from a
 /// protected resource and open a pending human approval for it.
+#[allow(clippy::too_many_arguments)]
 pub async fn transaction_authorization(
     req: HttpRequest,
     form: web::Form<TransactionChallengeForm>,
@@ -163,6 +166,7 @@ pub async fn transaction_authorization(
     oidc_config: web::Data<OidcConfig>,
     agent: Option<web::Data<AgentConfig>>,
     jwks_cache: Option<web::Data<JwksCache>>,
+    cimd: Option<web::Data<CimdFetcher>>,
 ) -> Result<HttpResponse, OAuth2Error> {
     let agent = agent_config(&agent);
     require_tac_enabled(&agent)?;
@@ -186,13 +190,16 @@ pub async fn transaction_authorization(
         .clone()
         .or_else(|| basic.as_ref().map(|(_, s)| s.clone()));
 
-    let client = client_actor
-        .send(GetClient {
-            client_id: client_id.clone(),
-            span: tracing::Span::current(),
-        })
-        .await
-        .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))??;
+    let client = resolve_client(
+        &client_id,
+        client_actor.get_ref(),
+        cimd.as_ref().map(|d| d.get_ref()),
+        &agent,
+    )
+    .await?;
+    // A metadata-document client_id has one canonical spelling; the pending
+    // row must carry it so the polling grant below matches on it.
+    let client_id = client.client_id.clone();
 
     if client.is_public() {
         return Err(OAuth2Error::invalid_client(
@@ -659,6 +666,7 @@ pub(crate) async fn handle_transaction_authorization_grant(
     mtls_subject_dn: Option<&str>,
     mtls_san_uri: Option<&str>,
     mtls_san_dns: Option<&str>,
+    cimd: Option<web::Data<CimdFetcher>>,
 ) -> Result<HttpResponse, OAuth2Error> {
     require_tac_enabled(&agent)?;
 
@@ -668,13 +676,13 @@ pub(crate) async fn handle_transaction_authorization_grant(
         .ok_or_else(|| OAuth2Error::invalid_request("Missing transaction_authorization_id"))?;
 
     // --- Authenticate the polling client ---------------------------------
-    let client = client_actor
-        .send(GetClient {
-            client_id: req.client_id.clone(),
-            span: tracing::Span::current(),
-        })
-        .await
-        .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))??;
+    let client = resolve_client(
+        &req.client_id,
+        client_actor.get_ref(),
+        cimd.as_ref().map(|d| d.get_ref()),
+        &agent,
+    )
+    .await?;
 
     if client.is_public() {
         return Err(OAuth2Error::invalid_client(
@@ -695,6 +703,10 @@ pub(crate) async fn handle_transaction_authorization_grant(
         mtls_san_uri,
         mtls_san_dns,
     )?;
+
+    // Client authentication succeeded; a CIMD client may now be persisted so
+    // the token issued below satisfies the foreign key on `clients(client_id)`.
+    materialize_cimd_client(&client, client_actor.get_ref(), &agent).await?;
 
     if !client.supports_grant_type(GRANT_TRANSACTION_AUTHORIZATION) {
         return Err(OAuth2Error::unauthorized_client(

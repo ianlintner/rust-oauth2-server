@@ -199,7 +199,8 @@ impl SqlxStorage {
                 allowed_actors TEXT NOT NULL DEFAULT '[]',
                 tls_client_auth_san TEXT NOT NULL DEFAULT '',
                 software_id TEXT NOT NULL DEFAULT '',
-                software_version TEXT NOT NULL DEFAULT ''
+                software_version TEXT NOT NULL DEFAULT '',
+                cimd_managed BOOLEAN NOT NULL DEFAULT FALSE
             );
             "#,
         )
@@ -249,6 +250,12 @@ impl SqlxStorage {
             sqlx::query("ALTER TABLE clients ADD COLUMN software_version TEXT NOT NULL DEFAULT ''")
                 .execute(pool)
                 .await;
+        // `cimd_managed` column was added (Phase 7: agent/A2A OAuth).
+        let _ = sqlx::query(
+            "ALTER TABLE clients ADD COLUMN cimd_managed BOOLEAN NOT NULL DEFAULT FALSE",
+        )
+        .execute(pool)
+        .await;
 
         sqlx::query(r#"CREATE INDEX IF NOT EXISTS idx_clients_client_id ON clients(client_id);"#)
             .execute(pool)
@@ -622,8 +629,8 @@ impl Storage for SqlxStorage {
             DatabasePool::Sqlite(pool) => {
                 sqlx::query(
                     r#"
-                    INSERT INTO clients (id, client_id, client_secret, redirect_uris, grant_types, scope, name, created_at, updated_at, token_endpoint_auth_method, registration_access_token, response_types, contacts, logo_uri, client_uri, policy_uri, tos_uri, jwks, jwks_uri, backchannel_logout_uri, backchannel_logout_session_required, frontchannel_logout_uri, frontchannel_logout_session_required, post_logout_redirect_uris, enabled, require_state, tls_client_certificate_subject_dn, dpop_nonce_required, allowed_actors, tls_client_auth_san, software_id, software_version)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO clients (id, client_id, client_secret, redirect_uris, grant_types, scope, name, created_at, updated_at, token_endpoint_auth_method, registration_access_token, response_types, contacts, logo_uri, client_uri, policy_uri, tos_uri, jwks, jwks_uri, backchannel_logout_uri, backchannel_logout_session_required, frontchannel_logout_uri, frontchannel_logout_session_required, post_logout_redirect_uris, enabled, require_state, tls_client_certificate_subject_dn, dpop_nonce_required, allowed_actors, tls_client_auth_san, software_id, software_version, cimd_managed)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     "#,
                 )
                 .bind(&client.id)
@@ -658,14 +665,15 @@ impl Storage for SqlxStorage {
                 .bind(&client.tls_client_auth_san)
                 .bind(&client.software_id)
                 .bind(&client.software_version)
+                .bind(client.cimd_managed)
                 .execute(pool)
                 .await?;
             }
             DatabasePool::Postgres(pool) => {
                 sqlx::query(
                     r#"
-                    INSERT INTO clients (id, client_id, client_secret, redirect_uris, grant_types, scope, name, created_at, updated_at, token_endpoint_auth_method, registration_access_token, response_types, contacts, logo_uri, client_uri, policy_uri, tos_uri, jwks, jwks_uri, backchannel_logout_uri, backchannel_logout_session_required, frontchannel_logout_uri, frontchannel_logout_session_required, post_logout_redirect_uris, enabled, require_state, tls_client_certificate_subject_dn, dpop_nonce_required, allowed_actors, tls_client_auth_san, software_id, software_version)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32)
+                    INSERT INTO clients (id, client_id, client_secret, redirect_uris, grant_types, scope, name, created_at, updated_at, token_endpoint_auth_method, registration_access_token, response_types, contacts, logo_uri, client_uri, policy_uri, tos_uri, jwks, jwks_uri, backchannel_logout_uri, backchannel_logout_session_required, frontchannel_logout_uri, frontchannel_logout_session_required, post_logout_redirect_uris, enabled, require_state, tls_client_certificate_subject_dn, dpop_nonce_required, allowed_actors, tls_client_auth_san, software_id, software_version, cimd_managed)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33)
                     "#,
                 )
                 .bind(&client.id)
@@ -700,6 +708,7 @@ impl Storage for SqlxStorage {
                 .bind(&client.tls_client_auth_san)
                 .bind(&client.software_id)
                 .bind(&client.software_version)
+                .bind(client.cimd_managed)
                 .execute(pool)
                 .await?;
             }
@@ -727,6 +736,23 @@ impl Storage for SqlxStorage {
         Ok(client)
     }
 
+    async fn count_cimd_clients(&self) -> Result<u64, OAuth2Error> {
+        let count: i64 = match self.read_pool() {
+            DatabasePool::Sqlite(pool) => {
+                sqlx::query_scalar("SELECT COUNT(*) FROM clients WHERE cimd_managed = TRUE")
+                    .fetch_one(pool)
+                    .await?
+            }
+            DatabasePool::Postgres(pool) => {
+                sqlx::query_scalar("SELECT COUNT(*) FROM clients WHERE cimd_managed = TRUE")
+                    .fetch_one(pool)
+                    .await?
+            }
+        };
+
+        Ok(count.max(0) as u64)
+    }
+
     async fn update_client(&self, client: &Client) -> Result<(), OAuth2Error> {
         match &self.pool {
             DatabasePool::Sqlite(pool) => {
@@ -752,7 +778,8 @@ impl Storage for SqlxStorage {
                         allowed_actors = ?,
                         tls_client_auth_san = ?,
                         software_id = ?,
-                        software_version = ?
+                        software_version = ?,
+                        cimd_managed = ?
                     WHERE client_id = ?
                     "#,
                 )
@@ -784,6 +811,7 @@ impl Storage for SqlxStorage {
                 .bind(&client.tls_client_auth_san)
                 .bind(&client.software_id)
                 .bind(&client.software_version)
+                .bind(client.cimd_managed)
                 .bind(&client.client_id)
                 .execute(pool)
                 .await?;
@@ -811,8 +839,9 @@ impl Storage for SqlxStorage {
                         allowed_actors = $25,
                         tls_client_auth_san = $26,
                         software_id = $27,
-                        software_version = $28
-                    WHERE client_id = $29
+                        software_version = $28,
+                        cimd_managed = $29
+                    WHERE client_id = $30
                     "#,
                 )
                 .bind(&client.client_secret)
@@ -843,6 +872,7 @@ impl Storage for SqlxStorage {
                 .bind(&client.tls_client_auth_san)
                 .bind(&client.software_id)
                 .bind(&client.software_version)
+                .bind(client.cimd_managed)
                 .bind(&client.client_id)
                 .execute(pool)
                 .await?;

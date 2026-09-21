@@ -1211,6 +1211,18 @@ pub async fn run() -> std::io::Result<()> {
             // Stateless JWT validation flag (skips DB lookup during introspection)
             .app_data(web::Data::new(app_config.jwt.stateless_validation));
 
+        // Phase 7 (agent / A2A OAuth): Client ID Metadata Document fetcher.
+        // Registered only when the feature is on, so a URL `client_id` is
+        // rejected outright while CIMD is disabled.
+        if app_config.agent.cimd_enabled {
+            app = app.app_data(web::Data::new(
+                oauth2_actix::handlers::cimd::CimdFetcher::new(
+                    app_config.agent.cimd_allowed_hosts.clone(),
+                    app_config.agent.cimd_denied_hosts.clone(),
+                ),
+            ));
+        }
+
         // Login rate-limiter (W2-H1): per-IP and per-username credential-stuffing
         // protection.  Registered as optional app_data so tests that don't supply
         // it can still compile without needing a real limiter instance.

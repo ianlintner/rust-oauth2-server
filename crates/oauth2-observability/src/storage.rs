@@ -107,6 +107,23 @@ impl Storage for ObservedStorage {
             .await
     }
 
+    async fn count_cimd_clients(&self) -> Result<u64, OAuth2Error> {
+        let span = tracing::info_span!(
+            "db.query",
+            trace_id = field::Empty,
+            span_id = field::Empty,
+            "db.system" = %self.db_system,
+            "db.operation" = "count_cimd_clients",
+            "db.name" = %self.db_name,
+            "net.peer.name" = %self.net_peer_name,
+            "otel.kind" = "client",
+        );
+        annotate_span_with_trace_ids(&span);
+        async move { self.inner.count_cimd_clients().await }
+            .instrument(span)
+            .await
+    }
+
     async fn update_client(&self, client: &Client) -> Result<(), OAuth2Error> {
         let span = tracing::info_span!(
             "db.query",

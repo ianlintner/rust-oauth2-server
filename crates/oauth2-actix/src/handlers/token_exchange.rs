@@ -27,9 +27,9 @@ use oauth2_core::{Claims, IdTokenClaims, OAuth2Error, ProtectedResource};
 use oauth2_observability::Metrics;
 use oauth2_ports::DynStorage;
 
-use crate::actors::{
-    ClientActor, CreateToken, GetClient, LookupToken, TokenActorPool, ValidateRefreshToken,
-};
+use crate::actors::{ClientActor, CreateToken, LookupToken, TokenActorPool, ValidateRefreshToken};
+use crate::handlers::cimd::CimdFetcher;
+use crate::handlers::client_resolver::{materialize_cimd_client, resolve_client};
 use crate::handlers::jwks_cache::JwksCache;
 use crate::handlers::oauth::{
     authenticate_confidential_client, no_store_headers, resolve_client_jwks, validate_scope_subset,
@@ -106,15 +106,16 @@ pub(crate) async fn exchange(
     mtls_subject_dn: Option<&str>,
     mtls_san_uri: Option<&str>,
     mtls_san_dns: Option<&str>,
+    cimd: Option<web::Data<CimdFetcher>>,
 ) -> Result<HttpResponse, OAuth2Error> {
     // --- Step 1: authenticate the client making the exchange request. -------
-    let client = client_actor
-        .send(GetClient {
-            client_id: req.client_id.clone(),
-            span: tracing::Span::current(),
-        })
-        .await
-        .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))??;
+    let client = resolve_client(
+        &req.client_id,
+        client_actor.get_ref(),
+        cimd.as_ref().map(|d| d.get_ref()),
+        &config,
+    )
+    .await?;
 
     if !client.supports_grant_type(token_types::GRANT_TOKEN_EXCHANGE) {
         return Err(OAuth2Error::unauthorized_client(
@@ -140,6 +141,10 @@ pub(crate) async fn exchange(
         mtls_san_uri,
         mtls_san_dns,
     )?;
+
+    // Client authentication succeeded; a CIMD client may now be persisted so
+    // the tokens issued below satisfy the foreign key on `clients(client_id)`.
+    materialize_cimd_client(&client, client_actor.get_ref(), &config).await?;
 
     // --- Step 2: resolve the subject token. ---------------------------------
     let subject_token = req

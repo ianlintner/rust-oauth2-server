@@ -18,6 +18,14 @@ pub trait Storage: Send + Sync {
     // Client operations
     async fn save_client(&self, client: &Client) -> Result<(), OAuth2Error>;
     async fn get_client(&self, client_id: &str) -> Result<Option<Client>, OAuth2Error>;
+    /// Number of client rows materialized from a Client ID Metadata Document
+    /// (`cimd_managed = true`). Used to cap how many such rows may accumulate.
+    ///
+    /// Defaults to `0` so backends that do not track the flag compile
+    /// unchanged; a backend that returns `0` disables the cap.
+    async fn count_cimd_clients(&self) -> Result<u64, OAuth2Error> {
+        Ok(0)
+    }
 
     /// Update an existing client's metadata (RFC 7592).
     async fn update_client(&self, client: &Client) -> Result<(), OAuth2Error>;
