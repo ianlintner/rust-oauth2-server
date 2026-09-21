@@ -169,5 +169,35 @@ pub async fn run_storage_contract(storage: &dyn Storage) -> Result<(), Box<dyn s
 
     assert!(used_code.used);
 
+    // RFC 9449 §10: dpop_jkt binding persists (None by default, Some when set).
+    assert_eq!(fetched_code.dpop_jkt, None);
+    let mut bound_code = AuthorizationCode::new(
+        "code_dpop".to_string(),
+        client.client_id.clone(),
+        user.id.clone(),
+        "http://localhost/cb".to_string(),
+        "read".to_string(),
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+    );
+    bound_code.dpop_jkt = Some("0ZcOCORZNYy-DWpqq30jZyJGHTN0d2HglBV3uiguA4I".to_string());
+    storage
+        .save_authorization_code(&bound_code)
+        .await
+        .map_err(|e| std::io::Error::other(e.to_string()))?;
+    let fetched_bound = storage
+        .get_authorization_code("code_dpop")
+        .await
+        .map_err(|e| std::io::Error::other(e.to_string()))?
+        .ok_or_else(|| std::io::Error::other("dpop-bound auth code should exist"))?;
+    assert_eq!(
+        fetched_bound.dpop_jkt.as_deref(),
+        Some("0ZcOCORZNYy-DWpqq30jZyJGHTN0d2HglBV3uiguA4I")
+    );
+
     Ok(())
 }
