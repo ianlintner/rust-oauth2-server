@@ -44,7 +44,7 @@ for the full chunk tracker.
   and `/oauth/token`, gated by `OAUTH2_CIMD_ENABLED` and capped by
   `OAUTH2_CIMD_MAX_CLIENTS`.
 - Named-agent consent: `requested_actor` on `/authorize` plus `actor_token`
-  at code exchange, so a consent screen can name the agent acting for the
+  at code exchange, so the login page can name the agent acting for the
   user, gated by `OAUTH2_AGENT_OBO_ENABLED`.
 - Workload identity polish: SAN-based mTLS client auth
   (`tls_client_auth_san_uri`/`_dns`), RFC 7591 §2.3 software statements

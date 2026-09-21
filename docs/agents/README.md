@@ -150,7 +150,7 @@ full algorithm):
 ## Named-agent consent (`requested_actor`)
 
 Flag: `OAUTH2_AGENT_OBO_ENABLED`. Lets a user see *which agent* will act for
-them at consent time, per draft-oauth-ai-agents-on-behalf-of-user. With the
+them on the login page when login is required, per draft-oauth-ai-agents-on-behalf-of-user. With the
 flag off, `requested_actor` is ignored as an unknown parameter (RFC 6749).
 
 ```
