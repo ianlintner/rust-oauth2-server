@@ -365,6 +365,7 @@ mod tests {
             request_details: None,
             request_context: None,
             purp: None,
+            transaction_authorization_id: None,
         }
     }
 

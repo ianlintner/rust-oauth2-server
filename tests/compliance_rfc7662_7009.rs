@@ -160,6 +160,7 @@ async fn issue_access_token(
             act: None,
             ttl_override_secs: None,
             sub_profile: None,
+            txn: None,
             span: tracing::Span::current(),
         })
         .await

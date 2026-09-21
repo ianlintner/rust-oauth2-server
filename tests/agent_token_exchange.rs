@@ -100,6 +100,7 @@ async fn mint(
             act: None,
             ttl_override_secs: None,
             sub_profile: None,
+            txn: None,
             span: tracing::Span::current(),
         })
         .await
@@ -376,6 +377,7 @@ async fn refresh_token_presented_as_a_jwt_subject_is_rejected() {
             act: None,
             ttl_override_secs: None,
             sub_profile: None,
+            txn: None,
             span: tracing::Span::current(),
         })
         .await
@@ -549,6 +551,7 @@ async fn refresh_token_presented_as_an_id_token_is_rejected() {
             act: None,
             ttl_override_secs: None,
             sub_profile: None,
+            txn: None,
             span: tracing::Span::current(),
         })
         .await
@@ -1350,6 +1353,7 @@ async fn dpop_bound_subject(storage: &DynStorage, jkt: &str) -> String {
             act: None,
             ttl_override_secs: None,
             sub_profile: None,
+            txn: None,
             span: tracing::Span::current(),
         })
         .await

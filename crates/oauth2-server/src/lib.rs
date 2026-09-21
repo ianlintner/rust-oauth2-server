@@ -1366,6 +1366,28 @@ pub async fn run() -> std::io::Result<()> {
                         "/device/verify",
                         web::post().to(oauth2_actix::handlers::device::verify_submit),
                     )
+                    // draft-rosomakho-oauth-txn-challenge-00: transaction
+                    // authorization challenge. The approval page needs the
+                    // session, which the app-wide SessionMiddleware provides
+                    // (same as `/oauth/device/verify`).
+                    .route(
+                        "/transaction_authorization",
+                        web::post().to(
+                            oauth2_actix::handlers::transaction_authorization::transaction_authorization,
+                        ),
+                    )
+                    .route(
+                        "/transaction_authorization/approve",
+                        web::get().to(
+                            oauth2_actix::handlers::transaction_authorization::approve_page,
+                        ),
+                    )
+                    .route(
+                        "/transaction_authorization/approve",
+                        web::post().to(
+                            oauth2_actix::handlers::transaction_authorization::approve_submit,
+                        ),
+                    )
                     .route(
                         "/introspect",
                         web::post().to(oauth2_actix::handlers::token::introspect),

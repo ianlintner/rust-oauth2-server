@@ -1082,6 +1082,7 @@ async fn user_token_carries_the_user_sub_profile() {
             act: None,
             ttl_override_secs: None,
             sub_profile: None,
+            txn: None,
             span: tracing::Span::current(),
         })
         .await

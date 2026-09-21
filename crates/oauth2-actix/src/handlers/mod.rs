@@ -19,5 +19,6 @@ pub mod profile;
 pub mod session;
 pub mod token;
 pub mod token_exchange;
+pub mod transaction_authorization;
 pub mod txn_token;
 pub mod wellknown;

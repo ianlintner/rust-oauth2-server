@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use oauth2_core::{
     AuditLogEntry, AuthorizationCode, Client, DenylistEntry, DeviceAuthorization, ListQuery,
-    OAuth2Error, Page, ProtectedResource, Token, TrustedIssuer, User,
+    OAuth2Error, Page, ProtectedResource, Token, TransactionAuthorization, TrustedIssuer, User,
 };
 
 /// Trait implemented by all persistence backends.
@@ -137,6 +137,45 @@ pub trait Storage: Send + Sync {
 
     async fn mark_device_authorization_used(&self, device_code: &str) -> Result<(), OAuth2Error> {
         let _ = device_code;
+        Ok(())
+    }
+
+    // --- Transaction Authorization Challenge
+    //     (draft-rosomakho-oauth-txn-challenge-00) ---
+    // Default implementations are no-ops so older backends stay source-compatible.
+
+    async fn save_transaction_authorization(
+        &self,
+        txn_auth: &TransactionAuthorization,
+    ) -> Result<(), OAuth2Error> {
+        let _ = txn_auth;
+        Ok(())
+    }
+
+    async fn get_transaction_authorization(
+        &self,
+        transaction_authorization_id: &str,
+    ) -> Result<Option<TransactionAuthorization>, OAuth2Error> {
+        let _ = transaction_authorization_id;
+        Ok(None)
+    }
+
+    /// Record the human decision. `approved = false` denies.
+    async fn settle_transaction_authorization(
+        &self,
+        transaction_authorization_id: &str,
+        user_id: &str,
+        approved: bool,
+    ) -> Result<(), OAuth2Error> {
+        let (_, _, _) = (transaction_authorization_id, user_id, approved);
+        Ok(())
+    }
+
+    async fn mark_transaction_authorization_used(
+        &self,
+        transaction_authorization_id: &str,
+    ) -> Result<(), OAuth2Error> {
+        let _ = transaction_authorization_id;
         Ok(())
     }
 

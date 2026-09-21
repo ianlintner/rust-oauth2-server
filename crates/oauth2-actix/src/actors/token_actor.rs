@@ -178,6 +178,9 @@ pub struct CreateToken {
     /// When `None` the actor derives it: `user` if `user_id` is set, else
     /// `service`.
     pub sub_profile: Option<String>,
+    /// Transaction Token `txn` claim: the transaction identifier this token
+    /// was issued for. Embedded in the JWT access token when set.
+    pub txn: Option<String>,
     pub span: tracing::Span,
 }
 
@@ -191,13 +194,12 @@ impl Handler<CreateToken> for TokenActor {
         let event_bus = self.event_bus.clone();
         let keyset = self.keyset.clone();
         let access_tokens_opaque = self.access_tokens_opaque;
-        let access_token_ttl_secs = self.access_token_ttl_secs;
         // A `ttl_override_secs` may only shorten the token's life (Phase 7:
-        // the AI-agent access-token cap), never extend it past the configured
-        // maximum.
+        // the AI-agent access-token cap and the transaction authorization
+        // grant), never extend it past the configured maximum.
         let access_token_ttl_secs = match msg.ttl_override_secs {
-            Some(override_secs) => access_token_ttl_secs.min(override_secs as i64),
-            None => access_token_ttl_secs,
+            Some(cap) => self.access_token_ttl_secs.min(cap as i64),
+            None => self.access_token_ttl_secs,
         };
 
         let refresh_token_ttl_secs = self.refresh_token_ttl_secs;
@@ -276,6 +278,9 @@ impl Handler<CreateToken> for TokenActor {
                                 SUB_PROFILE_SERVICE.to_string()
                             }
                         }));
+                    // Transaction Tokens / transaction authorization challenge:
+                    // carry the transaction identifier into the access token.
+                    access_claims.txn = msg.txn.clone();
 
                     if let Some(ref key) = signing_key {
                         access_claims.encode_with_key(key)

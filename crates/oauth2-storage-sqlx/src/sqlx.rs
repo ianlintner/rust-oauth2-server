@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use oauth2_core::{
     AuditLogEntry, AuthorizationCode, Client, DenylistEntry, DeviceAuthorization, ListQuery,
-    OAuth2Error, Page, ProtectedResource, Token, TrustedIssuer, User,
+    OAuth2Error, Page, ProtectedResource, Token, TransactionAuthorization, TrustedIssuer, User,
 };
 use oauth2_ports::Storage;
 use sqlx::pool::PoolOptions;
@@ -508,6 +508,43 @@ impl SqlxStorage {
 
         sqlx::query(
             r#"CREATE INDEX IF NOT EXISTS idx_resources_resource_uri ON resources(resource_uri);"#,
+        )
+        .execute(pool)
+        .await?;
+
+        // Transaction authorizations (draft-rosomakho-oauth-txn-challenge-00)
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS transaction_authorizations (
+                id TEXT PRIMARY KEY,
+                transaction_authorization_id TEXT NOT NULL UNIQUE,
+                client_id TEXT NOT NULL,
+                user_id TEXT,
+                resource_uri TEXT NOT NULL,
+                txn TEXT NOT NULL,
+                authorization_details TEXT NOT NULL DEFAULT '[]',
+                reason TEXT NOT NULL DEFAULT '',
+                reason_uri TEXT NOT NULL DEFAULT '',
+                act TEXT,
+                created_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                interval_seconds INTEGER NOT NULL DEFAULT 5,
+                approved INTEGER NOT NULL DEFAULT 0,
+                denied INTEGER NOT NULL DEFAULT 0,
+                used INTEGER NOT NULL DEFAULT 0
+            );
+            "#,
+        )
+        .execute(pool)
+        .await?;
+
+        sqlx::query(
+            r#"CREATE INDEX IF NOT EXISTS idx_transaction_authorizations_txn_auth_id ON transaction_authorizations(transaction_authorization_id);"#,
+        )
+        .execute(pool)
+        .await?;
+        sqlx::query(
+            r#"CREATE INDEX IF NOT EXISTS idx_transaction_authorizations_client_id ON transaction_authorizations(client_id);"#,
         )
         .execute(pool)
         .await?;
@@ -2488,6 +2525,148 @@ impl Storage for SqlxStorage {
                     .bind(id)
                     .execute(pool)
                     .await?;
+            }
+        }
+        Ok(())
+    }
+
+    // --- Transaction Authorization Challenge ---
+
+    async fn save_transaction_authorization(
+        &self,
+        txn_auth: &TransactionAuthorization,
+    ) -> Result<(), OAuth2Error> {
+        match &self.pool {
+            DatabasePool::Sqlite(pool) => {
+                sqlx::query(
+                    r#"
+                    INSERT INTO transaction_authorizations (id, transaction_authorization_id, client_id, user_id, resource_uri, txn, authorization_details, reason, reason_uri, act, created_at, expires_at, interval_seconds, approved, denied, used)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    "#,
+                )
+                .bind(&txn_auth.id)
+                .bind(&txn_auth.transaction_authorization_id)
+                .bind(&txn_auth.client_id)
+                .bind(&txn_auth.user_id)
+                .bind(&txn_auth.resource_uri)
+                .bind(&txn_auth.txn)
+                .bind(&txn_auth.authorization_details)
+                .bind(&txn_auth.reason)
+                .bind(&txn_auth.reason_uri)
+                .bind(&txn_auth.act)
+                .bind(txn_auth.created_at)
+                .bind(txn_auth.expires_at)
+                .bind(txn_auth.interval_seconds)
+                .bind(txn_auth.approved)
+                .bind(txn_auth.denied)
+                .bind(txn_auth.used)
+                .execute(pool)
+                .await?;
+            }
+            DatabasePool::Postgres(pool) => {
+                sqlx::query(
+                    r#"
+                    INSERT INTO transaction_authorizations (id, transaction_authorization_id, client_id, user_id, resource_uri, txn, authorization_details, reason, reason_uri, act, created_at, expires_at, interval_seconds, approved, denied, used)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+                    "#,
+                )
+                .bind(&txn_auth.id)
+                .bind(&txn_auth.transaction_authorization_id)
+                .bind(&txn_auth.client_id)
+                .bind(&txn_auth.user_id)
+                .bind(&txn_auth.resource_uri)
+                .bind(&txn_auth.txn)
+                .bind(&txn_auth.authorization_details)
+                .bind(&txn_auth.reason)
+                .bind(&txn_auth.reason_uri)
+                .bind(&txn_auth.act)
+                .bind(txn_auth.created_at)
+                .bind(txn_auth.expires_at)
+                .bind(txn_auth.interval_seconds)
+                .bind(txn_auth.approved)
+                .bind(txn_auth.denied)
+                .bind(txn_auth.used)
+                .execute(pool)
+                .await?;
+            }
+        }
+        Ok(())
+    }
+
+    async fn get_transaction_authorization(
+        &self,
+        transaction_authorization_id: &str,
+    ) -> Result<Option<TransactionAuthorization>, OAuth2Error> {
+        let record = match self.read_pool() {
+            DatabasePool::Sqlite(pool) => sqlx::query_as::<_, TransactionAuthorization>(
+                "SELECT * FROM transaction_authorizations WHERE transaction_authorization_id = ?",
+            )
+            .bind(transaction_authorization_id)
+            .fetch_optional(pool)
+            .await?,
+            DatabasePool::Postgres(pool) => sqlx::query_as::<_, TransactionAuthorization>(
+                "SELECT * FROM transaction_authorizations WHERE transaction_authorization_id = $1",
+            )
+            .bind(transaction_authorization_id)
+            .fetch_optional(pool)
+            .await?,
+        };
+        Ok(record)
+    }
+
+    async fn settle_transaction_authorization(
+        &self,
+        transaction_authorization_id: &str,
+        user_id: &str,
+        approved: bool,
+    ) -> Result<(), OAuth2Error> {
+        match &self.pool {
+            DatabasePool::Sqlite(pool) => {
+                sqlx::query(
+                    "UPDATE transaction_authorizations SET approved = ?, denied = ?, user_id = ? WHERE transaction_authorization_id = ?",
+                )
+                .bind(approved)
+                .bind(!approved)
+                .bind(user_id)
+                .bind(transaction_authorization_id)
+                .execute(pool)
+                .await?;
+            }
+            DatabasePool::Postgres(pool) => {
+                sqlx::query(
+                    "UPDATE transaction_authorizations SET approved = $1, denied = $2, user_id = $3 WHERE transaction_authorization_id = $4",
+                )
+                .bind(approved)
+                .bind(!approved)
+                .bind(user_id)
+                .bind(transaction_authorization_id)
+                .execute(pool)
+                .await?;
+            }
+        }
+        Ok(())
+    }
+
+    async fn mark_transaction_authorization_used(
+        &self,
+        transaction_authorization_id: &str,
+    ) -> Result<(), OAuth2Error> {
+        match &self.pool {
+            DatabasePool::Sqlite(pool) => {
+                sqlx::query(
+                    "UPDATE transaction_authorizations SET used = 1 WHERE transaction_authorization_id = ?",
+                )
+                .bind(transaction_authorization_id)
+                .execute(pool)
+                .await?;
+            }
+            DatabasePool::Postgres(pool) => {
+                sqlx::query(
+                    "UPDATE transaction_authorizations SET used = true WHERE transaction_authorization_id = $1",
+                )
+                .bind(transaction_authorization_id)
+                .execute(pool)
+                .await?;
             }
         }
         Ok(())

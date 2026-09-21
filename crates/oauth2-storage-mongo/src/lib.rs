@@ -7,7 +7,7 @@ use mongodb::{
 
 use oauth2_core::{
     AuthorizationCode, Client, DeviceAuthorization, ListQuery, OAuth2Error, Page,
-    ProtectedResource, Token, TrustedIssuer, User,
+    ProtectedResource, Token, TransactionAuthorization, TrustedIssuer, User,
 };
 use oauth2_ports::Storage;
 
@@ -24,6 +24,7 @@ pub struct MongoStorage {
     authorization_codes: Collection<AuthorizationCode>,
     device_authorizations: Collection<DeviceAuthorization>,
     resources: Collection<ProtectedResource>,
+    transaction_authorizations: Collection<TransactionAuthorization>,
     trusted_issuers: Collection<TrustedIssuer>,
     /// RFC 9449 §11.1: consumed DPoP proof `jti`s (schema-less documents).
     dpop_jtis: Collection<mongodb::bson::Document>,
@@ -63,6 +64,8 @@ impl MongoStorage {
         let authorization_codes = db.collection::<AuthorizationCode>("authorization_codes");
         let device_authorizations = db.collection::<DeviceAuthorization>("device_authorizations");
         let resources = db.collection::<ProtectedResource>("resources");
+        let transaction_authorizations =
+            db.collection::<TransactionAuthorization>("transaction_authorizations");
         let trusted_issuers = db.collection::<TrustedIssuer>("trusted_issuers");
         let dpop_jtis = db.collection::<mongodb::bson::Document>("dpop_jtis");
 
@@ -74,6 +77,7 @@ impl MongoStorage {
             authorization_codes,
             device_authorizations,
             resources,
+            transaction_authorizations,
             trusted_issuers,
             dpop_jtis,
         })
@@ -203,6 +207,17 @@ impl MongoStorage {
             .create_index(
                 IndexModel::builder()
                     .keys(doc! { "resource_uri": 1 })
+                    .options(IndexOptions::builder().unique(true).build())
+                    .build(),
+            )
+            .await
+            .map_err(Self::mongo_err_to_oauth)?;
+
+        // transaction_authorizations.transaction_authorization_id unique
+        self.transaction_authorizations
+            .create_index(
+                IndexModel::builder()
+                    .keys(doc! { "transaction_authorization_id": 1 })
                     .options(IndexOptions::builder().unique(true).build())
                     .build(),
             )
@@ -946,6 +961,59 @@ impl Storage for MongoStorage {
     async fn delete_resource(&self, id: &str) -> Result<(), OAuth2Error> {
         self.resources
             .delete_one(doc! { "id": id })
+            .await
+            .map(|_| ())
+            .map_err(Self::mongo_err_to_oauth)
+    }
+
+    // --- Transaction Authorization Challenge ---
+
+    async fn save_transaction_authorization(
+        &self,
+        txn_auth: &TransactionAuthorization,
+    ) -> Result<(), OAuth2Error> {
+        self.transaction_authorizations
+            .insert_one(txn_auth)
+            .await
+            .map(|_| ())
+            .map_err(Self::mongo_err_to_oauth)
+    }
+
+    async fn get_transaction_authorization(
+        &self,
+        transaction_authorization_id: &str,
+    ) -> Result<Option<TransactionAuthorization>, OAuth2Error> {
+        self.transaction_authorizations
+            .find_one(doc! { "transaction_authorization_id": transaction_authorization_id })
+            .await
+            .map_err(Self::mongo_err_to_oauth)
+    }
+
+    async fn settle_transaction_authorization(
+        &self,
+        transaction_authorization_id: &str,
+        user_id: &str,
+        approved: bool,
+    ) -> Result<(), OAuth2Error> {
+        self.transaction_authorizations
+            .update_one(
+                doc! { "transaction_authorization_id": transaction_authorization_id },
+                doc! { "$set": { "approved": approved, "denied": !approved, "user_id": user_id } },
+            )
+            .await
+            .map(|_| ())
+            .map_err(Self::mongo_err_to_oauth)
+    }
+
+    async fn mark_transaction_authorization_used(
+        &self,
+        transaction_authorization_id: &str,
+    ) -> Result<(), OAuth2Error> {
+        self.transaction_authorizations
+            .update_one(
+                doc! { "transaction_authorization_id": transaction_authorization_id },
+                doc! { "$set": { "used": true } },
+            )
             .await
             .map(|_| ())
             .map_err(Self::mongo_err_to_oauth)

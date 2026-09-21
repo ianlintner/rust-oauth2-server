@@ -102,6 +102,7 @@ async fn jwt_mode_persists_and_introspects_delegation() {
             act: Some(delegated_actor()),
             ttl_override_secs: None,
             sub_profile: None,
+            txn: None,
             span: tracing::Span::current(),
         })
         .await
@@ -205,6 +206,7 @@ async fn opaque_mode_persists_and_introspects_delegation() {
             act: Some(delegated_actor()),
             ttl_override_secs: None,
             sub_profile: None,
+            txn: None,
             span: tracing::Span::current(),
         })
         .await

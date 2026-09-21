@@ -1307,6 +1307,9 @@ pub struct TokenRequest {
     pub(crate) request_context: Option<String>,
     /// draft-liu-oauth-a2a-profile: declared purpose of the transaction.
     pub(crate) purp: Option<String>,
+    /// `draft-rosomakho-oauth-txn-challenge-00`: handle for a pending
+    /// transaction authorization being polled.
+    pub(crate) transaction_authorization_id: Option<String>,
 }
 
 /// JWT Bearer assertion type per RFC 7523 §2.2.
@@ -1571,6 +1574,7 @@ pub async fn token(
         request_details: form_map.get("request_details").cloned(),
         request_context: form_map.get("request_context").cloned(),
         purp: form_map.get("purp").cloned(),
+        transaction_authorization_id: form_map.get("transaction_authorization_id").cloned(),
     };
 
     // RFC 9449: DPoP — fully validate the DPoP proof and extract JWK Thumbprint.
@@ -1798,6 +1802,33 @@ pub async fn token(
             )
             .await
         }
+        oauth2_core::token_types::GRANT_TRANSACTION_AUTHORIZATION => {
+            let storage = storage.clone().ok_or_else(|| {
+                OAuth2Error::new(
+                    "server_error",
+                    Some("Storage backend not configured for the transaction-authorization grant"),
+                )
+            })?;
+            let agent_config = agent_config
+                .map(|c| c.get_ref().clone())
+                .unwrap_or_default();
+            crate::handlers::transaction_authorization::handle_transaction_authorization_grant(
+                form,
+                cnf_claim,
+                token_actor,
+                client_actor,
+                storage,
+                metrics,
+                oidc_config,
+                agent_config,
+                jwks_cache.clone(),
+                mtls_thumbprint.as_deref(),
+                mtls_subject_dn.as_deref(),
+                mtls_san_uri.as_deref(),
+                mtls_san_dns.as_deref(),
+            )
+            .await
+        }
         TOKEN_EXCHANGE_GRANT_TYPE => {
             let storage = storage.ok_or_else(|| {
                 OAuth2Error::new(
@@ -1984,6 +2015,7 @@ async fn handle_device_code_grant(
             act: None,
             ttl_override_secs: None,
             sub_profile: None,
+            txn: None,
             span: tracing::Span::current(),
         })
         .await
@@ -2224,6 +2256,7 @@ async fn handle_authorization_code_grant(
             act: None,
             ttl_override_secs: None,
             sub_profile: None,
+            txn: None,
             span: tracing::Span::current(),
         })
         .await
@@ -2394,6 +2427,7 @@ async fn handle_client_credentials_grant(
             act: None,
             ttl_override_secs,
             sub_profile,
+            txn: None,
             span: tracing::Span::current(),
         })
         .await
@@ -2548,6 +2582,7 @@ async fn handle_refresh_token_grant(
             act: None,
             ttl_override_secs: None,
             sub_profile: None,
+            txn: None,
             span: tracing::Span::current(),
         })
         .await

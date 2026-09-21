@@ -74,6 +74,7 @@ async fn issue_user_token(
             act: None,
             ttl_override_secs: None,
             sub_profile: None,
+            txn: None,
             span: tracing::Span::current(),
         })
         .await
@@ -100,6 +101,7 @@ async fn issue_client_token(
             act: None,
             ttl_override_secs: None,
             sub_profile: None,
+            txn: None,
             span: tracing::Span::current(),
         })
         .await

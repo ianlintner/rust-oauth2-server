@@ -276,6 +276,7 @@ pub(crate) async fn handle_jwt_bearer_grant(
             act,
             ttl_override_secs: None,
             sub_profile: None,
+            txn: None,
             span: tracing::Span::current(),
         })
         .await
@@ -301,7 +302,7 @@ pub(crate) async fn handle_jwt_bearer_grant(
 /// Base64url-decode a JWT's payload without verifying the signature. Used only
 /// to learn which trusted issuer's key should verify it; every claim read here
 /// is re-read from the *verified* claim set afterwards.
-fn decode_unverified_claims(assertion: &str) -> Result<Value, OAuth2Error> {
+pub(crate) fn decode_unverified_claims(assertion: &str) -> Result<Value, OAuth2Error> {
     let segments: Vec<&str> = assertion.split('.').collect();
     if segments.len() != 3 {
         return Err(OAuth2Error::invalid_grant(

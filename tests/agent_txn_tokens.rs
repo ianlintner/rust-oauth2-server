@@ -163,6 +163,7 @@ async fn mint_for(
             act,
             ttl_override_secs: None,
             sub_profile: None,
+            txn: None,
             span: tracing::Span::current(),
         })
         .await

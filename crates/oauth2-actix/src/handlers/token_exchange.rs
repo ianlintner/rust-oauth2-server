@@ -791,6 +791,7 @@ pub(crate) async fn handle_token_exchange_grant(
             act: act_claim,
             ttl_override_secs: None,
             sub_profile: None,
+            txn: None,
             span: tracing::Span::current(),
         })
         .await
