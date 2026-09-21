@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use oauth2_core::{
     AuditLogEntry, AuthorizationCode, Client, DenylistEntry, DeviceAuthorization, ListQuery,
-    OAuth2Error, Page, Token, User,
+    OAuth2Error, Page, ProtectedResource, Token, User,
 };
 
 /// Trait implemented by all persistence backends.
@@ -315,6 +315,32 @@ pub trait Storage: Send + Sync {
     /// Whether this backend persists audit-log entries.
     async fn supports_audit_log(&self) -> bool {
         false
+    }
+
+    // --- Protected resources registry (RFC 8707 / RFC 9728, agent/A2A OAuth) ---
+    //
+    // Default implementations are no-ops so older backends stay source-compatible.
+
+    async fn save_resource(&self, r: &ProtectedResource) -> Result<(), OAuth2Error> {
+        let _ = r;
+        Ok(())
+    }
+
+    async fn get_resource_by_uri(
+        &self,
+        uri: &str,
+    ) -> Result<Option<ProtectedResource>, OAuth2Error> {
+        let _ = uri;
+        Ok(None)
+    }
+
+    async fn list_resources(&self) -> Result<Vec<ProtectedResource>, OAuth2Error> {
+        Ok(vec![])
+    }
+
+    async fn delete_resource(&self, id: &str) -> Result<(), OAuth2Error> {
+        let _ = id;
+        Ok(())
     }
 }
 
