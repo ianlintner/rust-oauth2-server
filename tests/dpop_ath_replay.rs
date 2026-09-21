@@ -17,7 +17,7 @@ use jsonwebtoken::{encode, Algorithm, EncodingKey, Header as JwtHeader};
 use oauth2_actix::actors::TokenActorPool;
 use oauth2_actix::handlers::dpop::{compute_ath, validate_dpop_proof, DpopReplayStore};
 use oauth2_actix::handlers::wellknown::OidcConfig;
-use oauth2_core::Client;
+use oauth2_core::{AuthorizationCode, Client, OAuth2Error, Token, User};
 use oauth2_observability::Metrics;
 use rsa::pkcs1::EncodeRsaPrivateKey;
 use rsa::traits::PublicKeyParts;
@@ -393,4 +393,92 @@ async fn introspection_requires_matching_ath() {
         body["active"], true,
         "introspection with a matching ath must report the token active"
     );
+}
+
+/// A `Storage` that implements only the trait's required methods, so
+/// `dpop_jti_check_and_insert` resolves to the trait DEFAULT (`Ok(true)` —
+/// every `jti` looks fresh). Models a backend that does not persist proofs.
+struct NonPersistingStorage;
+
+#[async_trait::async_trait]
+impl oauth2_ports::Storage for NonPersistingStorage {
+    async fn init(&self) -> Result<(), OAuth2Error> {
+        Ok(())
+    }
+    async fn save_client(&self, _client: &Client) -> Result<(), OAuth2Error> {
+        Ok(())
+    }
+    async fn get_client(&self, _client_id: &str) -> Result<Option<Client>, OAuth2Error> {
+        Ok(None)
+    }
+    async fn update_client(&self, _client: &Client) -> Result<(), OAuth2Error> {
+        Ok(())
+    }
+    async fn delete_client(&self, _client_id: &str) -> Result<(), OAuth2Error> {
+        Ok(())
+    }
+    async fn save_user(&self, _user: &User) -> Result<(), OAuth2Error> {
+        Ok(())
+    }
+    async fn get_user_by_username(&self, _username: &str) -> Result<Option<User>, OAuth2Error> {
+        Ok(None)
+    }
+    async fn save_token(&self, _token: &Token) -> Result<(), OAuth2Error> {
+        Ok(())
+    }
+    async fn get_token_by_access_token(
+        &self,
+        _access_token: &str,
+    ) -> Result<Option<Token>, OAuth2Error> {
+        Ok(None)
+    }
+    async fn get_token_by_refresh_token(
+        &self,
+        _refresh_token: &str,
+    ) -> Result<Option<Token>, OAuth2Error> {
+        Ok(None)
+    }
+    async fn revoke_token(&self, _token: &str) -> Result<(), OAuth2Error> {
+        Ok(())
+    }
+    async fn save_authorization_code(
+        &self,
+        _auth_code: &AuthorizationCode,
+    ) -> Result<(), OAuth2Error> {
+        Ok(())
+    }
+    async fn get_authorization_code(
+        &self,
+        _code: &str,
+    ) -> Result<Option<AuthorizationCode>, OAuth2Error> {
+        Ok(None)
+    }
+    async fn mark_authorization_code_used(&self, _code: &str) -> Result<(), OAuth2Error> {
+        Ok(())
+    }
+}
+
+/// RFC 9449 §11.1: a storage-backed store must not *lose* replay protection
+/// when the backend does not persist proofs — the in-memory map stays a floor.
+#[actix_web::test]
+async fn in_memory_floor_still_rejects_replay_when_storage_does_not_persist() {
+    let storage: oauth2_ports::DynStorage = std::sync::Arc::new(NonPersistingStorage);
+    let store = DpopReplayStore::with_storage(storage);
+
+    store
+        .check_and_insert("floor-jti", Duration::from_secs(600))
+        .await
+        .expect("first use of a jti is fresh");
+
+    let err = store
+        .check_and_insert("floor-jti", Duration::from_secs(600))
+        .await
+        .expect_err("the in-memory floor must still catch the replay");
+    assert_eq!(err.error, "invalid_dpop_proof");
+
+    // A different jti is still accepted.
+    store
+        .check_and_insert("floor-jti-2", Duration::from_secs(600))
+        .await
+        .expect("an unseen jti is fresh");
 }

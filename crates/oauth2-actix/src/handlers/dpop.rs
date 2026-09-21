@@ -49,15 +49,23 @@ impl DpopReplayStore {
 
     /// Check the `jti` and record it if fresh, keeping the record for `ttl`.
     /// Returns `Err(invalid_dpop_proof)` if the `jti` has already been seen.
+    ///
+    /// The in-memory map is *always* consulted, so it stays a per-process floor
+    /// even when the configured backend does not persist proofs (the trait
+    /// method `Storage::dpop_jti_check_and_insert` defaults to accepting every
+    /// `jti`). With storage configured the proof is fresh only if BOTH agree.
     pub async fn check_and_insert(&self, jti: &str, ttl: Duration) -> Result<(), OAuth2Error> {
+        self.check_and_insert_in_memory(jti, Instant::now() + ttl)?;
+
         if let Some(storage) = &self.storage {
             let expires_at = chrono::Utc::now()
                 + chrono::Duration::from_std(ttl).unwrap_or_else(|_| chrono::Duration::zero());
-            let fresh = storage.dpop_jti_check_and_insert(jti, expires_at).await?;
-            return if fresh { Ok(()) } else { Err(replay_error()) };
+            if !storage.dpop_jti_check_and_insert(jti, expires_at).await? {
+                return Err(replay_error());
+            }
         }
 
-        self.check_and_insert_in_memory(jti, Instant::now() + ttl)
+        Ok(())
     }
 
     /// In-memory path, kept separate so the mutex guard never spans an await.

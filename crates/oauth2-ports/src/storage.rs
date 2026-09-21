@@ -310,9 +310,12 @@ pub trait Storage: Send + Sync {
     /// may be accepted) and `Ok(false)` when it is a replay. Backends should
     /// also drop rows past their `expires_at` opportunistically.
     ///
-    /// The default implementation accepts every `jti`, which keeps the
-    /// in-memory replay store (the historical behaviour) as the effective
-    /// defence for backends that do not persist proofs.
+    /// The default implementation accepts every `jti`, so a backend that does
+    /// not override it contributes no replay detection of its own: such
+    /// deployments fall back to the caller's per-process in-memory store
+    /// (`DpopReplayStore` always checks that first, whether or not storage is
+    /// configured). Detection across restarts and across AS instances requires
+    /// an override.
     async fn dpop_jti_check_and_insert(
         &self,
         jti: &str,
