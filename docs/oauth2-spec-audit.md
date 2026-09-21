@@ -16,6 +16,9 @@
 5. [Phased Roadmap](#5-phased-roadmap)
 6. [Phase 1 Checklist (Bite-Size Chunks)](#6-phase-1-checklist-bite-size-chunks)
 7. [Progress Tracker](#7-progress-tracker)
+8. [Phase 5 — Ecosystem Completeness & Advanced OIDC](#8-phase-5--ecosystem-completeness--advanced-oidc)
+9. [Phase 6 — RFC 9700 Security BCP Hardening](#9-phase-6--rfc-9700-security-bcp-hardening)
+10. [Phase 7 — Agent & A2A Authorization](#10-phase-7--agent--a2a-authorization)
 
 ---
 
@@ -31,8 +34,8 @@
 | Device Authorization | RFC 8628      | ✅ Implemented            | Full device flow + user verify page |
 | Password (ROPC)      | RFC 6749 §4.3 | ✅ Intentionally disabled | Security BCP compliant              |
 | Implicit             | RFC 6749 §4.2 | ✅ Intentionally removed  | Security BCP compliant              |
-| Token Exchange       | RFC 8693      | ❌ Missing                | —                                   |
-| JWT Assertion        | RFC 7521/7523 | ❌ Missing                | —                                   |
+| Token Exchange       | RFC 8693      | ✅ Implemented            | Full RFC 8693 semantics (actor delegation, `act`, `may_act`, audience/resource validation, RAR subset) — Phase 7.A |
+| JWT Assertion        | RFC 7521/7523 | ✅ Implemented            | Client auth (`private_key_jwt`/`client_secret_jwt`) since Phase 2; `urn:ietf:params:oauth:grant-type:jwt-bearer` authorization grant added in Phase 7.D |
 | SAML Assertion       | RFC 7521/7522 | ❌ Out of scope           | —                                   |
 
 ### 1.2 Endpoints
@@ -55,7 +58,7 @@
 | `GET/PUT/DELETE /connect/register/{client_id}` | RFC 7592 | ✅ Implemented | Client read/update/delete |
 | `POST /oauth/par` | RFC 9126 | ✅ Implemented | Pushed Authorization Requests |
 | `GET /.well-known/oauth-authorization-server` | RFC 8414 | ⚠️ Partial | Served via openid-configuration only |
-| `GET /.well-known/oauth-protected-resource` | RFC 9728 | ❌ Missing | Resource server metadata |
+| `GET /.well-known/oauth-protected-resource` | RFC 9728 | ✅ Implemented | Resource server metadata; per-resource variant `GET /.well-known/oauth-protected-resource/{id}` added in Phase 7.B |
 
 ### 1.3 Security Features
 
@@ -74,8 +77,8 @@
 | Rate limiting | — | ✅ Implemented | In-memory + Redis backends |
 | Authorization response `iss` parameter | RFC 9207 | ✅ Implemented | |
 | `state` parameter enforcement (CSRF) | RFC 6749 §10.12 | ⚠️ Partial | Passed through, not enforced server-side |
-| DPoP | RFC 9449 | ❌ Missing | |
-| Mutual-TLS client auth | RFC 8705 | ❌ Missing | |
+| DPoP | RFC 9449 | ✅ Implemented | Full proof validation incl. nonce (Wave 2); `ath` claim + storage-backed `jti` replay store added in Phase 7.B.4 |
+| Mutual-TLS client auth | RFC 8705 | ✅ Implemented | `tls_client_auth`/`self_signed_tls_client_auth` via proxy headers (Wave 2); SAN-based variants (`tls_client_auth_san_uri`/`_dns`) added in Phase 7.G |
 
 ### 1.4 Token Formats
 
@@ -99,8 +102,9 @@
 | `none` (public clients) | RFC 6749 / PKCE | ✅ Implemented | `token_endpoint_auth_method: none`; PKCE enforced |
 | `client_secret_jwt` | RFC 7523 | ✅ Implemented | HMAC-signed JWT client assertion |
 | `private_key_jwt` | RFC 7523 | ✅ Implemented | RSA/ECDSA-signed JWT client assertion |
-| `tls_client_auth` | RFC 8705 | ❌ Missing | Mutual-TLS |
-| `self_signed_tls_client_auth` | RFC 8705 | ❌ Missing | |
+| `tls_client_auth` | RFC 8705 | ✅ Implemented | Mutual-TLS via reverse-proxy headers |
+| `self_signed_tls_client_auth` | RFC 8705 | ✅ Implemented | |
+| `tls_client_auth_san_uri` / `tls_client_auth_san_dns` | RFC 8705 §2.1.2 | ✅ Implemented | SPIFFE/SAN-based workload identity — Phase 7.G |
 
 ### 1.6 OIDC Core Features
 
@@ -460,7 +464,8 @@ Items marked ✅ have been implemented; remaining items are ordered by priority.
 | **Phase 3 items**   | ✅ Done       | main           | PAR, JAR, Resource Indicators, form_post, Hybrid Flow, JWT Introspection                                      |
 | **Phase 4 items**   | ✅ Done       | main           | DPoP, mTLS, Token Exchange, RAR, Step-Up, Protected Resource Metadata, Token Status List, OIDC Claims Request |
 | **Phase 5 items**   | ⚠️ Partial    | main           | 5.1 JAR inline, 5.2 Hybrid Flow, 5.3 fragment, 5.6 client_secret_jwt, 5.7 private_key_jwt, 5.8 RFC8252, 5.10 state, 5.11 check_session, 5.12 front-channel logout, 5.13 back-channel logout done; 5.4, 5.5, 5.9, 5.14, 5.15 open |
-| **Phase 6 items**   | ⏳ In progress | —              | RFC 9700 hardening (see §9)                                                                                    |
+| **Phase 6 items**   | ⚠️ Nearly done | —              | RFC 9700 hardening (see §9); all items done except 6.14 (conformance suite, partial)                          |
+| **Phase 7 items**   | ✅ Done       | —              | Agent & A2A Authorization, chunks 7.A–7.G (see §10)                                                            |
 
 ### Phase 1 Chunk Status
 
@@ -713,4 +718,127 @@ These become acceptance criteria for Phase 6 (and live as `tests/rfc9700_complia
 
 ---
 
-_Last updated: 2026-04-23 — Phase 6 (RFC 9700 hardening) in progress. Completed: 6.1, **6.3 (RFC 8707 resource→aud wiring)**, 6.4, 6.5, 6.6, 6.7, 6.8, 6.9, 6.11, 6.13, 6.14 (Wave A). Remaining: 6.2 (DPoP), 6.10 (mTLS), 6.12 (jwks_uri). Phases 1–4 complete, Phase 5 partial (5.1/5.2/5.3/5.6/5.7/5.8/5.10 done)._
+## 10. Phase 7 — Agent & A2A Authorization
+
+**Goal:** let AI agents (and agents calling agents) obtain, delegate and chain
+OAuth tokens using RFC 8693 Token Exchange as the primitive, plus the
+standards-track and WG-adopted drafts that have solidified as of September
+2026: identity chaining / ID-JAG, transaction tokens (+ the draft-liu A2A
+profile), the Client ID Metadata Document (CIMD) onboarding path, the
+Transaction Authorization Challenge (TAC), and named-agent consent.
+
+Design doc: [`docs/superpowers/specs/2026-09-21-agent-a2a-oauth-roadmap-design.md`](superpowers/specs/2026-09-21-agent-a2a-oauth-roadmap-design.md).
+Implementation plan: [`docs/superpowers/plans/2026-09-21-phase7-agent-a2a-oauth.md`](superpowers/plans/2026-09-21-phase7-agent-a2a-oauth.md).
+Operator/integrator guide: [`docs/agents/README.md`](agents/README.md).
+
+### 10.1 Chunk Status
+
+| Chunk | Description | Status |
+|---|---|---|
+| 7.A | RFC 8693 Token Exchange made real: `actor_token`/`act`/`may_act`, actor-profile delegation chains, audience/resource validation, RAR subset enforcement, `act`/`cnf`/`resource` persisted on tokens | ✅ Done |
+| 7.B | MCP-ready onboarding: Client ID Metadata Documents (CIMD), protected-resource registry + per-resource metadata, DPoP `ath` + storage-backed replay store | ✅ Done |
+| 7.C | Named-agent consent (`requested_actor` on `/authorize`, `actor_token` at code exchange) | ✅ Done |
+| 7.D | Cross-domain chaining: JWT-bearer authorization grant (trusted issuers), ID-JAG acceptance and issuance | ✅ Done |
+| 7.E | Transaction Tokens + the draft-liu A2A profile (`purp`/`tctx`/`rctx`) | ✅ Done |
+| 7.F | Transaction Authorization Challenge (human-in-the-loop approval) | ✅ Done |
+| 7.G | Workload identity polish: SAN-based mTLS, software statements, `sub_profile`, AI-agent token TTL cap | ✅ Done |
+
+### 10.2 Feature Flags
+
+All flags default to **off** except `max_delegation_depth` (default `4`).
+Discovery (`GET /.well-known/openid-configuration`) only advertises a
+capability when its flag is enabled. See `docs/agents/README.md` for the full
+configuration reference.
+
+| Env var | `AgentConfig` field | Default |
+|---|---|---|
+| `OAUTH2_MAX_DELEGATION_DEPTH` | `max_delegation_depth` | `4` |
+| `OAUTH2_TRUST_DOMAIN` | `trust_domain` | unset |
+| `OAUTH2_CIMD_ENABLED` | `cimd_enabled` | `false` |
+| `OAUTH2_CIMD_ALLOWED_HOSTS` | `cimd_allowed_hosts` | empty (any public host) |
+| `OAUTH2_CIMD_DENIED_HOSTS` | `cimd_denied_hosts` | empty |
+| `OAUTH2_CIMD_MAX_CLIENTS` | `cimd_max_clients` | `1000` |
+| `OAUTH2_AGENT_OBO_ENABLED` | `obo_enabled` | `false` |
+| `OAUTH2_A2A_PROFILE_ENABLED` | `a2a_profile_enabled` | `false` |
+| `OAUTH2_TXN_TOKENS_ENABLED` | `txn_tokens_enabled` | `false` |
+| `OAUTH2_TXN_TOKEN_TTL_SECS` | `txn_token_ttl_secs` | `300` |
+| `OAUTH2_TAC_ENABLED` | `tac_enabled` | `false` |
+| `OAUTH2_ID_JAG_ENABLED` | `id_jag_enabled` | `false` |
+| `OAUTH2_CHAINING_TARGETS` | `chaining_targets` | empty |
+| `OAUTH2_AI_AGENT_ACCESS_TOKEN_TTL_SECS` | `ai_agent_access_token_ttl_secs` | unset |
+
+`OAUTH2_CIMD_MAX_CLIENTS` and the `cimd_managed` column were added by the
+Task 14 fix round (V31) to cap unauthenticated `clients` row growth from CIMD
+materialization — see §10.4.
+
+### 10.3 Migrations (V23–V31)
+
+| Migration | Adds |
+|---|---|
+| `V23__add_delegation_columns_to_tokens.sql` | `tokens.act`, `tokens.cnf`, `tokens.resource` |
+| `V24__create_resources_table.sql` | `resources` table (protected-resource registry) |
+| `V25__add_allowed_actors_to_clients.sql` | `clients.allowed_actors` |
+| `V26__add_requested_actor_to_auth_codes.sql` | `authorization_codes.requested_actor` |
+| `V27__create_trusted_issuers_table.sql` | `trusted_issuers` table |
+| `V28__create_dpop_jtis_table.sql` | `dpop_jtis` table (storage-backed DPoP replay store) |
+| `V29__create_transaction_authorizations_table.sql` | `transaction_authorizations` table |
+| `V30__add_workload_identity_columns.sql` | `clients.tls_client_auth_san`, `clients.software_id`, `clients.software_version` |
+| `V31__add_cimd_managed_to_clients.sql` | `clients.cimd_managed` |
+
+Each migration has a matching sqlx shim (SQLite + Postgres) in
+`crates/oauth2-storage-sqlx/src/sqlx.rs::init()` and a MongoDB equivalent in
+`crates/oauth2-storage-mongo/src/lib.rs` per `CLAUDE.md` pitfall 3.
+
+### 10.4 Known Deferred Items / Security Considerations
+
+These were surfaced during implementation and review and are intentionally
+left as documented follow-ups rather than blocking Phase 7:
+
+- **Trusted issuers may assert any local email.** When a `TrustedIssuer` uses
+  `subject_mapping = "email"`, the JWT-bearer grant maps the assertion's
+  `email` claim straight to a local account. The issuer registry itself is
+  admin-controlled (`POST /admin/trusted-issuers`), so this is a trust
+  decision the operator makes explicitly per issuer, not an open gap — but it
+  means a compromised or misconfigured trusted issuer can impersonate any
+  local user by email.
+- **CIMD rows are capped but not garbage-collected.** `OAUTH2_CIMD_MAX_CLIENTS`
+  (default 1000) fails new CIMD client materialization closed once the
+  registry is full, but nothing removes a `cimd_managed` row once its
+  document stops being fetched. A busy multi-tenant deployment will drift
+  toward the cap over time. A sweeper (delete `cimd_managed` rows with no live
+  tokens past an age threshold) is a follow-up task, not yet built.
+- **RFC 9470 step-up is advertised but not enforced end-to-end for TAC.** A
+  transaction challenge may carry `acr_values`/`max_age`; the Transaction
+  Authorization Challenge module documents the intended flow (bounce the
+  approving session through `/auth/login?prompt=login` when it doesn't
+  satisfy them) but does not implement it yet — the Phase 1.D `max_age` check
+  lives inline in `handlers::oauth::authorize` rather than as a reusable
+  helper. See `crates/oauth2-actix/src/handlers/transaction_authorization.rs`
+  module doc.
+- **Transaction-token introspection shows `sub`/`act` to any authenticated
+  client.** Introspection of a `txn_token`-typed JWT returns `txn`, `purp`,
+  `req_wl` alongside the usual claims; there is no per-resource scoping of
+  which authenticated caller may introspect which token, matching the
+  existing introspection model for other token types.
+- **`software_id` is only attested via `software_statement`.** Dynamic
+  registration accepts a bare `software_id`/`software_version` in the request
+  body with no attestation; only when a `software_statement` JWT signed by a
+  registered `TrustedIssuer` is presented are the claims inside it treated as
+  authoritative and merged over the request body. An operator that wants
+  `sub_profile = ai_agent` classification to be trustworthy should require a
+  `software_statement` (via admin review) rather than relying on a
+  self-declared `software_id`.
+- **CIMD materializes a `clients` row on first use.** Because `tokens`,
+  `authorization_codes` and `device_authorizations` all carry a foreign key to
+  `clients(client_id)`, a client that exists only as a fetched Client ID
+  Metadata Document cannot be granted anything without a row. `resolve_client`
+  therefore writes (or refreshes) a `clients` row keyed by the canonicalized
+  URL the first time a document is used, marked `cimd_managed = true`, and
+  never overwrites operator-set fields (`enabled`, `allowed_actors`,
+  `dpop_nonce_required`, …) on subsequent document changes. The write happens
+  only after redirect-URI/PKCE/privileged-scope/grant-type validation passes
+  and is capped by `OAUTH2_CIMD_MAX_CLIENTS`.
+
+---
+
+_Last updated: 2026-09-21 — Phase 7 (Agent & A2A Authorization) complete: 7.A–7.G all done. §1 inventory corrected for Token Exchange, JWT Assertion grant, DPoP, mTLS, and RFC 9728 (previously stale — those features shipped in Wave 2 / Phase 6 and were completed for agent flows in Phase 7). Phases 1–4 and 7 complete, Phase 6 nearly done (6.14 partial), Phase 5 partial (5.1/5.2/5.3/5.6/5.7/5.8/5.10 done)._
