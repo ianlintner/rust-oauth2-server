@@ -272,17 +272,37 @@ macro_rules! post_pkj {
     }};
 }
 
-macro_rules! introspect {
-    ($app:expr, $token:expr) => {{
+/// Introspect, optionally authenticating as `$client_id` with its secret.
+macro_rules! introspect_as {
+    ($app:expr, $token:expr, $client_id:expr) => {{
+        let mut pairs: Vec<(&str, String)> = vec![("token", $token.to_string())];
+        let secret;
+        if let Some(client_id) = $client_id {
+            secret = format!("{client_id}_secret");
+            pairs.push(("client_id", client_id.to_string()));
+            pairs.push(("client_secret", secret.clone()));
+        }
+        let body = pairs
+            .iter()
+            .map(|(k, v)| format!("{}={}", enc(k), enc(v)))
+            .collect::<Vec<_>>()
+            .join("&");
         let req = test::TestRequest::post()
             .uri("/oauth/introspect")
             .insert_header(("Host", HOST))
-            .set_form([("token", $token)])
+            .insert_header(("Content-Type", "application/x-www-form-urlencoded"))
+            .set_payload(body)
             .to_request();
         let resp = test::call_service(&$app, req).await;
         assert_eq!(resp.status(), 200, "introspection must return 200");
         let body: Value = test::read_body_json(resp).await;
         body
+    }};
+}
+
+macro_rules! introspect {
+    ($app:expr, $token:expr) => {{
+        introspect_as!($app, $token, None::<&str>)
     }};
 }
 
@@ -519,7 +539,7 @@ async fn a_transaction_token_carries_the_profile_claim_set() {
     assert!(claims.get("purp").is_none(), "purp is A2A-only: {claims}");
 
     // Never persisted, but introspectable from its own signature.
-    let intro = introspect!(app, token);
+    let intro = introspect_as!(app, token, Some("wl_happy"));
     assert_eq!(intro["active"], true, "intro: {intro}");
     assert_eq!(intro["token_type"], "N_A", "intro: {intro}");
     assert_eq!(intro["sub"], "alice", "intro: {intro}");
@@ -925,6 +945,56 @@ fn forge_txn(claims: Value) -> String {
         &jsonwebtoken::EncodingKey::from_secret(JWT_SECRET.as_bytes()),
     )
     .expect("sign forged txn token")
+}
+
+/// RFC 7662 §5 / RFC 9700 §2.5, as on the storage-backed path: an anonymous
+/// caller gets the lifecycle and transaction fields but not the subject.
+#[actix_web::test]
+async fn anonymous_introspection_withholds_the_transaction_subject() {
+    let storage = storage().await;
+    storage
+        .save_client(&workload("wl_pii", "read write"))
+        .await
+        .expect("save client");
+    save_user(&storage, "alice").await;
+    let subject = mint(
+        &storage,
+        Some("alice"),
+        "wl_pii",
+        "read",
+        Some(json!({ "sub": "agent-7", "iss": ISSUER })),
+    )
+    .await;
+
+    let app = oauth_app!(storage, agent_config(true, Some(TRUST_DOMAIN), true));
+    let token = first_hop!(app, "wl_pii", subject.access_token.as_str(), &[]);
+
+    // No client credentials: public introspection is on, so the call succeeds
+    // but must not disclose who the transaction is for.
+    let anonymous = introspect_as!(app, token.as_str(), None::<&str>);
+    assert_eq!(anonymous["active"], true, "intro: {anonymous}");
+    assert!(anonymous.get("sub").is_none(), "intro: {anonymous}");
+    assert!(anonymous.get("act").is_none(), "intro: {anonymous}");
+    // The non-PII fields are still there.
+    assert_eq!(anonymous["token_type"], "N_A", "intro: {anonymous}");
+    assert_eq!(anonymous["aud"], TRUST_DOMAIN, "intro: {anonymous}");
+    assert_eq!(anonymous["scope"], "read", "intro: {anonymous}");
+    assert_eq!(anonymous["iss"], ISSUER, "intro: {anonymous}");
+    assert_eq!(anonymous["req_wl"], "wl_pii", "intro: {anonymous}");
+    assert!(anonymous["txn"].is_string(), "intro: {anonymous}");
+
+    // An authenticated caller gets the subject and the delegation chain.
+    let authenticated = introspect_as!(app, token.as_str(), Some("wl_pii"));
+    assert_eq!(authenticated["active"], true, "intro: {authenticated}");
+    assert_eq!(authenticated["sub"], "alice", "intro: {authenticated}");
+    assert_eq!(
+        authenticated["act"]["sub"], "agent-7",
+        "intro: {authenticated}"
+    );
+    assert_eq!(
+        authenticated["txn"], anonymous["txn"],
+        "intro: {authenticated}"
+    );
 }
 
 #[actix_web::test]

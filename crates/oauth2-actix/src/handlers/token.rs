@@ -197,6 +197,11 @@ pub async fn introspect(
             Some(keyset) => Some(keyset.read().await.clone()),
             None => None,
         };
+        // RFC 7662 §5 / RFC 9700 §2.5, as on the storage-backed path below:
+        // the identity the token asserts (`sub`, and the delegation chain that
+        // names it) is withheld from callers who did not authenticate. The
+        // non-PII lifecycle and transaction fields are always returned.
+        let is_authenticated_caller = caller.is_some();
         return Ok(
             match verify_txn_token(
                 &form.token,
@@ -215,12 +220,12 @@ pub async fn introspect(
                     exp: Some(claims.exp),
                     iat: Some(claims.iat),
                     nbf: Some(claims.iat),
-                    sub: Some(claims.sub),
+                    sub: is_authenticated_caller.then_some(claims.sub),
                     aud: Some(vec![claims.aud]),
                     jti: None,
                     iss: Some(claims.iss),
                     cnf: None,
-                    act: claims.act,
+                    act: claims.act.filter(|_| is_authenticated_caller),
                     txn: Some(claims.txn),
                     purp: claims.purp,
                     req_wl: Some(claims.req_wl),
