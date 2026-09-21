@@ -40,7 +40,9 @@ jobs:
       contents: read
       pull-requests: read
     outputs:
-      code: ${{ steps.filter.outputs.code }}
+      # Tag pushes have no diff base for paths-filter, so force the full build
+      # there: a release tag must always produce binaries and images.
+      code: ${{ steps.filter.outputs.code == 'true' || startsWith(github.ref, 'refs/tags/') }}
       build_matrix: ${{ steps.build_matrix.outputs.matrix }}
     steps:
       - uses: actions/checkout@v7.0.0 # v6
