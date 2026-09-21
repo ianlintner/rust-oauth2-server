@@ -22,6 +22,7 @@ use crate::handlers::dpop::{
 use crate::handlers::dpop_nonce::{use_dpop_nonce_response, DpopNonceIssuer};
 use crate::handlers::jwks_cache::JwksCache;
 use crate::handlers::wellknown::OidcConfig;
+use oauth2_core::models::key_set::KeySet;
 use oauth2_core::{IdTokenClaims, OAuth2Error, TokenResponse};
 use oauth2_ports::DynStorage;
 
@@ -92,7 +93,7 @@ pub(crate) fn parse_client_basic_auth(
     Ok(Some((client_id, client_secret)))
 }
 
-fn validate_scope_subset(requested: &str, allowed: &str) -> Result<(), OAuth2Error> {
+pub(crate) fn validate_scope_subset(requested: &str, allowed: &str) -> Result<(), OAuth2Error> {
     let allowed_scopes: Vec<&str> = allowed
         .split_whitespace()
         .filter(|s| !s.is_empty())
@@ -137,10 +138,11 @@ pub(crate) fn client_secret_matches(client: &oauth2_core::Client, presented_secr
 /// `resolved_jwks` must be pre-fetched by the caller (via [`resolve_client_jwks`])
 /// when the client uses `private_key_jwt`; pass `None` for all other methods.
 /// `mtls_subject_dn` should be the Subject DN from the X-SSL-Client-S-DN header.
-fn authenticate_confidential_client(
+pub(crate) fn authenticate_confidential_client(
     client: &oauth2_core::Client,
     req: &TokenRequest,
     token_endpoint_url: &str,
+    issuer: &str,
     resolved_jwks: Option<&serde_json::Value>,
     mtls_thumbprint: Option<&str>,
     mtls_subject_dn: Option<&str>,
@@ -169,7 +171,13 @@ fn authenticate_confidential_client(
                 .client_assertion
                 .as_deref()
                 .ok_or_else(|| OAuth2Error::invalid_client("Missing client_assertion"))?;
-            validate_jwt_client_assertion(client, assertion, token_endpoint_url, resolved_jwks)
+            validate_jwt_client_assertion(
+                client,
+                assertion,
+                token_endpoint_url,
+                issuer,
+                resolved_jwks,
+            )
         }
         "tls_client_auth" => {
             // RFC 8705 §2.1: client is authenticated by TLS certificate.
@@ -258,7 +266,7 @@ fn authenticate_confidential_client(
 ///   was successfully fetched/cached.
 /// - `Ok(None)` if the client does not use `private_key_jwt` (no fetch needed).
 /// - `Err(_)` if `jwks_uri` fetch fails or is unavailable without a cache.
-async fn resolve_client_jwks(
+pub(crate) async fn resolve_client_jwks(
     client: &oauth2_core::Client,
     cache: Option<&JwksCache>,
 ) -> Result<Option<serde_json::Value>, OAuth2Error> {
@@ -288,7 +296,7 @@ async fn resolve_client_jwks(
     ))
 }
 
-fn no_store_headers(mut resp: HttpResponse) -> HttpResponse {
+pub(crate) fn no_store_headers(mut resp: HttpResponse) -> HttpResponse {
     resp.headers_mut().insert(
         actix_web::http::header::CACHE_CONTROL,
         "no-store".parse().unwrap(),
@@ -333,19 +341,46 @@ fn ensure_no_duplicate_query_params(req: &HttpRequest) -> Result<(), OAuth2Error
     Ok(())
 }
 
-fn parse_form_no_dupes(body: &web::Bytes) -> Result<HashMap<String, String>, OAuth2Error> {
-    let mut map: HashMap<String, String> = HashMap::new();
+/// Form parameters that may legitimately be repeated: RFC 8707 §2 allows
+/// multiple `resource` indicators and RFC 8693 §2.1 allows multiple
+/// `audience` values. Every other parameter is still single-valued.
+const REPEATABLE_FORM_PARAMS: [&str; 2] = ["resource", "audience"];
+
+/// Parsed request body: single-valued parameters plus the collected values of
+/// the repeatable ones (see [`REPEATABLE_FORM_PARAMS`]).
+struct ParsedForm {
+    single: HashMap<String, String>,
+    repeated: HashMap<String, Vec<String>>,
+}
+
+impl ParsedForm {
+    fn get(&self, key: &str) -> Option<&String> {
+        self.single.get(key)
+    }
+
+    fn all(&self, key: &str) -> Vec<String> {
+        self.repeated.get(key).cloned().unwrap_or_default()
+    }
+}
+
+fn parse_form_no_dupes(body: &web::Bytes) -> Result<ParsedForm, OAuth2Error> {
+    let mut single: HashMap<String, String> = HashMap::new();
+    let mut repeated: HashMap<String, Vec<String>> = HashMap::new();
     for (k, v) in form_urlencoded::parse(body) {
         let key = k.into_owned();
         let val = v.into_owned();
-        if map.contains_key(&key) {
+        if REPEATABLE_FORM_PARAMS.contains(&key.as_str()) {
+            repeated.entry(key).or_default().push(val);
+            continue;
+        }
+        if single.contains_key(&key) {
             return Err(OAuth2Error::invalid_request(
                 "Duplicate form parameters are not allowed",
             ));
         }
-        map.insert(key, val);
+        single.insert(key, val);
     }
-    Ok(map)
+    Ok(ParsedForm { single, repeated })
 }
 
 #[derive(Debug, Deserialize)]
@@ -1175,37 +1210,39 @@ pub async fn authorize(
 
 #[derive(Debug, Deserialize)]
 pub struct TokenRequest {
-    grant_type: String,
-    code: Option<String>,
-    redirect_uri: Option<String>,
-    client_id: String,
-    client_secret: Option<String>,
-    refresh_token: Option<String>,
+    pub(crate) grant_type: String,
+    pub(crate) code: Option<String>,
+    pub(crate) redirect_uri: Option<String>,
+    pub(crate) client_id: String,
+    pub(crate) client_secret: Option<String>,
+    pub(crate) refresh_token: Option<String>,
     #[allow(dead_code)] // OAuth2 password grant, intentionally disabled by default
-    username: Option<String>,
+    pub(crate) username: Option<String>,
     #[allow(dead_code)] // OAuth2 password grant, intentionally disabled by default
-    password: Option<String>,
-    scope: Option<String>,
-    code_verifier: Option<String>,
-    device_code: Option<String>,
+    pub(crate) password: Option<String>,
+    pub(crate) scope: Option<String>,
+    pub(crate) code_verifier: Option<String>,
+    pub(crate) device_code: Option<String>,
     /// RFC 7521 §4.2: assertion type (e.g.
     /// `urn:ietf:params:oauth:client-assertion-type:jwt-bearer`).
-    client_assertion_type: Option<String>,
+    pub(crate) client_assertion_type: Option<String>,
     /// RFC 7521 §4.2: the assertion itself (a JWT).
-    client_assertion: Option<String>,
-    /// RFC 8707: resource server URI for the requested access token audience.
-    resource: Option<String>,
+    pub(crate) client_assertion: Option<String>,
+    /// RFC 8707 §2: resource server URIs for the requested access token
+    /// audience. The parameter may be repeated, so every occurrence is kept.
+    pub(crate) resource: Vec<String>,
     // RFC 8693 (Token Exchange) fields ---
+    /// RFC 8693 §2.1: logical names of the target services. Like `resource`,
+    /// the parameter may be repeated.
+    pub(crate) audience: Vec<String>,
     /// `urn:ietf:params:oauth:token-type:access_token` or similar.
-    subject_token: Option<String>,
-    #[allow(dead_code)] // RFC 8693: token type URI, reserved for full validation
-    subject_token_type: Option<String>,
-    actor_token: Option<String>,
-    #[allow(dead_code)] // RFC 8693: actor token type URI, reserved for full validation
-    actor_token_type: Option<String>,
-    requested_token_type: Option<String>,
+    pub(crate) subject_token: Option<String>,
+    pub(crate) subject_token_type: Option<String>,
+    pub(crate) actor_token: Option<String>,
+    pub(crate) actor_token_type: Option<String>,
+    pub(crate) requested_token_type: Option<String>,
     /// RFC 9396: Rich Authorization Request (JSON array string).
-    authorization_details: Option<String>,
+    pub(crate) authorization_details: Option<String>,
 }
 
 /// JWT Bearer assertion type per RFC 7523 §2.2.
@@ -1236,6 +1273,7 @@ fn validate_jwt_client_assertion(
     client: &oauth2_core::Client,
     assertion: &str,
     token_endpoint_url: &str,
+    issuer: &str,
     resolved_jwks: Option<&serde_json::Value>,
 ) -> Result<(), OAuth2Error> {
     use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
@@ -1252,8 +1290,10 @@ fn validate_jwt_client_assertion(
             }
             let key = DecodingKey::from_secret(client.client_secret.as_bytes());
             let mut validation = Validation::new(Algorithm::HS256);
-            // `aud` MUST contain the token endpoint URL (RFC 7523 §3)
-            validation.set_audience(&[token_endpoint_url]);
+            // `aud` MUST contain the token endpoint URL (RFC 7523 §3). RFC
+            // 7523bis additionally allows the issuer identifier of the
+            // authorization server; both are compared as exact strings.
+            validation.set_audience(&[token_endpoint_url, issuer]);
             validation.set_required_spec_claims(&["exp", "sub", "iss", "aud"]);
             let data = decode::<serde_json::Value>(assertion, &key, &validation).map_err(|e| {
                 OAuth2Error::invalid_client(&format!("client_secret_jwt validation failed: {e}"))
@@ -1311,7 +1351,8 @@ fn validate_jwt_client_assertion(
                 OAuth2Error::invalid_client("Failed to construct RSA key from client JWKS")
             })?;
             let mut validation = Validation::new(Algorithm::RS256);
-            validation.set_audience(&[token_endpoint_url]);
+            // RFC 7523 §3 / RFC 7523bis: token endpoint URL or issuer.
+            validation.set_audience(&[token_endpoint_url, issuer]);
             validation.set_required_spec_claims(&["exp", "sub", "iss", "aud"]);
             let data = decode::<serde_json::Value>(assertion, &decoding_key, &validation).map_err(
                 |e| OAuth2Error::invalid_client(&format!("private_key_jwt validation failed: {e}")),
@@ -1387,6 +1428,10 @@ pub async fn token(
     jwks_cache: Option<web::Data<JwksCache>>,
     dpop_replay_store: Option<web::Data<DpopReplayStore>>,
     dpop_nonce_issuer: Option<web::Data<DpopNonceIssuer>>,
+    // Phase 7 (agent / A2A OAuth): optional so the many inline test `App`
+    // builders that predate it keep working; falls back to defaults.
+    agent_config: Option<web::Data<oauth2_config::AgentConfig>>,
+    keyset: Option<web::Data<std::sync::Arc<tokio::sync::RwLock<KeySet>>>>,
 ) -> Result<HttpResponse, OAuth2Error> {
     // OAuch: reject duplicate parameters (prevents parser differentials / smuggling).
     ensure_no_duplicate_query_params(&req)?;
@@ -1447,7 +1492,8 @@ pub async fn token(
         device_code: form_map.get("device_code").cloned(),
         client_assertion_type,
         client_assertion,
-        resource: form_map.get("resource").cloned(),
+        resource: form_map.all("resource"),
+        audience: form_map.all("audience"),
         subject_token: form_map.get("subject_token").cloned(),
         subject_token_type: form_map.get("subject_token_type").cloned(),
         actor_token: form_map.get("actor_token").cloned(),
@@ -1629,13 +1675,26 @@ pub async fn token(
             .await
         }
         TOKEN_EXCHANGE_GRANT_TYPE => {
-            handle_token_exchange_grant(
+            let storage = storage.ok_or_else(|| {
+                OAuth2Error::new(
+                    "server_error",
+                    Some("Storage backend not configured for token-exchange grant"),
+                )
+            })?;
+            let agent_config = agent_config
+                .map(|c| c.get_ref().clone())
+                .unwrap_or_default();
+            crate::handlers::token_exchange::exchange(
                 form,
                 cnf_claim,
+                dpop_jkt.is_some(),
                 token_actor,
                 client_actor,
+                storage.get_ref().clone(),
                 metrics,
                 oidc_config,
+                agent_config,
+                keyset,
                 jwks_cache,
                 mtls_thumbprint.as_deref(),
                 mtls_subject_dn.as_deref(),
@@ -1730,6 +1789,7 @@ async fn handle_device_code_grant(
         &client,
         &req,
         &token_endpoint_url,
+        &oidc_config.issuer,
         resolved_jwks.as_ref(),
         mtls_thumbprint,
         mtls_subject_dn,
@@ -1788,7 +1848,7 @@ async fn handle_device_code_grant(
             scope: device_auth.scope.clone(),
             include_refresh,
             token_family: None,
-            resource: None,
+            resources: Vec::new(),
             cnf: None,
             authorization_details: None,
             act: None,
@@ -1969,6 +2029,7 @@ async fn handle_authorization_code_grant(
             &client,
             &req,
             &token_endpoint_url,
+            &oidc_config.issuer,
             resolved_jwks.as_ref(),
             mtls_thumbprint,
             mtls_subject_dn,
@@ -2021,7 +2082,7 @@ async fn handle_authorization_code_grant(
             scope: auth_code.scope.clone(),
             include_refresh,
             token_family,
-            resource: auth_code.resource.clone(),
+            resources: auth_code.resource.clone().into_iter().collect(),
             cnf: cnf_claim.clone(),
             authorization_details: eff_auth_details,
             act: None,
@@ -2153,6 +2214,7 @@ async fn handle_client_credentials_grant(
         &client,
         &req,
         &token_endpoint_url,
+        &oidc_config.issuer,
         resolved_jwks.as_ref(),
         mtls_thumbprint,
         mtls_subject_dn,
@@ -2171,7 +2233,7 @@ async fn handle_client_credentials_grant(
             scope,
             include_refresh: false,
             token_family: None,
-            resource: req.resource,
+            resources: req.resource,
             cnf: cnf_claim.clone(),
             authorization_details: rar_details,
             act: None,
@@ -2185,138 +2247,6 @@ async fn handle_client_credentials_grant(
     Ok(no_store_headers(HttpResponse::Ok().json(
         apply_dpop_token_type(TokenResponse::from(token), cnf_claim.as_ref()),
     )))
-}
-
-/// RFC 8693: Token Exchange Grant.
-///
-/// Exchanges an existing security token (subject_token) for a new access token,
-/// optionally narrowing scope, changing audience, or impersonating a different subject.
-/// Supports DPoP-binding via `cnf_claim`.
-#[allow(clippy::too_many_arguments)]
-async fn handle_token_exchange_grant(
-    req: TokenRequest,
-    cnf_claim: Option<serde_json::Value>,
-    token_actor: web::Data<TokenActorPool>,
-    client_actor: web::Data<Addr<ClientActor>>,
-    metrics: web::Data<Metrics>,
-    oidc_config: web::Data<OidcConfig>,
-    jwks_cache: Option<web::Data<JwksCache>>,
-    mtls_thumbprint: Option<&str>,
-    mtls_subject_dn: Option<&str>,
-) -> Result<HttpResponse, OAuth2Error> {
-    use crate::actors::LookupToken;
-
-    let subject_token = req
-        .subject_token
-        .clone()
-        .ok_or_else(|| OAuth2Error::invalid_request("Missing subject_token"))?;
-
-    // Authenticate the client making the exchange request.
-    let client = client_actor
-        .send(GetClient {
-            client_id: req.client_id.clone(),
-            span: tracing::Span::current(),
-        })
-        .await
-        .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))??;
-
-    if !client.supports_grant_type(TOKEN_EXCHANGE_GRANT_TYPE) {
-        return Err(OAuth2Error::unauthorized_client(
-            "Client not allowed to use token-exchange",
-        ));
-    }
-    if client.is_public() {
-        return Err(OAuth2Error::invalid_client(
-            "Public clients cannot use token-exchange",
-        ));
-    }
-    let token_endpoint_url = format!("{}/oauth/token", oidc_config.issuer.trim_end_matches('/'));
-    let resolved_jwks =
-        resolve_client_jwks(&client, jwks_cache.as_ref().map(|d| d.as_ref())).await?;
-    authenticate_confidential_client(
-        &client,
-        &req,
-        &token_endpoint_url,
-        resolved_jwks.as_ref(),
-        mtls_thumbprint,
-        mtls_subject_dn,
-    )?;
-
-    // Validate the subject_token: look it up in storage.
-    let subject_tok = token_actor
-        .route(&req.client_id)
-        .send(LookupToken {
-            token: subject_token,
-            span: tracing::Span::current(),
-        })
-        .await
-        .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))??
-        .ok_or_else(|| OAuth2Error::invalid_grant("subject_token not found or expired"))?;
-
-    // Reject revoked OR expired subject tokens. The previous code checked only
-    // `revoked`, so an expired (but still-persisted) token could be exchanged
-    // for a fresh one. `is_valid()` mirrors the ValidateToken path.
-    if !subject_tok.is_valid() {
-        return Err(OAuth2Error::invalid_grant(
-            "subject_token is expired or revoked",
-        ));
-    }
-
-    // Build `act` claim when an actor_token is provided (delegation / impersonation).
-    let act_claim: Option<serde_json::Value> = req
-        .actor_token
-        .as_ref()
-        .map(|_| serde_json::json!({ "sub": req.client_id }));
-
-    // Requested scope must be a subset of the subject token's scope; default to original.
-    let scope = match req.scope {
-        Some(ref requested) => {
-            validate_scope_subset(requested, &subject_tok.scope)?;
-            requested.clone()
-        }
-        None => subject_tok.scope.clone(),
-    };
-
-    let new_token = token_actor
-        .route(&req.client_id)
-        .send(CreateToken {
-            user_id: subject_tok.user_id.clone(),
-            client_id: req.client_id.clone(),
-            scope,
-            include_refresh: false,
-            token_family: None,
-            resource: req.resource.clone(),
-            cnf: cnf_claim.clone(),
-            authorization_details: None,
-            act: None,
-            span: tracing::Span::current(),
-        })
-        .await
-        .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))??;
-
-    metrics.oauth_token_issued_total.inc();
-
-    let issued_type = req
-        .requested_token_type
-        .clone()
-        .unwrap_or_else(|| "urn:ietf:params:oauth:token-type:access_token".to_string());
-    // RFC 9449 §7.1: use "DPoP" token_type when a DPoP-bound token was issued.
-    let token_type_str = if cnf_claim.as_ref().and_then(|c| c.get("jkt")).is_some() {
-        "DPoP"
-    } else {
-        "Bearer"
-    };
-    let mut resp = serde_json::json!({
-        "access_token": new_token.access_token,
-        "issued_token_type": issued_type,
-        "token_type": token_type_str,
-        "expires_in": new_token.expires_in,
-        "scope": new_token.scope,
-    });
-    if let Some(act) = act_claim {
-        resp["act"] = act;
-    }
-    Ok(no_store_headers(HttpResponse::Ok().json(resp)))
 }
 
 /// RFC 6749 §6 — Refresh Token Grant
@@ -2359,6 +2289,7 @@ async fn handle_refresh_token_grant(
             &client,
             &req,
             &token_endpoint_url,
+            &oidc_config.issuer,
             resolved_jwks.as_ref(),
             mtls_thumbprint,
             mtls_subject_dn,
@@ -2450,7 +2381,7 @@ async fn handle_refresh_token_grant(
             scope,
             include_refresh: true,
             token_family: Some(family),
-            resource: req.resource.clone(),
+            resources: req.resource.clone(),
             cnf: old_cnf.clone(),
             authorization_details: None,
             act: None,
@@ -2515,13 +2446,18 @@ pub async fn par(
 
     // Authenticate confidential clients; public clients are identified by client_id only.
     if !client.is_public() {
-        let token_endpoint_url = {
+        // This endpoint has no OidcConfig of its own, so the issuer is derived
+        // from the same Host header the endpoint URL is built from.
+        let (token_endpoint_url, par_issuer) = {
             let host = req
                 .headers()
                 .get(actix_web::http::header::HOST)
                 .and_then(|h| h.to_str().ok())
                 .unwrap_or("localhost");
-            format!("https://{host}/oauth/par")
+            (
+                format!("https://{host}/oauth/par"),
+                format!("https://{host}"),
+            )
         };
         let secret_from_body = params.get("client_secret").cloned();
         let basic_creds = parse_client_basic_auth(&req).unwrap_or(None);
@@ -2560,6 +2496,7 @@ pub async fn par(
                             &client,
                             &aval,
                             &token_endpoint_url,
+                            &par_issuer,
                             resolved_jwks.as_ref(),
                         )?;
                     } else {

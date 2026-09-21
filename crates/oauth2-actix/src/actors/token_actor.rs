@@ -156,9 +156,9 @@ pub struct CreateToken {
     pub scope: String,
     pub include_refresh: bool,
     pub token_family: Option<String>,
-    /// RFC 8707: resource indicator URI. When set, overrides the JWT `aud` claim
-    /// from `client_id` to the specified resource server URI.
-    pub resource: Option<String>,
+    /// RFC 8707: resource indicator URIs. When non-empty, overrides the JWT
+    /// `aud` claim from `client_id` to the requested resource server URIs.
+    pub resources: Vec<String>,
     /// RFC 9449 / RFC 8705: confirmation claim (`cnf`) to bind the token to a key.
     /// Set to `{"jkt": "<base64url thumbprint>"}` for DPoP or `{"x5t#S256": "..."}` for mTLS.
     pub cnf: Option<serde_json::Value>,
@@ -238,10 +238,10 @@ impl Handler<CreateToken> for TokenActor {
                         access_token_ttl_secs,
                         &issuer,
                     );
-                    // RFC 8707 §2: if resource parameter was provided, the access token's
-                    // aud claim MUST be bound to that resource server URI.
-                    if let Some(ref resource) = msg.resource {
-                        access_claims = access_claims.with_audience(vec![resource.clone()]);
+                    // RFC 8707 §2: if resource parameter(s) were provided, the access
+                    // token's aud claim MUST be bound to those resource server URIs.
+                    if !msg.resources.is_empty() {
+                        access_claims = access_claims.with_audience(msg.resources.clone());
                     }
                     // RFC 9449 / RFC 8705: embed cnf (confirmation) claim if provided.
                     access_claims.cnf = msg.cnf.clone();
@@ -279,8 +279,8 @@ impl Handler<CreateToken> for TokenActor {
                 };
 
                 // RFC 8707: persist the resource indicator(s) this token was
-                // scoped to (currently at most one per request).
-                let resources: Vec<String> = msg.resource.clone().into_iter().collect();
+                // scoped to.
+                let resources: Vec<String> = msg.resources.clone();
 
                 let token = Token::new(
                     access_token,

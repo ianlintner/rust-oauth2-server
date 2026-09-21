@@ -1205,6 +1205,8 @@ pub async fn run() -> std::io::Result<()> {
             .app_data(web::Data::new(app_config.clone()))
             .app_data(web::Data::new(oidc_config.clone()))
             .app_data(web::Data::new(keyset.clone()))
+            // Phase 7 (agent / A2A OAuth) feature flags and delegation limits.
+            .app_data(web::Data::new(app_config.agent.clone()))
             .app_data(web::Data::new(key_rotation_grace_hours))
             // Stateless JWT validation flag (skips DB lookup during introspection)
             .app_data(web::Data::new(app_config.jwt.stateless_validation));
