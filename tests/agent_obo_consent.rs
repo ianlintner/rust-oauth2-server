@@ -404,6 +404,39 @@ async fn named_agent_consent_happy_path() {
     assert_eq!(intro["act"]["sub_profile"], "ai_agent", "body: {intro}");
 }
 
+/// The mirror image of the happy path: an `actor_token` offered at the code
+/// exchange confers nothing on its own. Only a code the user authorized with
+/// `requested_actor` records a delegation, so the issued token carries no
+/// `act`.
+#[actix_web::test]
+async fn actor_token_without_requested_actor_records_no_delegation() {
+    let storage = storage().await;
+    let agent_token = mint_agent_token(&storage, "agent_client").await;
+    let app = obo_app!(storage, obo_on());
+
+    // No `requested_actor` on the authorize request…
+    let code = code_for!(app, None::<&str>);
+    // …but an actor token at the exchange anyway.
+    let resp = exchange_code!(
+        app,
+        code.as_str(),
+        &[
+            ("actor_token", agent_token.access_token.as_str()),
+            ("actor_token_type", ACCESS_TOKEN_TYPE),
+        ]
+    );
+    assert_eq!(resp.status(), 200, "the exchange itself is well-formed");
+    let body: Value = test::read_body_json(resp).await;
+    let access_token = body["access_token"].as_str().expect("access_token");
+
+    let intro = introspect!(app, access_token);
+    assert_eq!(intro["active"], Value::Bool(true), "body: {intro}");
+    assert!(
+        intro.get("act").map(Value::is_null).unwrap_or(true),
+        "the user never named an actor, so `act` must be absent: {intro}"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // 4. Missing actor_token at the code exchange
 // ---------------------------------------------------------------------------
