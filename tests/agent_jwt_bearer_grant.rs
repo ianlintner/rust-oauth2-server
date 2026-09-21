@@ -7,7 +7,8 @@
 //! loopback port; that URL is registered as the trusted issuer's `jwks_uri`
 //! so the production `JwksCache` fetches it for real.
 
-use std::sync::OnceLock;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, OnceLock};
 
 use actix::Actor;
 use actix_web::{test, web, App, HttpResponse, HttpServer};
@@ -22,7 +23,10 @@ use oauth2_actix::actors::TokenActorPool;
 use oauth2_actix::handlers::jwks_cache::JwksCache;
 use oauth2_actix::handlers::wellknown::OidcConfig;
 use oauth2_config::AgentConfig;
-use oauth2_core::{token_types::GRANT_JWT_BEARER, Client, TrustedIssuer};
+use oauth2_core::{
+    token_types::GRANT_JWT_BEARER, AuthorizationCode, Client, OAuth2Error, ProtectedResource,
+    Token, TrustedIssuer, User,
+};
 use oauth2_observability::Metrics;
 use oauth2_ports::DynStorage;
 
@@ -633,6 +637,227 @@ async fn sub_mapping_reuses_an_existing_user_without_modifying_it() {
     assert_eq!(after.password_hash, "pre-existing-hash");
     assert_eq!(after.email, "already.here@example.test");
     assert_eq!(after.role, "admin");
+}
+
+// ---------------------------------------------------------------------------
+// Failed-insert recovery (Storage wrapper that injects the failure)
+// ---------------------------------------------------------------------------
+
+/// A `Storage` decorator that forces `resolve_subject` down its
+/// failed-insert/re-read recovery path. `Storage::save_user` is a bare INSERT
+/// in every backend, so a subject whose row is created concurrently (or whose
+/// `sub` collides with an existing user id) makes the insert fail; there is no
+/// way to provoke that deterministically against real SQLite, hence this.
+///
+/// Every method delegates to `inner` except the two knobs. Follows the
+/// `NonPersistingStorage` pattern in `tests/dpop_ath_replay.rs`.
+struct FlakyStorage {
+    inner: DynStorage,
+    /// `save_user` fails as a unique-constraint violation would.
+    fail_save_user: bool,
+    /// The FIRST `get_user_by_id` answers `None` even when the row exists,
+    /// modelling the lookup that happens before a concurrent writer commits.
+    /// Every later call delegates.
+    hide_first_user_lookup: AtomicBool,
+}
+
+impl FlakyStorage {
+    fn wrap(inner: &DynStorage, fail_save_user: bool, hide_first_user_lookup: bool) -> DynStorage {
+        Arc::new(Self {
+            inner: inner.clone(),
+            fail_save_user,
+            hide_first_user_lookup: AtomicBool::new(hide_first_user_lookup),
+        })
+    }
+}
+
+#[async_trait::async_trait]
+impl oauth2_ports::Storage for FlakyStorage {
+    // --- the two knobs ---
+    async fn save_user(&self, user: &User) -> Result<(), OAuth2Error> {
+        if self.fail_save_user {
+            return Err(OAuth2Error::new(
+                "server_error",
+                Some("simulated unique violation"),
+            ));
+        }
+        self.inner.save_user(user).await
+    }
+
+    async fn get_user_by_id(&self, user_id: &str) -> Result<Option<User>, OAuth2Error> {
+        if self.hide_first_user_lookup.swap(false, Ordering::SeqCst) {
+            return Ok(None);
+        }
+        self.inner.get_user_by_id(user_id).await
+    }
+
+    // --- everything else delegates ---
+    async fn init(&self) -> Result<(), OAuth2Error> {
+        self.inner.init().await
+    }
+    async fn save_client(&self, client: &Client) -> Result<(), OAuth2Error> {
+        self.inner.save_client(client).await
+    }
+    async fn get_client(&self, client_id: &str) -> Result<Option<Client>, OAuth2Error> {
+        self.inner.get_client(client_id).await
+    }
+    async fn update_client(&self, client: &Client) -> Result<(), OAuth2Error> {
+        self.inner.update_client(client).await
+    }
+    async fn delete_client(&self, client_id: &str) -> Result<(), OAuth2Error> {
+        self.inner.delete_client(client_id).await
+    }
+    async fn get_user_by_username(&self, username: &str) -> Result<Option<User>, OAuth2Error> {
+        self.inner.get_user_by_username(username).await
+    }
+    async fn get_user_by_email(&self, email: &str) -> Result<Option<User>, OAuth2Error> {
+        self.inner.get_user_by_email(email).await
+    }
+    async fn save_token(&self, token: &Token) -> Result<(), OAuth2Error> {
+        self.inner.save_token(token).await
+    }
+    async fn get_token_by_access_token(
+        &self,
+        access_token: &str,
+    ) -> Result<Option<Token>, OAuth2Error> {
+        self.inner.get_token_by_access_token(access_token).await
+    }
+    async fn get_token_by_refresh_token(
+        &self,
+        refresh_token: &str,
+    ) -> Result<Option<Token>, OAuth2Error> {
+        self.inner.get_token_by_refresh_token(refresh_token).await
+    }
+    async fn revoke_token(&self, token: &str) -> Result<(), OAuth2Error> {
+        self.inner.revoke_token(token).await
+    }
+    async fn save_authorization_code(
+        &self,
+        auth_code: &AuthorizationCode,
+    ) -> Result<(), OAuth2Error> {
+        self.inner.save_authorization_code(auth_code).await
+    }
+    async fn get_authorization_code(
+        &self,
+        code: &str,
+    ) -> Result<Option<AuthorizationCode>, OAuth2Error> {
+        self.inner.get_authorization_code(code).await
+    }
+    async fn mark_authorization_code_used(&self, code: &str) -> Result<(), OAuth2Error> {
+        self.inner.mark_authorization_code_used(code).await
+    }
+    async fn save_trusted_issuer(&self, trusted_issuer: &TrustedIssuer) -> Result<(), OAuth2Error> {
+        self.inner.save_trusted_issuer(trusted_issuer).await
+    }
+    async fn get_trusted_issuer(&self, issuer: &str) -> Result<Option<TrustedIssuer>, OAuth2Error> {
+        self.inner.get_trusted_issuer(issuer).await
+    }
+    async fn list_trusted_issuers(&self) -> Result<Vec<TrustedIssuer>, OAuth2Error> {
+        self.inner.list_trusted_issuers().await
+    }
+    async fn save_resource(&self, r: &ProtectedResource) -> Result<(), OAuth2Error> {
+        self.inner.save_resource(r).await
+    }
+    async fn get_resource_by_uri(
+        &self,
+        uri: &str,
+    ) -> Result<Option<ProtectedResource>, OAuth2Error> {
+        self.inner.get_resource_by_uri(uri).await
+    }
+    async fn list_resources(&self) -> Result<Vec<ProtectedResource>, OAuth2Error> {
+        self.inner.list_resources().await
+    }
+}
+
+/// The grant lost a race: its first lookup saw no user, its INSERT then
+/// collided with the row the winner had just committed. Re-reading finds that
+/// row, so the grant succeeds against it rather than returning a 500.
+#[actix_web::test]
+async fn sub_mapping_recovers_when_insert_races_with_concurrent_provisioning() {
+    let jwks_uri = spawn_jwks_server();
+    let inner = setup(&jwks_uri, |_| {}).await;
+
+    // The "winner" of the race — written straight to the inner storage.
+    let now = chrono::Utc::now();
+    let winner = User {
+        id: "agent-subject-1".to_string(),
+        username: "race-winner".to_string(),
+        password_hash: "winner-hash".to_string(),
+        email: "race.winner@example.test".to_string(),
+        enabled: true,
+        role: "user".to_string(),
+        created_at: now,
+        updated_at: now,
+    };
+    inner.save_user(&winner).await.expect("save user");
+
+    // Hide it from the first lookup, then fail the insert.
+    let storage = FlakyStorage::wrap(&inner, true, true);
+
+    let assertion = sign_assertion(&base_claims("race-recover-1"), None, true);
+
+    let (status, body) = post_token!(
+        storage,
+        deps(&storage, false),
+        form_body(&assertion, &[]),
+        None::<String>
+    );
+    assert_eq!(
+        status, 200,
+        "a lost provisioning race must still issue a token; body: {body}"
+    );
+
+    let access_token = body["access_token"].as_str().expect("access_token");
+    let stored = inner
+        .get_token_by_access_token(access_token)
+        .await
+        .expect("get_token_by_access_token")
+        .expect("issued token must be persisted");
+    assert_eq!(stored.user_id.as_deref(), Some("agent-subject-1"));
+
+    // The winner's row is untouched.
+    let after = inner
+        .get_user_by_id("agent-subject-1")
+        .await
+        .expect("get_user_by_id")
+        .expect("user still exists");
+    assert_eq!(after.username, "race-winner");
+    assert_eq!(after.password_hash, "winner-hash");
+    assert_eq!(after.email, "race.winner@example.test");
+}
+
+/// The insert failed for a reason other than a race — there is still no user
+/// to bind to, so the grant fails closed with `invalid_grant`, never a 500.
+#[actix_web::test]
+async fn sub_mapping_returns_invalid_grant_when_insert_fails_and_user_absent() {
+    let jwks_uri = spawn_jwks_server();
+    let inner = setup(&jwks_uri, |_| {}).await;
+
+    // No user anywhere; the insert simply fails.
+    let storage = FlakyStorage::wrap(&inner, true, false);
+
+    let assertion = sign_assertion(&base_claims("race-absent-1"), None, true);
+
+    let (status, body) = post_token!(
+        storage,
+        deps(&storage, false),
+        form_body(&assertion, &[]),
+        None::<String>
+    );
+    assert_eq!(
+        status, 400,
+        "a failed insert must not surface as a 500; body: {body}"
+    );
+    assert_eq!(body["error"], "invalid_grant");
+
+    assert!(
+        inner
+            .get_user_by_id("agent-subject-1")
+            .await
+            .expect("get_user_by_id")
+            .is_none(),
+        "no user row may exist after a failed provisioning insert"
+    );
 }
 
 // ---------------------------------------------------------------------------

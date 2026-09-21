@@ -486,12 +486,25 @@ async fn resolve_subject(
             error = %insert_err.error,
             "RFC 7523: just-in-time user provisioning insert failed"
         );
-        return match storage.get_user_by_id(sub).await? {
-            Some(raced) if raced.enabled => Ok(raced.id),
-            Some(_) => Err(OAuth2Error::invalid_grant("subject user is disabled")),
-            None => Err(OAuth2Error::invalid_grant(
+        return match storage.get_user_by_id(sub).await {
+            Ok(Some(raced)) if raced.enabled => Ok(raced.id),
+            Ok(Some(_)) => Err(OAuth2Error::invalid_grant("subject user is disabled")),
+            Ok(None) => Err(OAuth2Error::invalid_grant(
                 "could not provision a local user for the assertion subject",
             )),
+            // The re-read is part of recovering from a failed grant, so its
+            // own failure is still a grant failure — never a 500.
+            Err(reread_err) => {
+                tracing::warn!(
+                    issuer = %trusted.issuer,
+                    subject = %sub,
+                    error = %reread_err.error,
+                    "RFC 7523: re-read after a failed provisioning insert also failed"
+                );
+                Err(OAuth2Error::invalid_grant(
+                    "could not provision a local user for the assertion subject",
+                ))
+            }
         };
     }
     tracing::info!(
