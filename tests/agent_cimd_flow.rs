@@ -828,6 +828,48 @@ async fn operator_flags_survive_a_document_change() {
     assert_eq!(cimd_rows(&storage).await, 1, "still one row");
 }
 
+/// A pre-registered *public* client (no secret) whose `client_id` happens to
+/// be an https URL must never be rewritten from a metadata document: the
+/// document's author is whoever controls that URL, not the operator who
+/// registered the row.
+#[actix_web::test]
+async fn a_pre_registered_public_client_is_not_overwritten_by_a_document() {
+    let base = spawn_metadata_server();
+    let client_id = format!("{base}/public-agent");
+    let storage = storage().await;
+
+    // Registered out of band: public (no secret), and not CIMD-managed.
+    let mut row = Client::new(
+        client_id.clone(),
+        String::new(),
+        vec!["https://operator.example/cb".to_string()],
+        vec!["authorization_code".to_string()],
+        "read".to_string(),
+        "Operator registered client".to_string(),
+    );
+    row.client_secret = String::new();
+    row.token_endpoint_auth_method = "none".to_string();
+    row.cimd_managed = false;
+    storage.save_client(&row).await.expect("save client");
+
+    let app = cimd_app!(storage, agent_config(true), Some(fetcher()));
+    let resp = authorize_once!(app, &client_id);
+    assert_ne!(
+        resp.status(),
+        302,
+        "a metadata document must not take over a registered client"
+    );
+
+    let after = stored(&storage, &client_id).await.expect("row");
+    assert_eq!(
+        after.name, "Operator registered client",
+        "the registered row must survive untouched"
+    );
+    assert_eq!(after.redirect_uris, row.redirect_uris);
+    assert!(!after.cimd_managed, "the row must stay operator-owned");
+    assert_eq!(cimd_rows(&storage).await, 0, "no CIMD row was created");
+}
+
 #[actix_web::test]
 async fn a_junk_refresh_token_writes_no_client_row() {
     let base = spawn_metadata_server();

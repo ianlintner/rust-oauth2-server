@@ -566,8 +566,9 @@ impl Handler<DeleteClient> for ClientActor {
 /// foreign key to `clients(client_id)`, so a CIMD client that exists only as a
 /// fetched document cannot be granted anything. The document stays
 /// authoritative — the row is rewritten whenever it drifts from the document —
-/// and a row that carries a client secret is never overwritten, so a metadata
-/// document can never take over a registered, credentialed client.
+/// and only a row this mechanism created itself (`cimd_managed`, no client
+/// secret) is ever overwritten, so a metadata document can never take over a
+/// client that was registered by an operator or through RFC 7591.
 ///
 /// `max_clients` caps how many `cimd_managed` rows may exist. The `client_id`
 /// is attacker-chosen, so a *new* row is refused once the registry is full;
@@ -608,6 +609,10 @@ fn preserve_operator_state(doc: &mut Client, existing: &Client) {
     doc.dpop_nonce_required = existing.dpop_nonce_required;
     doc.registration_access_token = existing.registration_access_token.clone();
     doc.require_state = existing.require_state;
+    doc.tls_client_auth_san = existing.tls_client_auth_san.clone();
+    doc.tls_client_certificate_subject_dn = existing.tls_client_certificate_subject_dn.clone();
+    doc.software_id = existing.software_id.clone();
+    doc.software_version = existing.software_version.clone();
 }
 
 impl Handler<MaterializeCimdClient> for ClientActor {
@@ -644,9 +649,13 @@ impl Handler<MaterializeCimdClient> for ClientActor {
 
                 match db.get_client(&client.client_id).await? {
                     Some(existing) => {
-                        if !existing.client_secret.is_empty() {
+                        // A metadata document must never take over a client
+                        // an operator (or dynamic registration) already put in
+                        // the table — whether it holds a secret or is a public
+                        // client whose `client_id` happens to be an https URL.
+                        if !existing.client_secret.is_empty() || !existing.cimd_managed {
                             return Err(OAuth2Error::invalid_client(
-                                "client_id is already registered with credentials",
+                                "client_id is already registered",
                             ));
                         }
                         preserve_operator_state(&mut client, &existing);
