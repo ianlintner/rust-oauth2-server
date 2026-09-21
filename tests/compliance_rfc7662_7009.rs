@@ -158,6 +158,8 @@ async fn issue_access_token(
             cnf: None,
             authorization_details: None,
             act: None,
+            txn: None,
+            ttl_override_secs: None,
             span: tracing::Span::current(),
         })
         .await

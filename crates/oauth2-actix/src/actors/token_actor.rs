@@ -169,6 +169,13 @@ pub struct CreateToken {
     /// JWT access tokens, embedded in the `act` claim) so it can be surfaced
     /// at introspection time regardless of token format.
     pub act: Option<serde_json::Value>,
+    /// Transaction Token `txn` claim: the transaction identifier this token
+    /// was issued for. Embedded in the JWT access token when set.
+    pub txn: Option<String>,
+    /// Caps this token's lifetime below the actor's configured access-token
+    /// TTL. The effective TTL is `min(ttl_override_secs, access_token_ttl)`;
+    /// `None` leaves the configured TTL alone.
+    pub ttl_override_secs: Option<u64>,
     pub span: tracing::Span,
 }
 
@@ -182,7 +189,12 @@ impl Handler<CreateToken> for TokenActor {
         let event_bus = self.event_bus.clone();
         let keyset = self.keyset.clone();
         let access_tokens_opaque = self.access_tokens_opaque;
-        let access_token_ttl_secs = self.access_token_ttl_secs;
+        // A grant may ask for a shorter-lived token (e.g. the transaction
+        // authorization grant); it may never ask for a longer-lived one.
+        let access_token_ttl_secs = match msg.ttl_override_secs {
+            Some(cap) => self.access_token_ttl_secs.min(cap as i64),
+            None => self.access_token_ttl_secs,
+        };
         let refresh_token_ttl_secs = self.refresh_token_ttl_secs;
 
         let parent_span = msg.span.clone();
@@ -249,6 +261,9 @@ impl Handler<CreateToken> for TokenActor {
                     access_claims.authorization_details = msg.authorization_details.clone();
                     // RFC 8693 §4.1: embed act (actor) claim if this token was delegated.
                     access_claims.act = msg.act.clone();
+                    // Transaction Tokens / transaction authorization challenge:
+                    // carry the transaction identifier into the access token.
+                    access_claims.txn = msg.txn.clone();
 
                     if let Some(ref key) = signing_key {
                         access_claims.encode_with_key(key)

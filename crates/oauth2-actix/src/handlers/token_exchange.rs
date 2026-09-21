@@ -626,6 +626,8 @@ pub(crate) async fn handle_token_exchange_grant(
             cnf: cnf.clone(),
             authorization_details,
             act: act_claim,
+            txn: None,
+            ttl_override_secs: None,
             span: tracing::Span::current(),
         })
         .await

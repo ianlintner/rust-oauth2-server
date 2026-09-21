@@ -3,7 +3,7 @@ use tracing::{field, Instrument};
 
 use oauth2_core::{
     AuditLogEntry, AuthorizationCode, Client, DenylistEntry, DeviceAuthorization, ListQuery,
-    OAuth2Error, Page, ProtectedResource, Token, TrustedIssuer, User,
+    OAuth2Error, Page, ProtectedResource, Token, TransactionAuthorization, TrustedIssuer, User,
 };
 use oauth2_ports::{DynStorage, Storage};
 
@@ -862,6 +862,58 @@ impl Storage for ObservedStorage {
         let span = self.span("delete_resource");
         let id = id.to_string();
         async move { self.inner.delete_resource(&id).await }
+            .instrument(span)
+            .await
+    }
+
+    // --- Transaction Authorization Challenge ---
+
+    async fn save_transaction_authorization(
+        &self,
+        txn_auth: &TransactionAuthorization,
+    ) -> Result<(), OAuth2Error> {
+        let span = self.span("save_transaction_authorization");
+        async move { self.inner.save_transaction_authorization(txn_auth).await }
+            .instrument(span)
+            .await
+    }
+
+    async fn get_transaction_authorization(
+        &self,
+        transaction_authorization_id: &str,
+    ) -> Result<Option<TransactionAuthorization>, OAuth2Error> {
+        let span = self.span("get_transaction_authorization");
+        let id = transaction_authorization_id.to_string();
+        async move { self.inner.get_transaction_authorization(&id).await }
+            .instrument(span)
+            .await
+    }
+
+    async fn settle_transaction_authorization(
+        &self,
+        transaction_authorization_id: &str,
+        user_id: &str,
+        approved: bool,
+    ) -> Result<(), OAuth2Error> {
+        let span = self.span("settle_transaction_authorization");
+        let id = transaction_authorization_id.to_string();
+        let user_id = user_id.to_string();
+        async move {
+            self.inner
+                .settle_transaction_authorization(&id, &user_id, approved)
+                .await
+        }
+        .instrument(span)
+        .await
+    }
+
+    async fn mark_transaction_authorization_used(
+        &self,
+        transaction_authorization_id: &str,
+    ) -> Result<(), OAuth2Error> {
+        let span = self.span("mark_transaction_authorization_used");
+        let id = transaction_authorization_id.to_string();
+        async move { self.inner.mark_transaction_authorization_used(&id).await }
             .instrument(span)
             .await
     }

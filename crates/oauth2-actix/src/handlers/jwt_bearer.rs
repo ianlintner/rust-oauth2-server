@@ -269,6 +269,8 @@ pub(crate) async fn handle_jwt_bearer_grant(
             cnf: cnf_claim.clone(),
             authorization_details: authorization_details.clone(),
             act,
+            txn: None,
+            ttl_override_secs: None,
             span: tracing::Span::current(),
         })
         .await
@@ -294,7 +296,7 @@ pub(crate) async fn handle_jwt_bearer_grant(
 /// Base64url-decode a JWT's payload without verifying the signature. Used only
 /// to learn which trusted issuer's key should verify it; every claim read here
 /// is re-read from the *verified* claim set afterwards.
-fn decode_unverified_claims(assertion: &str) -> Result<Value, OAuth2Error> {
+pub(crate) fn decode_unverified_claims(assertion: &str) -> Result<Value, OAuth2Error> {
     let segments: Vec<&str> = assertion.split('.').collect();
     if segments.len() != 3 {
         return Err(OAuth2Error::invalid_grant(
@@ -356,7 +358,10 @@ async fn verify_assertion(
 
 /// Pick the verification key from a JWKS: by `kid` when the header names one,
 /// otherwise the first key of the right type for the header's algorithm.
-fn select_key(jwks: &Value, header: &jsonwebtoken::Header) -> Result<DecodingKey, OAuth2Error> {
+pub(crate) fn select_key(
+    jwks: &Value,
+    header: &jsonwebtoken::Header,
+) -> Result<DecodingKey, OAuth2Error> {
     let keys = jwks
         .get("keys")
         .and_then(Value::as_array)

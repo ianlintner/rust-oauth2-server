@@ -100,6 +100,8 @@ async fn jwt_mode_persists_and_introspects_delegation() {
             cnf: Some(test_cnf()),
             authorization_details: None,
             act: Some(delegated_actor()),
+            txn: None,
+            ttl_override_secs: None,
             span: tracing::Span::current(),
         })
         .await
@@ -201,6 +203,8 @@ async fn opaque_mode_persists_and_introspects_delegation() {
             cnf: Some(test_cnf()),
             authorization_details: None,
             act: Some(delegated_actor()),
+            txn: None,
+            ttl_override_secs: None,
             span: tracing::Span::current(),
         })
         .await

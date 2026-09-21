@@ -1245,6 +1245,9 @@ pub struct TokenRequest {
     pub(crate) requested_token_type: Option<String>,
     /// RFC 9396: Rich Authorization Request (JSON array string).
     pub(crate) authorization_details: Option<String>,
+    /// `draft-rosomakho-oauth-txn-challenge-00`: handle for a pending
+    /// transaction authorization being polled.
+    pub(crate) transaction_authorization_id: Option<String>,
 }
 
 /// JWT Bearer assertion type per RFC 7523 §2.2.
@@ -1506,6 +1509,7 @@ pub async fn token(
         actor_token_type: form_map.get("actor_token_type").cloned(),
         requested_token_type: form_map.get("requested_token_type").cloned(),
         authorization_details: form_map.get("authorization_details").cloned(),
+        transaction_authorization_id: form_map.get("transaction_authorization_id").cloned(),
     };
 
     // RFC 9449: DPoP — fully validate the DPoP proof and extract JWK Thumbprint.
@@ -1706,6 +1710,31 @@ pub async fn token(
             )
             .await
         }
+        oauth2_core::token_types::GRANT_TRANSACTION_AUTHORIZATION => {
+            let storage = storage.clone().ok_or_else(|| {
+                OAuth2Error::new(
+                    "server_error",
+                    Some("Storage backend not configured for the transaction-authorization grant"),
+                )
+            })?;
+            let agent_config = agent_config
+                .map(|c| c.get_ref().clone())
+                .unwrap_or_default();
+            crate::handlers::transaction_authorization::handle_transaction_authorization_grant(
+                form,
+                cnf_claim,
+                token_actor,
+                client_actor,
+                storage,
+                metrics,
+                oidc_config,
+                agent_config,
+                jwks_cache.clone(),
+                mtls_thumbprint.as_deref(),
+                mtls_subject_dn.as_deref(),
+            )
+            .await
+        }
         TOKEN_EXCHANGE_GRANT_TYPE => {
             let storage = storage.ok_or_else(|| {
                 OAuth2Error::new(
@@ -1884,6 +1913,8 @@ async fn handle_device_code_grant(
             cnf: None,
             authorization_details: None,
             act: None,
+            txn: None,
+            ttl_override_secs: None,
             span: tracing::Span::current(),
         })
         .await
@@ -2118,6 +2149,8 @@ async fn handle_authorization_code_grant(
             cnf: cnf_claim.clone(),
             authorization_details: eff_auth_details,
             act: None,
+            txn: None,
+            ttl_override_secs: None,
             span: tracing::Span::current(),
         })
         .await
@@ -2269,6 +2302,8 @@ async fn handle_client_credentials_grant(
             cnf: cnf_claim.clone(),
             authorization_details: rar_details,
             act: None,
+            txn: None,
+            ttl_override_secs: None,
             span: tracing::Span::current(),
         })
         .await
@@ -2417,6 +2452,8 @@ async fn handle_refresh_token_grant(
             cnf: old_cnf.clone(),
             authorization_details: None,
             act: None,
+            txn: None,
+            ttl_override_secs: None,
             span: tracing::Span::current(),
         })
         .await

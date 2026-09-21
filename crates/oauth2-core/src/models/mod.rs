@@ -10,6 +10,7 @@ pub mod pagination;
 pub mod resource;
 pub mod scope;
 pub mod token;
+pub mod transaction_authorization;
 pub mod trusted_issuer;
 pub mod user;
 
@@ -24,5 +25,6 @@ pub use pagination::*;
 pub use resource::*;
 pub use scope::*;
 pub use token::*;
+pub use transaction_authorization::*;
 pub use trusted_issuer::*;
 pub use user::*;
