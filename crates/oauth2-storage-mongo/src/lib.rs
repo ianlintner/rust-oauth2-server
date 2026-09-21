@@ -25,6 +25,8 @@ pub struct MongoStorage {
     device_authorizations: Collection<DeviceAuthorization>,
     resources: Collection<ProtectedResource>,
     trusted_issuers: Collection<TrustedIssuer>,
+    /// RFC 9449 §11.1: consumed DPoP proof `jti`s (schema-less documents).
+    dpop_jtis: Collection<mongodb::bson::Document>,
 }
 
 impl MongoStorage {
@@ -62,6 +64,7 @@ impl MongoStorage {
         let device_authorizations = db.collection::<DeviceAuthorization>("device_authorizations");
         let resources = db.collection::<ProtectedResource>("resources");
         let trusted_issuers = db.collection::<TrustedIssuer>("trusted_issuers");
+        let dpop_jtis = db.collection::<mongodb::bson::Document>("dpop_jtis");
 
         Ok(Self {
             db,
@@ -72,6 +75,7 @@ impl MongoStorage {
             device_authorizations,
             resources,
             trusted_issuers,
+            dpop_jtis,
         })
     }
 
@@ -210,6 +214,17 @@ impl MongoStorage {
             .create_index(
                 IndexModel::builder()
                     .keys(doc! { "issuer": 1 })
+                    .options(IndexOptions::builder().unique(true).build())
+                    .build(),
+            )
+            .await
+            .map_err(Self::mongo_err_to_oauth)?;
+
+        // dpop_jtis.jti unique — the uniqueness violation *is* the replay check.
+        self.dpop_jtis
+            .create_index(
+                IndexModel::builder()
+                    .keys(doc! { "jti": 1 })
                     .options(IndexOptions::builder().unique(true).build())
                     .build(),
             )
@@ -846,6 +861,32 @@ impl Storage for MongoStorage {
             .await
             .map(|_| ())
             .map_err(Self::mongo_err_to_oauth)
+    }
+
+    /// RFC 9449 §11.1: record a DPoP proof `jti`, reporting whether it was
+    /// fresh. The unique index on `jti` makes the insert the atomic check —
+    /// a duplicate key error means the proof is a replay.
+    async fn dpop_jti_check_and_insert(
+        &self,
+        jti: &str,
+        expires_at: chrono::DateTime<chrono::Utc>,
+    ) -> Result<bool, OAuth2Error> {
+        // Opportunistic cleanup of proofs whose acceptance window has closed.
+        let now = chrono::Utc::now().to_rfc3339();
+        let _ = self
+            .dpop_jtis
+            .delete_many(doc! { "expires_at": { "$lt": &now } })
+            .await;
+
+        match self
+            .dpop_jtis
+            .insert_one(doc! { "jti": jti, "expires_at": expires_at.to_rfc3339() })
+            .await
+        {
+            Ok(_) => Ok(true),
+            Err(e) if Self::duplicate_key_error(&e) => Ok(false),
+            Err(e) => Err(Self::mongo_err_to_oauth(e)),
+        }
     }
 
     async fn revoke_tokens_by_client_id(&self, client_id: &str) -> Result<u64, OAuth2Error> {
