@@ -448,6 +448,7 @@ impl SqlxStorage {
             "claims_request",
             "token_family",
             "dpop_jkt",
+            "requested_actor",
         ] {
             let _ = sqlx::query(&format!(
                 "ALTER TABLE authorization_codes ADD COLUMN {column} TEXT"

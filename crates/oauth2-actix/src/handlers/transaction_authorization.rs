@@ -621,7 +621,9 @@ pub async fn approve_submit(
 
     let record = load_actionable(storage.as_ref(), &form.transaction_authorization_id).await?;
 
-    let approved = form.action.as_deref().unwrap_or("approve") != "deny";
+    // Fail closed: only an explicit approval approves. An unrecognised (or
+    // absent) `action` is a denial, not a silent consent.
+    let approved = form.action.as_deref() == Some("approve");
     storage
         .settle_transaction_authorization(&record.transaction_authorization_id, &user_id, approved)
         .await?;
@@ -704,15 +706,16 @@ pub(crate) async fn handle_transaction_authorization_grant(
         mtls_san_dns,
     )?;
 
-    // Client authentication succeeded; a CIMD client may now be persisted so
-    // the token issued below satisfies the foreign key on `clients(client_id)`.
-    materialize_cimd_client(&client, client_actor.get_ref(), &agent).await?;
-
     if !client.supports_grant_type(GRANT_TRANSACTION_AUTHORIZATION) {
         return Err(OAuth2Error::unauthorized_client(
             "Client is not allowed to use the transaction-authorization grant",
         ));
     }
+
+    // The client is authenticated and entitled to this grant; a CIMD client
+    // may now be persisted so the token issued below satisfies the foreign key
+    // on `clients(client_id)`.
+    materialize_cimd_client(&client, client_actor.get_ref(), &agent).await?;
 
     // --- Poll the approval -------------------------------------------------
     let record = storage

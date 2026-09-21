@@ -728,6 +728,29 @@ async fn denied_transaction_returns_access_denied() {
     assert_eq!(body["error"], "access_denied");
 }
 
+/// Fail closed: an `action` the form did not offer is a denial, never a
+/// silent approval.
+#[actix_web::test]
+async fn an_unrecognised_action_denies_the_transaction() {
+    let jwks_uri = spawn_jwks_server();
+    let storage = setup(Some(&jwks_uri)).await;
+    let app = tac_app!(storage, deps(&storage, true));
+
+    let challenge = sign_challenge(&base_claims("deny-2"), true);
+    let (_, body) = submit!(app, &challenge);
+    let id = body["transaction_authorization_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let cookie = login!(app);
+    assert_eq!(decide!(app, &cookie, &id, "maybe"), 200);
+
+    let (status, body) = poll!(app, &id);
+    assert_eq!(status, 403, "body: {body}");
+    assert_eq!(body["error"], "access_denied");
+}
+
 /// An approval that timed out before the client polled is `expired_token`.
 #[actix_web::test]
 async fn expired_transaction_returns_expired_token() {
