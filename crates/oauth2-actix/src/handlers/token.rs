@@ -41,6 +41,9 @@ fn inactive_introspection_response() -> HttpResponse {
         iss: None,
         cnf: None,
         act: None,
+        txn: None,
+        purp: None,
+        req_wl: None,
     }))
 }
 
@@ -363,6 +366,11 @@ pub async fn introspect(
                     .as_ref()
                     .and_then(|c| c.act.clone())
                     .or_else(|| token.actor()),
+                // draft-ietf-oauth-transaction-tokens §7: surfaced only when
+                // the JWT actually carries them.
+                txn: claims.as_ref().and_then(|c| c.txn.clone()),
+                purp: claims.as_ref().and_then(|c| c.purp.clone()),
+                req_wl: claims.as_ref().and_then(|c| c.req_wl.clone()),
             };
 
             // RFC 9701: if the caller explicitly accepts token-introspection+jwt,

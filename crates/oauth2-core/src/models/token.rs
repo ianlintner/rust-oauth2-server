@@ -710,6 +710,16 @@ pub struct IntrospectionResponse {
     /// a delegated/impersonated identity.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub act: Option<serde_json::Value>,
+    /// draft-ietf-oauth-transaction-tokens: transaction identifier shared by
+    /// every token issued within one transaction chain.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub txn: Option<String>,
+    /// draft-ietf-oauth-transaction-tokens: declared purpose of the token.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub purp: Option<String>,
+    /// draft-ietf-oauth-transaction-tokens: requester workload identifier.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub req_wl: Option<String>,
 }
 
 #[cfg(test)]
