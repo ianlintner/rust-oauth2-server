@@ -31,7 +31,7 @@ const TOKEN_EXCHANGE_GRANT_TYPE: &str = "urn:ietf:params:oauth:grant-type:token-
 
 /// RFC 9449 §7.1: If the `cnf` claim carries a `jkt` (DPoP key thumbprint), the token
 /// response MUST use `token_type: "DPoP"` instead of `"Bearer"`.
-fn apply_dpop_token_type(
+pub(crate) fn apply_dpop_token_type(
     mut response: oauth2_core::TokenResponse,
     cnf_claim: Option<&serde_json::Value>,
 ) -> oauth2_core::TokenResponse {
@@ -92,7 +92,7 @@ pub(crate) fn parse_client_basic_auth(
     Ok(Some((client_id, client_secret)))
 }
 
-fn validate_scope_subset(requested: &str, allowed: &str) -> Result<(), OAuth2Error> {
+pub(crate) fn validate_scope_subset(requested: &str, allowed: &str) -> Result<(), OAuth2Error> {
     let allowed_scopes: Vec<&str> = allowed
         .split_whitespace()
         .filter(|s| !s.is_empty())
@@ -137,7 +137,7 @@ pub(crate) fn client_secret_matches(client: &oauth2_core::Client, presented_secr
 /// `resolved_jwks` must be pre-fetched by the caller (via [`resolve_client_jwks`])
 /// when the client uses `private_key_jwt`; pass `None` for all other methods.
 /// `mtls_subject_dn` should be the Subject DN from the X-SSL-Client-S-DN header.
-fn authenticate_confidential_client(
+pub(crate) fn authenticate_confidential_client(
     client: &oauth2_core::Client,
     req: &TokenRequest,
     token_endpoint_url: &str,
@@ -258,7 +258,7 @@ fn authenticate_confidential_client(
 ///   was successfully fetched/cached.
 /// - `Ok(None)` if the client does not use `private_key_jwt` (no fetch needed).
 /// - `Err(_)` if `jwks_uri` fetch fails or is unavailable without a cache.
-async fn resolve_client_jwks(
+pub(crate) async fn resolve_client_jwks(
     client: &oauth2_core::Client,
     cache: Option<&JwksCache>,
 ) -> Result<Option<serde_json::Value>, OAuth2Error> {
@@ -288,7 +288,7 @@ async fn resolve_client_jwks(
     ))
 }
 
-fn no_store_headers(mut resp: HttpResponse) -> HttpResponse {
+pub(crate) fn no_store_headers(mut resp: HttpResponse) -> HttpResponse {
     resp.headers_mut().insert(
         actix_web::http::header::CACHE_CONTROL,
         "no-store".parse().unwrap(),
@@ -1178,14 +1178,14 @@ pub struct TokenRequest {
     grant_type: String,
     code: Option<String>,
     redirect_uri: Option<String>,
-    client_id: String,
+    pub(crate) client_id: String,
     client_secret: Option<String>,
     refresh_token: Option<String>,
     #[allow(dead_code)] // OAuth2 password grant, intentionally disabled by default
     username: Option<String>,
     #[allow(dead_code)] // OAuth2 password grant, intentionally disabled by default
     password: Option<String>,
-    scope: Option<String>,
+    pub(crate) scope: Option<String>,
     code_verifier: Option<String>,
     device_code: Option<String>,
     /// RFC 7521 §4.2: assertion type (e.g.
@@ -1194,7 +1194,9 @@ pub struct TokenRequest {
     /// RFC 7521 §4.2: the assertion itself (a JWT).
     client_assertion: Option<String>,
     /// RFC 8707: resource server URI for the requested access token audience.
-    resource: Option<String>,
+    pub(crate) resource: Option<String>,
+    /// RFC 7523 §2.1: the JWT authorization-grant assertion.
+    pub(crate) assertion: Option<String>,
     // RFC 8693 (Token Exchange) fields ---
     /// `urn:ietf:params:oauth:token-type:access_token` or similar.
     subject_token: Option<String>,
@@ -1339,7 +1341,10 @@ fn validate_jwt_client_assertion(
 /// already been observed within the assertion's validity window, or if
 /// the assertion is missing a `jti` (required by RFC 7523 §3 when the
 /// AS enforces replay detection).
-fn enforce_jti_replay(client_id: &str, claims: &serde_json::Value) -> Result<(), OAuth2Error> {
+pub(crate) fn enforce_jti_replay(
+    subject: &str,
+    claims: &serde_json::Value,
+) -> Result<(), OAuth2Error> {
     let jti = claims.get("jti").and_then(|v| v.as_str()).ok_or_else(|| {
         OAuth2Error::invalid_client("client_assertion missing required jti claim (RFC 7523 §3)")
     })?;
@@ -1354,13 +1359,13 @@ fn enforce_jti_replay(client_id: &str, claims: &serde_json::Value) -> Result<(),
     let ttl = std::time::Duration::from_secs(remaining_secs);
 
     use crate::security::jti_replay::ObserveResult;
-    match jti_replay_guard().observe(client_id, jti, ttl) {
+    match jti_replay_guard().observe(subject, jti, ttl) {
         ObserveResult::Fresh => Ok(()),
         ObserveResult::Replay => {
             tracing::warn!(
-                client_id = %client_id,
+                subject = %subject,
                 jti = %jti,
-                "RFC 7523 §3: rejected replayed client_assertion jti"
+                "RFC 7523 §3: rejected replayed assertion jti"
             );
             Err(OAuth2Error::invalid_client(
                 "client_assertion jti has already been used",
@@ -1387,6 +1392,7 @@ pub async fn token(
     jwks_cache: Option<web::Data<JwksCache>>,
     dpop_replay_store: Option<web::Data<DpopReplayStore>>,
     dpop_nonce_issuer: Option<web::Data<DpopNonceIssuer>>,
+    agent_config: Option<web::Data<oauth2_config::AgentConfig>>,
 ) -> Result<HttpResponse, OAuth2Error> {
     // OAuch: reject duplicate parameters (prevents parser differentials / smuggling).
     ensure_no_duplicate_query_params(&req)?;
@@ -1448,6 +1454,7 @@ pub async fn token(
         client_assertion_type,
         client_assertion,
         resource: form_map.get("resource").cloned(),
+        assertion: form_map.get("assertion").cloned(),
         subject_token: form_map.get("subject_token").cloned(),
         subject_token_type: form_map.get("subject_token_type").cloned(),
         actor_token: form_map.get("actor_token").cloned(),
@@ -1622,6 +1629,29 @@ pub async fn token(
                 storage,
                 metrics,
                 oidc_config,
+                jwks_cache.clone(),
+                mtls_thumbprint.as_deref(),
+                mtls_subject_dn.as_deref(),
+            )
+            .await
+        }
+        oauth2_core::token_types::GRANT_JWT_BEARER => {
+            let storage = storage.clone().ok_or_else(|| {
+                OAuth2Error::new(
+                    "server_error",
+                    Some("Storage backend not configured for the jwt-bearer grant"),
+                )
+            })?;
+            crate::handlers::jwt_bearer::handle_jwt_bearer_grant(
+                form,
+                cnf_claim,
+                rar_details,
+                token_actor,
+                client_actor,
+                storage,
+                metrics,
+                oidc_config,
+                agent_config,
                 jwks_cache.clone(),
                 mtls_thumbprint.as_deref(),
                 mtls_subject_dn.as_deref(),
