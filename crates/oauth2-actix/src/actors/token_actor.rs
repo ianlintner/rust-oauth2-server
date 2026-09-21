@@ -11,6 +11,7 @@ use oauth2_ports::DynStorage;
 use tokio::sync::RwLock;
 use tracing::Instrument;
 
+use oauth2_core::models::actor::{SUB_PROFILE_SERVICE, SUB_PROFILE_USER};
 use oauth2_core::{Claims, OAuth2Error, Token};
 
 /// Default token validation cache TTL (60 seconds).
@@ -169,6 +170,14 @@ pub struct CreateToken {
     /// JWT access tokens, embedded in the `act` claim) so it can be surfaced
     /// at introspection time regardless of token format.
     pub act: Option<serde_json::Value>,
+    /// Cap the issued access token's lifetime, in seconds. The effective TTL is
+    /// `min(ttl_override_secs, access_token_ttl_secs)` — an override can only
+    /// shorten a token's life, never extend it past the configured maximum.
+    pub ttl_override_secs: Option<u64>,
+    /// Phase 7 (agent/A2A OAuth): `sub_profile` claim for the access token.
+    /// When `None` the actor derives it: `user` if `user_id` is set, else
+    /// `service`.
+    pub sub_profile: Option<String>,
     pub span: tracing::Span,
 }
 
@@ -183,6 +192,14 @@ impl Handler<CreateToken> for TokenActor {
         let keyset = self.keyset.clone();
         let access_tokens_opaque = self.access_tokens_opaque;
         let access_token_ttl_secs = self.access_token_ttl_secs;
+        // A `ttl_override_secs` may only shorten the token's life (Phase 7:
+        // the AI-agent access-token cap), never extend it past the configured
+        // maximum.
+        let access_token_ttl_secs = match msg.ttl_override_secs {
+            Some(override_secs) => access_token_ttl_secs.min(override_secs as i64),
+            None => access_token_ttl_secs,
+        };
+
         let refresh_token_ttl_secs = self.refresh_token_ttl_secs;
 
         let parent_span = msg.span.clone();
@@ -249,6 +266,16 @@ impl Handler<CreateToken> for TokenActor {
                     access_claims.authorization_details = msg.authorization_details.clone();
                     // RFC 8693 §4.1: embed act (actor) claim if this token was delegated.
                     access_claims.act = msg.act.clone();
+                    // Phase 7 (agent/A2A OAuth): every access token carries a
+                    // `sub_profile` describing what kind of principal `sub` is.
+                    access_claims.sub_profile =
+                        Some(msg.sub_profile.clone().unwrap_or_else(|| {
+                            if msg.user_id.is_some() {
+                                SUB_PROFILE_USER.to_string()
+                            } else {
+                                SUB_PROFILE_SERVICE.to_string()
+                            }
+                        }));
 
                     if let Some(ref key) = signing_key {
                         access_claims.encode_with_key(key)

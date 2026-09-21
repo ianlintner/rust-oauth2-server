@@ -115,6 +115,8 @@ pub async fn openid_configuration(
             "private_key_jwt",
             "tls_client_auth",
             "self_signed_tls_client_auth",
+            "tls_client_auth_san_uri",
+            "tls_client_auth_san_dns",
             "none"
         ],
         "claims_supported": [
@@ -148,6 +150,13 @@ pub async fn openid_configuration(
         "dpop_signing_alg_values_supported": ["ES256", "RS256"],
         // RFC 8705: mTLS client certificate bound access tokens
         "tls_client_certificate_bound_access_tokens": true,
+        // RFC 8705 §5: mTLS endpoint aliases. This deployment terminates mTLS
+        // at the same endpoints, so the aliases mirror the primary URLs.
+        "mtls_endpoint_aliases": {
+            "token_endpoint": format!("{}/oauth/token", base),
+            "introspection_endpoint": format!("{}/oauth/introspect", base),
+            "revocation_endpoint": format!("{}/oauth/revoke", base)
+        },
         // RFC 9396: Rich Authorization Requests
         "authorization_details_types_supported": authorization_details_types_supported,
         // RFC 9470: Step-Up Authentication

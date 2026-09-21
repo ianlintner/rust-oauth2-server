@@ -22,6 +22,7 @@ use crate::handlers::dpop::{
 use crate::handlers::dpop_nonce::{use_dpop_nonce_response, DpopNonceIssuer};
 use crate::handlers::jwks_cache::JwksCache;
 use crate::handlers::wellknown::OidcConfig;
+use oauth2_core::models::actor::SUB_PROFILE_AI_AGENT;
 use oauth2_core::models::key_set::KeySet;
 use oauth2_core::{IdTokenClaims, OAuth2Error, TokenResponse};
 use oauth2_ports::DynStorage;
@@ -133,11 +134,16 @@ pub(crate) fn client_secret_matches(client: &oauth2_core::Client, presented_secr
 ///   - `client_secret_basic` / `client_secret_post`: constant-time secret comparison
 ///   - `client_secret_jwt` / `private_key_jwt`: JWT assertion validation (RFC 7523)
 ///   - `tls_client_auth`: mTLS certificate validation with optional Subject DN check
+///   - `tls_client_auth_san_uri` / `tls_client_auth_san_dns`: mTLS certificate
+///     validation against the registered `subjectAltName` (RFC 8705 §2.1.2)
 ///   - `none`: public client (caller should handle separately)
 ///
 /// `resolved_jwks` must be pre-fetched by the caller (via [`resolve_client_jwks`])
 /// when the client uses `private_key_jwt`; pass `None` for all other methods.
-/// `mtls_subject_dn` should be the Subject DN from the X-SSL-Client-S-DN header.
+/// `mtls_subject_dn` should be the Subject DN from the X-SSL-Client-S-DN header,
+/// and `mtls_san_uri` / `mtls_san_dns` the subjectAltName values from the
+/// X-SSL-Client-SAN-URI / X-SSL-Client-SAN-DNS headers.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn authenticate_confidential_client(
     client: &oauth2_core::Client,
     req: &TokenRequest,
@@ -146,6 +152,8 @@ pub(crate) fn authenticate_confidential_client(
     resolved_jwks: Option<&serde_json::Value>,
     mtls_thumbprint: Option<&str>,
     mtls_subject_dn: Option<&str>,
+    mtls_san_uri: Option<&str>,
+    mtls_san_dns: Option<&str>,
 ) -> Result<(), OAuth2Error> {
     match client.token_endpoint_auth_method.as_str() {
         "client_secret_basic" | "client_secret_post" => match req.client_secret.as_deref() {
@@ -232,6 +240,53 @@ pub(crate) fn authenticate_confidential_client(
                     "tls_client_auth requires a TLS client certificate \
                      (X-Client-Cert-Thumbprint header missing)",
                 )),
+            }
+        }
+        method @ ("tls_client_auth_san_uri" | "tls_client_auth_san_dns") => {
+            // RFC 8705 §2.1.2: the client is bound to a subjectAltName of its
+            // certificate rather than to the Subject DN. The reverse proxy is
+            // the only trusted source for both the thumbprint and the SAN.
+            if mtls_thumbprint.is_none() {
+                return Err(OAuth2Error::invalid_client(&format!(
+                    "{method} requires a TLS client certificate \
+                     (X-Client-Cert-Thumbprint header missing)"
+                )));
+            }
+            let expected = client.tls_client_auth_san.as_str();
+            if expected.is_empty() {
+                // Refuse rather than fall back to "any certificate": a client
+                // registered for SAN auth without a SAN has no binding at all.
+                return Err(OAuth2Error::invalid_client(&format!(
+                    "{method} requires a registered tls_client_auth_san"
+                )));
+            }
+            let (presented, header) = if method == "tls_client_auth_san_uri" {
+                (mtls_san_uri, "X-SSL-Client-SAN-URI")
+            } else {
+                (mtls_san_dns, "X-SSL-Client-SAN-DNS")
+            };
+            match presented {
+                Some(san) if san == expected => {
+                    tracing::debug!(
+                        client_id = %client.client_id,
+                        auth_method = %method,
+                        "mTLS subjectAltName validated successfully"
+                    );
+                    Ok(())
+                }
+                Some(_) => {
+                    tracing::warn!(
+                        client_id = %client.client_id,
+                        auth_method = %method,
+                        "mTLS subjectAltName mismatch"
+                    );
+                    Err(OAuth2Error::invalid_client(&format!(
+                        "{method}: client certificate subjectAltName does not match"
+                    )))
+                }
+                None => Err(OAuth2Error::invalid_client(&format!(
+                    "{method} requires the {header} header"
+                ))),
             }
         }
         "self_signed_tls_client_auth" => {
@@ -1594,6 +1649,19 @@ pub async fn token(
         .and_then(|v| v.to_str().ok())
         .map(|s| s.to_string());
 
+    // RFC 8705 §2.1.2: subjectAltName values from the client certificate,
+    // forwarded by the reverse proxy for the SAN-based auth methods.
+    let mtls_san_uri: Option<String> = req
+        .headers()
+        .get("X-SSL-Client-SAN-URI")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
+    let mtls_san_dns: Option<String> = req
+        .headers()
+        .get("X-SSL-Client-SAN-DNS")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
+
     // Build the `cnf` claim if any binding material is present.
     let cnf_claim: Option<serde_json::Value> = match (&dpop_jkt, &mtls_thumbprint) {
         (Some(jkt), _) => Some(serde_json::json!({ "jkt": jkt })),
@@ -1639,10 +1707,15 @@ pub async fn token(
                 jwks_cache.clone(),
                 mtls_thumbprint.as_deref(),
                 mtls_subject_dn.as_deref(),
+                mtls_san_uri.as_deref(),
+                mtls_san_dns.as_deref(),
             )
             .await
         }
         "client_credentials" => {
+            let agent = agent_config
+                .map(|c| c.get_ref().clone())
+                .unwrap_or_default();
             handle_client_credentials_grant(
                 form,
                 cnf_claim,
@@ -1651,9 +1724,12 @@ pub async fn token(
                 client_actor,
                 metrics,
                 oidc_config,
+                agent,
                 jwks_cache.clone(),
                 mtls_thumbprint.as_deref(),
                 mtls_subject_dn.as_deref(),
+                mtls_san_uri.as_deref(),
+                mtls_san_dns.as_deref(),
             )
             .await
         }
@@ -1667,6 +1743,8 @@ pub async fn token(
                 jwks_cache.clone(),
                 mtls_thumbprint.as_deref(),
                 mtls_subject_dn.as_deref(),
+                mtls_san_uri.as_deref(),
+                mtls_san_dns.as_deref(),
             )
             .await
         }
@@ -1687,6 +1765,8 @@ pub async fn token(
                 jwks_cache.clone(),
                 mtls_thumbprint.as_deref(),
                 mtls_subject_dn.as_deref(),
+                mtls_san_uri.as_deref(),
+                mtls_san_dns.as_deref(),
             )
             .await
         }
@@ -1713,6 +1793,8 @@ pub async fn token(
                 jwks_cache.clone(),
                 mtls_thumbprint.as_deref(),
                 mtls_subject_dn.as_deref(),
+                mtls_san_uri.as_deref(),
+                mtls_san_dns.as_deref(),
             )
             .await
         }
@@ -1740,6 +1822,8 @@ pub async fn token(
                 jwks_cache,
                 mtls_thumbprint.as_deref(),
                 mtls_subject_dn.as_deref(),
+                mtls_san_uri.as_deref(),
+                mtls_san_dns.as_deref(),
             )
             .await
         }
@@ -1804,6 +1888,8 @@ async fn handle_device_code_grant(
     jwks_cache: Option<web::Data<JwksCache>>,
     mtls_thumbprint: Option<&str>,
     mtls_subject_dn: Option<&str>,
+    mtls_san_uri: Option<&str>,
+    mtls_san_dns: Option<&str>,
 ) -> Result<HttpResponse, OAuth2Error> {
     let device_code = req
         .device_code
@@ -1835,6 +1921,8 @@ async fn handle_device_code_grant(
         resolved_jwks.as_ref(),
         mtls_thumbprint,
         mtls_subject_dn,
+        mtls_san_uri,
+        mtls_san_dns,
     )?;
 
     if !client.supports_grant_type(DEVICE_CODE_GRANT_TYPE)
@@ -1894,6 +1982,8 @@ async fn handle_device_code_grant(
             cnf: None,
             authorization_details: None,
             act: None,
+            ttl_override_secs: None,
+            sub_profile: None,
             span: tracing::Span::current(),
         })
         .await
@@ -1971,6 +2061,8 @@ async fn handle_authorization_code_grant(
     jwks_cache: Option<web::Data<JwksCache>>,
     mtls_thumbprint: Option<&str>,
     mtls_subject_dn: Option<&str>,
+    mtls_san_uri: Option<&str>,
+    mtls_san_dns: Option<&str>,
 ) -> Result<HttpResponse, OAuth2Error> {
     let code = req
         .code
@@ -2075,6 +2167,8 @@ async fn handle_authorization_code_grant(
             resolved_jwks.as_ref(),
             mtls_thumbprint,
             mtls_subject_dn,
+            mtls_san_uri,
+            mtls_san_dns,
         )?;
     }
 
@@ -2128,6 +2222,8 @@ async fn handle_authorization_code_grant(
             cnf: cnf_claim.clone(),
             authorization_details: eff_auth_details,
             act: None,
+            ttl_override_secs: None,
+            sub_profile: None,
             span: tracing::Span::current(),
         })
         .await
@@ -2222,9 +2318,12 @@ async fn handle_client_credentials_grant(
     client_actor: web::Data<Addr<ClientActor>>,
     metrics: web::Data<Metrics>,
     oidc_config: web::Data<OidcConfig>,
+    agent: oauth2_config::AgentConfig,
     jwks_cache: Option<web::Data<JwksCache>>,
     mtls_thumbprint: Option<&str>,
     mtls_subject_dn: Option<&str>,
+    mtls_san_uri: Option<&str>,
+    mtls_san_dns: Option<&str>,
 ) -> Result<HttpResponse, OAuth2Error> {
     // Validate client exists + grant permissions.
     let client = client_actor
@@ -2260,11 +2359,25 @@ async fn handle_client_credentials_grant(
         resolved_jwks.as_ref(),
         mtls_thumbprint,
         mtls_subject_dn,
+        mtls_san_uri,
+        mtls_san_dns,
     )?;
 
     let scope = req.scope.unwrap_or_else(|| "read".to_string());
 
     validate_scope_subset(&scope, &client.scope)?;
+
+    // Phase 7 (agent/A2A OAuth): a client that is an AI agent gets the
+    // `ai_agent` sub_profile and, when configured, a shorter access-token
+    // lifetime than ordinary service clients.
+    let (sub_profile, ttl_override_secs) = if client.is_ai_agent() {
+        (
+            Some(SUB_PROFILE_AI_AGENT.to_string()),
+            agent.ai_agent_access_token_ttl_secs,
+        )
+    } else {
+        (None, None)
+    };
 
     // Create token (no user, client-only)
     let token = token_actor
@@ -2279,6 +2392,8 @@ async fn handle_client_credentials_grant(
             cnf: cnf_claim.clone(),
             authorization_details: rar_details,
             act: None,
+            ttl_override_secs,
+            sub_profile,
             span: tracing::Span::current(),
         })
         .await
@@ -2306,6 +2421,8 @@ async fn handle_refresh_token_grant(
     jwks_cache: Option<web::Data<JwksCache>>,
     mtls_thumbprint: Option<&str>,
     mtls_subject_dn: Option<&str>,
+    mtls_san_uri: Option<&str>,
+    mtls_san_dns: Option<&str>,
 ) -> Result<HttpResponse, OAuth2Error> {
     let refresh_token_str = req
         .refresh_token
@@ -2335,6 +2452,8 @@ async fn handle_refresh_token_grant(
             resolved_jwks.as_ref(),
             mtls_thumbprint,
             mtls_subject_dn,
+            mtls_san_uri,
+            mtls_san_dns,
         )?;
     }
 
@@ -2427,6 +2546,8 @@ async fn handle_refresh_token_grant(
             cnf: old_cnf.clone(),
             authorization_details: None,
             act: None,
+            ttl_override_secs: None,
+            sub_profile: None,
             span: tracing::Span::current(),
         })
         .await
