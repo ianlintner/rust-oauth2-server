@@ -5,6 +5,7 @@ use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Header, Validation};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::models::actor::{Actor, ActorChainError};
 use crate::models::key_set::{Algorithm as KeyAlgorithm, KeySet, SigningKey};
 
 #[cfg(feature = "openapi")]
@@ -42,6 +43,29 @@ pub struct Claims {
     /// RFC 8693 (Token Exchange): actor claim for impersonation/delegation.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub act: Option<serde_json::Value>,
+    /// RFC 8693 §4.4: parties permitted to act on behalf of this subject.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub may_act: Option<serde_json::Value>,
+    /// Subject profile: `user`, `service` or `ai_agent` (see
+    /// [`crate::models::actor`] `SUB_PROFILE_*` constants).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sub_profile: Option<String>,
+    /// Transaction identifier shared by every token issued within one
+    /// transaction chain (Transaction Tokens).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub txn: Option<String>,
+    /// Declared purpose of the token.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub purp: Option<String>,
+    /// Requester workload identifier.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub req_wl: Option<String>,
+    /// Transaction context.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tctx: Option<serde_json::Value>,
+    /// Request context.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rctx: Option<serde_json::Value>,
 }
 
 /// OIDC ID Token claims (returned when `openid` scope is requested).
@@ -292,7 +316,29 @@ impl Claims {
             cnf: None,
             authorization_details: None,
             act: None,
+            may_act: None,
+            sub_profile: None,
+            txn: None,
+            purp: None,
+            req_wl: None,
+            tctx: None,
+            rctx: None,
         }
+    }
+
+    /// Parse the `act` claim into a typed [`Actor`] delegation chain.
+    ///
+    /// Returns `None` when the token carries no `act` claim, and
+    /// `Some(Err(..))` when the claim is present but not a well-formed
+    /// actor chain.
+    pub fn actor(&self) -> Option<Result<Actor, ActorChainError>> {
+        self.act.as_ref().map(Actor::from_value)
+    }
+
+    /// Builder method to set the `act` claim from a typed [`Actor`] chain.
+    pub fn with_actor(mut self, actor: Actor) -> Self {
+        self.act = Some(actor.to_value());
+        self
     }
 
     /// Builder method to override the audience claim with specific resource server URI(s).
@@ -650,5 +696,126 @@ mod decode_unverified_tests {
         let decoded = Claims::decode_unverified(&fake).expect("decode payload");
         assert_eq!(decoded.jti, "jti-fixed-abc");
         assert_eq!(decoded.iss, "https://issuer.test");
+    }
+}
+
+#[cfg(test)]
+mod agent_claims_tests {
+    use super::Claims;
+    use crate::models::actor::{Actor, ActorChainError, SUB_PROFILE_AI_AGENT};
+
+    fn sample_claims() -> Claims {
+        Claims::new(
+            "alice".to_string(),
+            "client-a".to_string(),
+            "read".to_string(),
+            3600,
+            "https://issuer.test",
+        )
+    }
+
+    #[test]
+    fn new_initialises_agent_claims_to_none() {
+        let c = sample_claims();
+        assert!(c.act.is_none());
+        assert!(c.may_act.is_none());
+        assert!(c.sub_profile.is_none());
+        assert!(c.txn.is_none());
+        assert!(c.purp.is_none());
+        assert!(c.req_wl.is_none());
+        assert!(c.tctx.is_none());
+        assert!(c.rctx.is_none());
+    }
+
+    #[test]
+    fn agent_claims_are_omitted_from_json_when_none() {
+        let v = serde_json::to_value(sample_claims()).expect("serialize");
+        let obj = v.as_object().expect("object");
+        for key in [
+            "act",
+            "may_act",
+            "sub_profile",
+            "txn",
+            "purp",
+            "req_wl",
+            "tctx",
+            "rctx",
+        ] {
+            assert!(!obj.contains_key(key), "{key} should be omitted when None");
+        }
+    }
+
+    #[test]
+    fn agent_claims_round_trip_through_json_when_set() {
+        let mut c = sample_claims();
+        c.may_act = Some(serde_json::json!({ "sub": "agent-1", "iss": "https://agents.test" }));
+        c.sub_profile = Some(SUB_PROFILE_AI_AGENT.to_string());
+        c.txn = Some("txn-123".to_string());
+        c.purp = Some("summarise-inbox".to_string());
+        c.req_wl = Some("wl-7".to_string());
+        c.tctx = Some(serde_json::json!({ "tier": "gold" }));
+        c.rctx = Some(serde_json::json!({ "ip": "203.0.113.4" }));
+
+        let text = serde_json::to_string(&c).expect("serialize");
+        let back: Claims = serde_json::from_str(&text).expect("deserialize");
+
+        assert_eq!(back.may_act, c.may_act);
+        assert_eq!(back.sub_profile, c.sub_profile);
+        assert_eq!(back.txn, c.txn);
+        assert_eq!(back.purp, c.purp);
+        assert_eq!(back.req_wl, c.req_wl);
+        assert_eq!(back.tctx, c.tctx);
+        assert_eq!(back.rctx, c.rctx);
+    }
+
+    #[test]
+    fn claims_deserialize_without_any_agent_claims() {
+        let text = serde_json::json!({
+            "sub": "alice",
+            "iss": "https://issuer.test",
+            "aud": "client-a",
+            "exp": 1_800_000_000i64,
+            "iat": 1_700_000_000i64,
+            "scope": "read",
+            "jti": "jti-1"
+        })
+        .to_string();
+        let c: Claims = serde_json::from_str(&text).expect("deserialize legacy claims");
+        assert!(c.may_act.is_none());
+        assert!(c.txn.is_none());
+        assert!(c.actor().is_none());
+    }
+
+    #[test]
+    fn actor_returns_none_when_no_act_claim() {
+        assert!(sample_claims().actor().is_none());
+    }
+
+    #[test]
+    fn with_actor_round_trips_through_the_act_claim() {
+        let chain = Actor::new("agent-1", "https://agents.test")
+            .with_profile(SUB_PROFILE_AI_AGENT)
+            .with_inner(Actor::new("alice", "https://idp.test"));
+        let c = sample_claims().with_actor(chain.clone());
+
+        assert_eq!(c.act, Some(chain.to_value()));
+        assert_eq!(c.actor(), Some(Ok(chain)));
+    }
+
+    #[test]
+    fn actor_surfaces_a_malformed_act_claim() {
+        let mut c = sample_claims();
+        c.act = Some(serde_json::json!({ "sub": "agent-1" }));
+        assert_eq!(c.actor(), Some(Err(ActorChainError::MissingIss)));
+    }
+
+    #[test]
+    fn with_actor_survives_a_jwt_encode_decode_cycle() {
+        let chain = Actor::new("agent-1", "https://agents.test")
+            .with_inner(Actor::new("alice", "https://idp.test"));
+        let c = sample_claims().with_actor(chain.clone());
+        let token = c.encode("test-secret").expect("encode");
+        let decoded = Claims::decode_unverified(&token).expect("decode");
+        assert_eq!(decoded.actor(), Some(Ok(chain)));
     }
 }
