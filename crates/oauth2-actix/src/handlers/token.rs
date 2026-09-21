@@ -434,10 +434,14 @@ pub async fn introspect(
                     .as_ref()
                     .and_then(|c| c.cnf.clone())
                     .or_else(|| token.cnf_value()),
+                // `act` names the delegating agent, so it is PII on the same
+                // footing as `sub`/`username`: only the authenticated owner
+                // sees it (the transaction-token path below already gates it).
                 act: claims
                     .as_ref()
                     .and_then(|c| c.act.clone())
-                    .or_else(|| token.actor()),
+                    .or_else(|| token.actor())
+                    .filter(|_| is_authenticated_owner),
                 // draft-ietf-oauth-transaction-tokens §7: surfaced only when
                 // the JWT actually carries them.
                 txn: claims.as_ref().and_then(|c| c.txn.clone()),

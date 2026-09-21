@@ -219,6 +219,28 @@ macro_rules! introspect {
     }};
 }
 
+/// Introspect authenticating as `$client_id` with its secret. The delegation
+/// claims (`sub`, `act`, …) are PII and are only returned to an authenticated
+/// caller.
+macro_rules! introspect_as {
+    ($app:expr, $token:expr, $client_id:expr) => {{
+        let secret = format!("{}_secret", $client_id);
+        let req = test::TestRequest::post()
+            .uri("/oauth/introspect")
+            .insert_header(("Host", HOST))
+            .set_form([
+                ("token", $token),
+                ("client_id", $client_id),
+                ("client_secret", secret.as_str()),
+            ])
+            .to_request();
+        let resp = test::call_service(&$app, req).await;
+        assert_eq!(resp.status(), 200, "introspection must return 200");
+        let body: Value = test::read_body_json(resp).await;
+        body
+    }};
+}
+
 // ---------------------------------------------------------------------------
 // 1. Required parameters
 // ---------------------------------------------------------------------------
@@ -776,7 +798,7 @@ async fn actor_allowed_via_allowed_actors_builds_act_claim() {
         .expect("access_token")
         .to_string();
 
-    let intro = introspect!(app, issued.as_str());
+    let intro = introspect_as!(app, issued.as_str(), "agent_client");
     assert_eq!(intro["active"], json!(true), "introspection: {intro}");
     assert_eq!(
         intro["act"]["sub"], "agent_client",
@@ -784,6 +806,14 @@ async fn actor_allowed_via_allowed_actors_builds_act_claim() {
     );
     assert_eq!(intro["act"]["iss"], ISSUER);
     assert_eq!(intro["act"]["sub_profile"], "service");
+
+    // …and never to an unauthenticated caller.
+    let anonymous = introspect!(app, issued.as_str());
+    assert_eq!(anonymous["active"], json!(true), "intro: {anonymous}");
+    assert!(
+        anonymous.get("act").is_none(),
+        "act names the delegating agent and is PII: {anonymous}"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -846,7 +876,7 @@ async fn actor_allowed_via_may_act_claim() {
         .as_str()
         .expect("access_token")
         .to_string();
-    let intro = introspect!(app, issued.as_str());
+    let intro = introspect_as!(app, issued.as_str(), "agent_client");
     assert_eq!(
         intro["act"]["sub"], "agent_client",
         "introspection: {intro}"
@@ -934,7 +964,7 @@ async fn nested_exchange_builds_a_two_level_actor_chain() {
         .expect("access_token")
         .to_string();
 
-    let intro = introspect!(app, second.as_str());
+    let intro = introspect_as!(app, second.as_str(), "agent_two");
     assert_eq!(intro["act"]["sub"], "agent_two", "introspection: {intro}");
     assert_eq!(
         intro["act"]["act"]["sub"], "agent_one",
