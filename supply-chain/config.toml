@@ -437,6 +437,10 @@ criteria = "safe-to-deploy"
 version = "1.2.65"
 criteria = "safe-to-deploy"
 
+[[exemptions.chacha20]]
+version = "0.10.2"
+criteria = "safe-to-deploy"
+
 [[exemptions.chrono]]
 version = "0.4.44"
 criteria = "safe-to-deploy"
@@ -2933,8 +2937,4 @@ criteria = "safe-to-deploy"
 
 [[exemptions.zstd-sys]]
 version = "2.0.16+zstd.1.5.7"
-criteria = "safe-to-deploy"
-
-[[exemptions.chacha20]]
-version = "0.10.2"
 criteria = "safe-to-deploy"
