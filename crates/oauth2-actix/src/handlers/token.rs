@@ -9,8 +9,10 @@ use crate::actors::{
 };
 use crate::handlers::dpop::{build_request_url_bounded, validate_dpop_proof, DpopReplayStore};
 use crate::handlers::oauth::{client_secret_matches, parse_client_basic_auth};
+use crate::handlers::txn_token::{verify_txn_token, TXN_TOKEN_TYP};
 use crate::handlers::wellknown::OidcConfig;
 use oauth2_config::Config;
+use oauth2_core::models::key_set::KeySet;
 use oauth2_core::{Claims, IntrospectionResponse, OAuth2Error};
 use oauth2_observability::Metrics;
 
@@ -23,6 +25,16 @@ fn no_store_headers(mut response: HttpResponse) -> HttpResponse {
         .headers_mut()
         .insert(actix_web::http::header::PRAGMA, "no-cache".parse().unwrap());
     response
+}
+
+/// Whether the presented token carries the transaction-token JOSE `typ`.
+/// Header-only: the signature is checked by [`verify_txn_token`].
+fn is_transaction_token(raw: &str) -> bool {
+    jsonwebtoken::decode_header(raw)
+        .ok()
+        .and_then(|header| header.typ)
+        .as_deref()
+        == Some(TXN_TOKEN_TYP)
 }
 
 fn inactive_introspection_response() -> HttpResponse {
@@ -40,6 +52,10 @@ fn inactive_introspection_response() -> HttpResponse {
         jti: None,
         iss: None,
         cnf: None,
+        act: None,
+        txn: None,
+        purp: None,
+        req_wl: None,
     }))
 }
 
@@ -132,6 +148,10 @@ pub async fn introspect(
     config: Option<web::Data<Config>>,
     oidc_config: Option<web::Data<OidcConfig>>,
     dpop_replay_store: Option<web::Data<DpopReplayStore>>,
+    // Phase 7 (agent / A2A OAuth): optional so the inline test `App` builders
+    // that predate them keep working.
+    agent_config: Option<web::Data<oauth2_config::AgentConfig>>,
+    keyset: Option<web::Data<std::sync::Arc<tokio::sync::RwLock<KeySet>>>>,
 ) -> Result<HttpResponse, OAuth2Error> {
     let opaque_access_tokens = config
         .as_ref()
@@ -158,6 +178,62 @@ pub async fn introspect(
             return Err(err);
         }
     };
+
+    // draft-ietf-oauth-transaction-tokens: a transaction token is never
+    // persisted, so neither the storage nor the stateless path can resolve
+    // one. Its own signature is the whole of its authentication.
+    if agent_config
+        .as_ref()
+        .is_some_and(|agent| agent.txn_tokens_enabled)
+        && is_transaction_token(&form.token)
+    {
+        let oidc = oidc_config.as_ref().ok_or_else(|| {
+            OAuth2Error::new(
+                "server_error",
+                Some("transaction token introspection requires the OIDC configuration"),
+            )
+        })?;
+        let snapshot = match keyset.as_ref() {
+            Some(keyset) => Some(keyset.read().await.clone()),
+            None => None,
+        };
+        // RFC 7662 §5 / RFC 9700 §2.5, as on the storage-backed path below:
+        // the identity the token asserts (`sub`, and the delegation chain that
+        // names it) is withheld from callers who did not authenticate. The
+        // non-PII lifecycle and transaction fields are always returned.
+        let is_authenticated_caller = caller.is_some();
+        return Ok(
+            match verify_txn_token(
+                &form.token,
+                snapshot.as_ref(),
+                &oidc.jwt_secret,
+                &oidc.issuer,
+            ) {
+                Ok(claims) => no_store_headers(HttpResponse::Ok().json(IntrospectionResponse {
+                    active: true,
+                    scope: Some(claims.scope),
+                    client_id: None,
+                    username: None,
+                    // draft-ietf-oauth-transaction-tokens §6.2: a txn token is
+                    // never presented as an HTTP credential.
+                    token_type: Some("N_A".to_string()),
+                    exp: Some(claims.exp),
+                    iat: Some(claims.iat),
+                    nbf: Some(claims.iat),
+                    sub: is_authenticated_caller.then_some(claims.sub),
+                    aud: Some(vec![claims.aud]),
+                    jti: None,
+                    iss: Some(claims.iss),
+                    cnf: None,
+                    act: claims.act.filter(|_| is_authenticated_caller),
+                    txn: Some(claims.txn),
+                    purp: claims.purp,
+                    req_wl: Some(claims.req_wl),
+                })),
+                Err(_) => inactive_introspection_response(),
+            },
+        );
+    }
 
     let token_prefix = form.token.chars().take(20).collect::<String>();
     tracing::info!(
@@ -227,13 +303,16 @@ pub async fn introspect(
                                 OAuth2Error::invalid_request("DPoP header is not valid UTF-8")
                             })?;
                             let method = req.method().as_str();
-                            let conn_info = req.connection_info();
-                            let introspect_url = build_request_url_bounded(
-                                conn_info.scheme(),
-                                conn_info.host(),
-                                req.path(),
-                            )?;
-                            drop(conn_info);
+                            // Scoped so the `connection_info()` Ref is
+                            // released before the await below.
+                            let introspect_url = {
+                                let conn_info = req.connection_info();
+                                build_request_url_bounded(
+                                    conn_info.scheme(),
+                                    conn_info.host(),
+                                    req.path(),
+                                )?
+                            };
                             let store_ref = dpop_replay_store.as_ref().map(|d| d.as_ref());
                             let default_store;
                             let replay_store = match store_ref {
@@ -243,12 +322,18 @@ pub async fn introspect(
                                     &default_store
                                 }
                             };
+                            // RFC 9449 §7.1: the proof accompanies an access
+                            // token, so `ath` is REQUIRED and must hash to the
+                            // exact token presented for introspection.
                             match validate_dpop_proof(
                                 dpop_str,
                                 method,
                                 &introspect_url,
                                 replay_store,
-                            ) {
+                                Some(&form.token),
+                            )
+                            .await
+                            {
                                 Ok(validated) => {
                                     // Verify the proof's JWK thumbprint matches the token's cnf.jkt.
                                     let proof_jkt = validated.jkt;
@@ -341,7 +426,27 @@ pub async fn introspect(
                     .as_ref()
                     .map(|c| c.iss.clone())
                     .or_else(|| oidc_config.as_ref().map(|c| c.issuer.clone())),
-                cnf: claims.as_ref().and_then(|c| c.cnf.clone()),
+                // Prefer the JWT `cnf`/`act` claims (source of truth for JWT
+                // access tokens); fall back to the values persisted on the
+                // token row (needed for opaque access tokens, which have no
+                // JWT payload to decode).
+                cnf: claims
+                    .as_ref()
+                    .and_then(|c| c.cnf.clone())
+                    .or_else(|| token.cnf_value()),
+                // `act` names the delegating agent, so it is PII on the same
+                // footing as `sub`/`username`: only the authenticated owner
+                // sees it (the transaction-token path below already gates it).
+                act: claims
+                    .as_ref()
+                    .and_then(|c| c.act.clone())
+                    .or_else(|| token.actor())
+                    .filter(|_| is_authenticated_owner),
+                // draft-ietf-oauth-transaction-tokens §7: surfaced only when
+                // the JWT actually carries them.
+                txn: claims.as_ref().and_then(|c| c.txn.clone()),
+                purp: claims.as_ref().and_then(|c| c.purp.clone()),
+                req_wl: claims.as_ref().and_then(|c| c.req_wl.clone()),
             };
 
             // RFC 9701: if the caller explicitly accepts token-introspection+jwt,

@@ -3882,6 +3882,7 @@ version = "0.6.2"
 dependencies = [
  "actix-web",
  "async-trait",
+ "chrono",
  "futures",
  "oauth2-core",
  "oauth2-ports",
@@ -3909,6 +3910,7 @@ name = "oauth2-ports"
 version = "0.6.2"
 dependencies = [
  "async-trait",
+ "chrono",
  "oauth2-core",
 ]
 
@@ -5147,7 +5149,7 @@ dependencies = [
 
 [[package]]
 name = "rust_oauth2_server"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
  "actix",
  "actix-cors",

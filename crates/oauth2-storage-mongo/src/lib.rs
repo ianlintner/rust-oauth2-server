@@ -6,7 +6,8 @@ use mongodb::{
 };
 
 use oauth2_core::{
-    AuthorizationCode, Client, DeviceAuthorization, ListQuery, OAuth2Error, Page, Token, User,
+    AuthorizationCode, Client, DeviceAuthorization, ListQuery, OAuth2Error, Page,
+    ProtectedResource, Token, TransactionAuthorization, TrustedIssuer, User,
 };
 use oauth2_ports::Storage;
 
@@ -15,6 +16,7 @@ use oauth2_ports::Storage;
 /// Notes:
 /// - Uses the core models as documents via `serde`.
 /// - Uses unique indexes on the same fields that are unique in SQL.
+#[derive(Debug)]
 pub struct MongoStorage {
     db: Database,
     clients: Collection<Client>,
@@ -22,6 +24,11 @@ pub struct MongoStorage {
     tokens: Collection<Token>,
     authorization_codes: Collection<AuthorizationCode>,
     device_authorizations: Collection<DeviceAuthorization>,
+    resources: Collection<ProtectedResource>,
+    transaction_authorizations: Collection<TransactionAuthorization>,
+    trusted_issuers: Collection<TrustedIssuer>,
+    /// RFC 9449 §11.1: consumed DPoP proof `jti`s (schema-less documents).
+    dpop_jtis: Collection<mongodb::bson::Document>,
 }
 
 impl MongoStorage {
@@ -57,6 +64,11 @@ impl MongoStorage {
         let tokens = db.collection::<Token>("tokens");
         let authorization_codes = db.collection::<AuthorizationCode>("authorization_codes");
         let device_authorizations = db.collection::<DeviceAuthorization>("device_authorizations");
+        let resources = db.collection::<ProtectedResource>("resources");
+        let transaction_authorizations =
+            db.collection::<TransactionAuthorization>("transaction_authorizations");
+        let trusted_issuers = db.collection::<TrustedIssuer>("trusted_issuers");
+        let dpop_jtis = db.collection::<mongodb::bson::Document>("dpop_jtis");
 
         Ok(Self {
             db,
@@ -65,6 +77,10 @@ impl MongoStorage {
             tokens,
             authorization_codes,
             device_authorizations,
+            resources,
+            transaction_authorizations,
+            trusted_issuers,
+            dpop_jtis,
         })
     }
 
@@ -184,6 +200,50 @@ impl MongoStorage {
 
         self.device_authorizations
             .create_index(IndexModel::builder().keys(doc! { "client_id": 1 }).build())
+            .await
+            .map_err(Self::mongo_err_to_oauth)?;
+
+        // resources.resource_uri unique
+        self.resources
+            .create_index(
+                IndexModel::builder()
+                    .keys(doc! { "resource_uri": 1 })
+                    .options(IndexOptions::builder().unique(true).build())
+                    .build(),
+            )
+            .await
+            .map_err(Self::mongo_err_to_oauth)?;
+
+        // transaction_authorizations.transaction_authorization_id unique
+        self.transaction_authorizations
+            .create_index(
+                IndexModel::builder()
+                    .keys(doc! { "transaction_authorization_id": 1 })
+                    .options(IndexOptions::builder().unique(true).build())
+                    .build(),
+            )
+            .await
+            .map_err(Self::mongo_err_to_oauth)?;
+
+        // trusted_issuers.issuer unique
+        self.trusted_issuers
+            .create_index(
+                IndexModel::builder()
+                    .keys(doc! { "issuer": 1 })
+                    .options(IndexOptions::builder().unique(true).build())
+                    .build(),
+            )
+            .await
+            .map_err(Self::mongo_err_to_oauth)?;
+
+        // dpop_jtis.jti unique — the uniqueness violation *is* the replay check.
+        self.dpop_jtis
+            .create_index(
+                IndexModel::builder()
+                    .keys(doc! { "jti": 1 })
+                    .options(IndexOptions::builder().unique(true).build())
+                    .build(),
+            )
             .await
             .map_err(Self::mongo_err_to_oauth)?;
 
@@ -320,6 +380,13 @@ impl Storage for MongoStorage {
             .map_err(Self::mongo_err_to_oauth)
     }
 
+    async fn count_cimd_clients(&self) -> Result<u64, OAuth2Error> {
+        self.clients
+            .count_documents(doc! { "cimd_managed": true })
+            .await
+            .map_err(Self::mongo_err_to_oauth)
+    }
+
     async fn update_client(&self, client: &Client) -> Result<(), OAuth2Error> {
         let filter = doc! { "client_id": &client.client_id };
         self.clients
@@ -355,6 +422,13 @@ impl Storage for MongoStorage {
     async fn get_user_by_id(&self, user_id: &str) -> Result<Option<User>, OAuth2Error> {
         self.users
             .find_one(doc! { "id": user_id })
+            .await
+            .map_err(Self::mongo_err_to_oauth)
+    }
+
+    async fn get_user_by_email(&self, email: &str) -> Result<Option<User>, OAuth2Error> {
+        self.users
+            .find_one(doc! { "email": email })
             .await
             .map_err(Self::mongo_err_to_oauth)
     }
@@ -812,6 +886,32 @@ impl Storage for MongoStorage {
             .map_err(Self::mongo_err_to_oauth)
     }
 
+    /// RFC 9449 §11.1: record a DPoP proof `jti`, reporting whether it was
+    /// fresh. The unique index on `jti` makes the insert the atomic check —
+    /// a duplicate key error means the proof is a replay.
+    async fn dpop_jti_check_and_insert(
+        &self,
+        jti: &str,
+        expires_at: chrono::DateTime<chrono::Utc>,
+    ) -> Result<bool, OAuth2Error> {
+        // Opportunistic cleanup of proofs whose acceptance window has closed.
+        let now = chrono::Utc::now().to_rfc3339();
+        let _ = self
+            .dpop_jtis
+            .delete_many(doc! { "expires_at": { "$lt": &now } })
+            .await;
+
+        match self
+            .dpop_jtis
+            .insert_one(doc! { "jti": jti, "expires_at": expires_at.to_rfc3339() })
+            .await
+        {
+            Ok(_) => Ok(true),
+            Err(e) if Self::duplicate_key_error(&e) => Ok(false),
+            Err(e) => Err(Self::mongo_err_to_oauth(e)),
+        }
+    }
+
     async fn revoke_tokens_by_client_id(&self, client_id: &str) -> Result<u64, OAuth2Error> {
         let result = self
             .tokens
@@ -822,6 +922,145 @@ impl Storage for MongoStorage {
             .await
             .map_err(Self::mongo_err_to_oauth)?;
         Ok(result.modified_count)
+    }
+
+    // --- Protected resources registry ---
+
+    async fn save_resource(&self, r: &ProtectedResource) -> Result<(), OAuth2Error> {
+        self.resources
+            .insert_one(r)
+            .await
+            .map(|_| ())
+            .map_err(Self::mongo_err_to_oauth)
+    }
+
+    async fn get_resource_by_uri(
+        &self,
+        uri: &str,
+    ) -> Result<Option<ProtectedResource>, OAuth2Error> {
+        self.resources
+            .find_one(doc! { "resource_uri": uri })
+            .await
+            .map_err(Self::mongo_err_to_oauth)
+    }
+
+    async fn get_resource_by_id(&self, id: &str) -> Result<Option<ProtectedResource>, OAuth2Error> {
+        self.resources
+            .find_one(doc! { "id": id })
+            .await
+            .map_err(Self::mongo_err_to_oauth)
+    }
+
+    async fn list_resources(&self) -> Result<Vec<ProtectedResource>, OAuth2Error> {
+        use futures::TryStreamExt;
+        let cursor = self
+            .resources
+            .find(doc! {})
+            .await
+            .map_err(Self::mongo_err_to_oauth)?;
+        let mut resources: Vec<ProtectedResource> = cursor
+            .try_collect()
+            .await
+            .map_err(Self::mongo_err_to_oauth)?;
+        resources.sort_by_key(|r| std::cmp::Reverse(r.created_at));
+        Ok(resources)
+    }
+
+    async fn delete_resource(&self, id: &str) -> Result<(), OAuth2Error> {
+        self.resources
+            .delete_one(doc! { "id": id })
+            .await
+            .map(|_| ())
+            .map_err(Self::mongo_err_to_oauth)
+    }
+
+    // --- Transaction Authorization Challenge ---
+
+    async fn save_transaction_authorization(
+        &self,
+        txn_auth: &TransactionAuthorization,
+    ) -> Result<(), OAuth2Error> {
+        self.transaction_authorizations
+            .insert_one(txn_auth)
+            .await
+            .map(|_| ())
+            .map_err(Self::mongo_err_to_oauth)
+    }
+
+    async fn get_transaction_authorization(
+        &self,
+        transaction_authorization_id: &str,
+    ) -> Result<Option<TransactionAuthorization>, OAuth2Error> {
+        self.transaction_authorizations
+            .find_one(doc! { "transaction_authorization_id": transaction_authorization_id })
+            .await
+            .map_err(Self::mongo_err_to_oauth)
+    }
+
+    async fn settle_transaction_authorization(
+        &self,
+        transaction_authorization_id: &str,
+        user_id: &str,
+        approved: bool,
+    ) -> Result<(), OAuth2Error> {
+        self.transaction_authorizations
+            .update_one(
+                doc! { "transaction_authorization_id": transaction_authorization_id },
+                doc! { "$set": { "approved": approved, "denied": !approved, "user_id": user_id } },
+            )
+            .await
+            .map(|_| ())
+            .map_err(Self::mongo_err_to_oauth)
+    }
+
+    async fn mark_transaction_authorization_used(
+        &self,
+        transaction_authorization_id: &str,
+    ) -> Result<(), OAuth2Error> {
+        self.transaction_authorizations
+            .update_one(
+                doc! { "transaction_authorization_id": transaction_authorization_id },
+                doc! { "$set": { "used": true } },
+            )
+            .await
+            .map(|_| ())
+            .map_err(Self::mongo_err_to_oauth)
+    }
+
+    // --- Trusted issuers registry (RFC 7523 JWT bearer grants / agent-A2A OAuth) ---
+
+    async fn save_trusted_issuer(&self, trusted_issuer: &TrustedIssuer) -> Result<(), OAuth2Error> {
+        self.trusted_issuers
+            .replace_one(doc! { "issuer": &trusted_issuer.issuer }, trusted_issuer)
+            .upsert(true)
+            .await
+            .map(|_| ())
+            .map_err(Self::mongo_err_to_oauth)
+    }
+
+    async fn get_trusted_issuer(&self, issuer: &str) -> Result<Option<TrustedIssuer>, OAuth2Error> {
+        self.trusted_issuers
+            .find_one(doc! { "issuer": issuer })
+            .await
+            .map_err(Self::mongo_err_to_oauth)
+    }
+
+    async fn list_trusted_issuers(&self) -> Result<Vec<TrustedIssuer>, OAuth2Error> {
+        use futures::TryStreamExt;
+        let cursor = self
+            .trusted_issuers
+            .find(doc! {})
+            .await
+            .map_err(Self::mongo_err_to_oauth)?;
+        cursor.try_collect().await.map_err(Self::mongo_err_to_oauth)
+    }
+
+    async fn delete_trusted_issuer(&self, id: &str) -> Result<(), OAuth2Error> {
+        self.trusted_issuers
+            .delete_one(doc! { "id": id })
+            .await
+            .map(|_| ())
+            .map_err(Self::mongo_err_to_oauth)
     }
 }
 

@@ -1485,7 +1485,9 @@ async fn test_vector_n_dpop_invalid_typ() {
         "POST",
         "https://auth.example.com/oauth/token",
         &store,
-    );
+        None,
+    )
+    .await;
 
     assert!(result.is_err());
     let err = result.unwrap_err();
@@ -1503,17 +1505,17 @@ async fn test_vector_n_dpop_invalid_typ() {
 #[actix_web::test]
 async fn test_vector_o_dpop_jti_replay() {
     use oauth2_actix::handlers::dpop::DpopReplayStore;
-    use std::time::{Duration, Instant};
+    use std::time::Duration;
 
     let store = DpopReplayStore::new();
     let jti = "test-jti-12345";
-    let expiry = Instant::now() + Duration::from_secs(60);
+    let ttl = Duration::from_secs(60);
 
     // First use: should succeed
-    assert!(store.check_and_insert(jti, expiry).is_ok());
+    assert!(store.check_and_insert(jti, ttl).await.is_ok());
 
     // Replay: should fail
-    let result = store.check_and_insert(jti, expiry);
+    let result = store.check_and_insert(jti, ttl).await;
     assert!(result.is_err());
     let err = result.unwrap_err();
     assert_eq!(err.error, "invalid_dpop_proof");

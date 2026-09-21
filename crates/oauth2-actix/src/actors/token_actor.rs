@@ -11,6 +11,7 @@ use oauth2_ports::DynStorage;
 use tokio::sync::RwLock;
 use tracing::Instrument;
 
+use oauth2_core::models::actor::{SUB_PROFILE_SERVICE, SUB_PROFILE_USER};
 use oauth2_core::{Claims, OAuth2Error, Token};
 
 /// Default token validation cache TTL (60 seconds).
@@ -156,14 +157,30 @@ pub struct CreateToken {
     pub scope: String,
     pub include_refresh: bool,
     pub token_family: Option<String>,
-    /// RFC 8707: resource indicator URI. When set, overrides the JWT `aud` claim
-    /// from `client_id` to the specified resource server URI.
-    pub resource: Option<String>,
+    /// RFC 8707: resource indicator URIs. When non-empty, overrides the JWT
+    /// `aud` claim from `client_id` to the requested resource server URIs.
+    pub resources: Vec<String>,
     /// RFC 9449 / RFC 8705: confirmation claim (`cnf`) to bind the token to a key.
     /// Set to `{"jkt": "<base64url thumbprint>"}` for DPoP or `{"x5t#S256": "..."}` for mTLS.
     pub cnf: Option<serde_json::Value>,
     /// RFC 9396: Rich Authorization Request details to embed in the JWT.
     pub authorization_details: Option<serde_json::Value>,
+    /// RFC 8693 §4.1: actor (`act`) claim to embed when this token represents
+    /// a delegated/impersonated identity. Persisted on the token row (and, for
+    /// JWT access tokens, embedded in the `act` claim) so it can be surfaced
+    /// at introspection time regardless of token format.
+    pub act: Option<serde_json::Value>,
+    /// Cap the issued access token's lifetime, in seconds. The effective TTL is
+    /// `min(ttl_override_secs, access_token_ttl_secs)` — an override can only
+    /// shorten a token's life, never extend it past the configured maximum.
+    pub ttl_override_secs: Option<u64>,
+    /// Phase 7 (agent/A2A OAuth): `sub_profile` claim for the access token.
+    /// When `None` the actor derives it: `user` if `user_id` is set, else
+    /// `service`.
+    pub sub_profile: Option<String>,
+    /// Transaction Token `txn` claim: the transaction identifier this token
+    /// was issued for. Embedded in the JWT access token when set.
+    pub txn: Option<String>,
     pub span: tracing::Span,
 }
 
@@ -177,7 +194,14 @@ impl Handler<CreateToken> for TokenActor {
         let event_bus = self.event_bus.clone();
         let keyset = self.keyset.clone();
         let access_tokens_opaque = self.access_tokens_opaque;
-        let access_token_ttl_secs = self.access_token_ttl_secs;
+        // A `ttl_override_secs` may only shorten the token's life (Phase 7:
+        // the AI-agent access-token cap and the transaction authorization
+        // grant), never extend it past the configured maximum.
+        let access_token_ttl_secs = match msg.ttl_override_secs {
+            Some(cap) => self.access_token_ttl_secs.min(cap as i64),
+            None => self.access_token_ttl_secs,
+        };
+
         let refresh_token_ttl_secs = self.refresh_token_ttl_secs;
 
         let parent_span = msg.span.clone();
@@ -233,15 +257,30 @@ impl Handler<CreateToken> for TokenActor {
                         access_token_ttl_secs,
                         &issuer,
                     );
-                    // RFC 8707 §2: if resource parameter was provided, the access token's
-                    // aud claim MUST be bound to that resource server URI.
-                    if let Some(ref resource) = msg.resource {
-                        access_claims = access_claims.with_audience(vec![resource.clone()]);
+                    // RFC 8707 §2: if resource parameter(s) were provided, the access
+                    // token's aud claim MUST be bound to those resource server URIs.
+                    if !msg.resources.is_empty() {
+                        access_claims = access_claims.with_audience(msg.resources.clone());
                     }
                     // RFC 9449 / RFC 8705: embed cnf (confirmation) claim if provided.
                     access_claims.cnf = msg.cnf.clone();
                     // RFC 9396: embed authorization_details if provided.
                     access_claims.authorization_details = msg.authorization_details.clone();
+                    // RFC 8693 §4.1: embed act (actor) claim if this token was delegated.
+                    access_claims.act = msg.act.clone();
+                    // Phase 7 (agent/A2A OAuth): every access token carries a
+                    // `sub_profile` describing what kind of principal `sub` is.
+                    access_claims.sub_profile =
+                        Some(msg.sub_profile.clone().unwrap_or_else(|| {
+                            if msg.user_id.is_some() {
+                                SUB_PROFILE_USER.to_string()
+                            } else {
+                                SUB_PROFILE_SERVICE.to_string()
+                            }
+                        }));
+                    // Transaction Tokens / transaction authorization challenge:
+                    // carry the transaction identifier into the access token.
+                    access_claims.txn = msg.txn.clone();
 
                     if let Some(ref key) = signing_key {
                         access_claims.encode_with_key(key)
@@ -271,6 +310,10 @@ impl Handler<CreateToken> for TokenActor {
                     None
                 };
 
+                // RFC 8707: persist the resource indicator(s) this token was
+                // scoped to.
+                let resources: Vec<String> = msg.resources.clone();
+
                 let token = Token::new(
                     access_token,
                     refresh_token,
@@ -279,7 +322,8 @@ impl Handler<CreateToken> for TokenActor {
                     msg.scope.clone(),
                     access_token_ttl_secs as i32,
                     msg.token_family,
-                );
+                )
+                .with_delegation(msg.act.as_ref(), msg.cnf.as_ref(), &resources);
 
                 db.save_token(&token).await?;
 
@@ -909,6 +953,9 @@ impl Handler<ValidateTokenStateless> for TokenActor {
             expires_at,
             revoked: false,
             token_family: None,
+            act: claims.act.as_ref().map(|v| v.to_string()),
+            cnf: claims.cnf.as_ref().map(|v| v.to_string()),
+            resource: None,
         })
     }
 }

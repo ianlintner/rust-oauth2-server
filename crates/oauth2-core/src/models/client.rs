@@ -105,10 +105,49 @@ pub struct Client {
     #[serde(default)]
     #[cfg_attr(feature = "sqlx", sqlx(default))]
     pub dpop_nonce_required: bool,
+    /// Phase 7 (agent/A2A OAuth): JSON array of actor `client_id` strings
+    /// this client permits to be named in an `actor_token` (RFC 8693 token
+    /// exchange) where this client is the subject. Defaults to `"[]"`
+    /// (no actor delegation permitted) so existing clients continue to
+    /// work; operators opt in per-client.
+    #[serde(default = "default_allowed_actors")]
+    #[cfg_attr(feature = "sqlx", sqlx(default))]
+    pub allowed_actors: String,
+    /// RFC 8705 §2.1.2: the expected `subjectAltName` of the client's TLS
+    /// certificate, compared verbatim against the value the reverse proxy
+    /// forwards. Used when `token_endpoint_auth_method` is
+    /// `"tls_client_auth_san_uri"` (header `X-SSL-Client-SAN-URI`) or
+    /// `"tls_client_auth_san_dns"` (header `X-SSL-Client-SAN-DNS"`).
+    /// Empty string means the client does not use SAN-based mTLS auth.
+    #[serde(default = "default_empty_string")]
+    #[cfg_attr(feature = "sqlx", sqlx(default))]
+    pub tls_client_auth_san: String,
+    /// RFC 7591 §2: identifier for the software this client is an instance of.
+    /// Phase 7 (agent/A2A OAuth): an `agent:`-prefixed value marks the client
+    /// as an AI agent, selecting the `ai_agent` `sub_profile`.
+    #[serde(default = "default_empty_string")]
+    #[cfg_attr(feature = "sqlx", sqlx(default))]
+    pub software_id: String,
+    /// RFC 7591 §2: version of the software this client is an instance of.
+    #[serde(default = "default_empty_string")]
+    #[cfg_attr(feature = "sqlx", sqlx(default))]
+    pub software_version: String,
+    /// Phase 7 (agent/A2A OAuth): `true` when this row was materialized from a
+    /// Client ID Metadata Document rather than created through registration.
+    /// The document stays authoritative for such a client; the row exists so
+    /// that authorization codes and tokens (which reference
+    /// `clients(client_id)`) can be stored against it. Defaults to `false`.
+    #[serde(default)]
+    #[cfg_attr(feature = "sqlx", sqlx(default))]
+    pub cimd_managed: bool,
 }
 
 fn default_true() -> bool {
     true
+}
+
+fn default_allowed_actors() -> String {
+    "[]".to_string()
 }
 
 impl Client {
@@ -151,12 +190,36 @@ impl Client {
             require_state: false,
             tls_client_certificate_subject_dn: String::new(),
             dpop_nonce_required: false,
+            allowed_actors: default_allowed_actors(),
+            tls_client_auth_san: String::new(),
+            software_id: String::new(),
+            software_version: String::new(),
+            cimd_managed: false,
         }
     }
 
     /// Returns `true` for public clients that use PKCE without a client secret.
     pub fn is_public(&self) -> bool {
         self.token_endpoint_auth_method == "none"
+    }
+
+    /// Phase 7 (agent/A2A OAuth): `true` when this client represents an AI
+    /// agent — either its `software_id` is `agent:`-prefixed or it has been
+    /// granted delegation trust via a non-empty `allowed_actors` list.
+    pub fn is_ai_agent(&self) -> bool {
+        self.software_id.starts_with("agent:") || !self.allowed_actors_vec().is_empty()
+    }
+
+    /// Parse `allowed_actors` (a JSON array of `client_id` strings). Invalid
+    /// or missing JSON yields an empty list rather than an error.
+    pub fn allowed_actors_vec(&self) -> Vec<String> {
+        serde_json::from_str(&self.allowed_actors).unwrap_or_default()
+    }
+
+    /// Returns `true` when `client_id` is present in this client's
+    /// `allowed_actors` list. Invalid JSON in `allowed_actors` yields `false`.
+    pub fn allows_actor(&self, client_id: &str) -> bool {
+        self.allowed_actors_vec().iter().any(|a| a == client_id)
     }
 
     /// Returns `true` for clients using JWT-based authentication.
@@ -297,6 +360,26 @@ pub struct ClientRegistration {
     /// Only relevant when `token_endpoint_auth_method = "tls_client_auth"`.
     #[serde(default)]
     pub tls_client_certificate_subject_dn: Option<String>,
+    /// Phase 7 (agent/A2A OAuth): actor `client_id` allow-list. Only honoured
+    /// on the admin registration path (`POST /admin/clients/register`); the
+    /// public RFC 7591 dynamic registration endpoint ignores this field.
+    #[serde(default)]
+    pub allowed_actors: Option<Vec<String>>,
+    /// RFC 8705 §2.1.2: expected certificate `subjectAltName`. Required when
+    /// `token_endpoint_auth_method` is `tls_client_auth_san_uri` or
+    /// `tls_client_auth_san_dns`.
+    #[serde(default)]
+    pub tls_client_auth_san: Option<String>,
+    /// RFC 7591 §2: identifier of the software this client instantiates.
+    #[serde(default)]
+    pub software_id: Option<String>,
+    /// RFC 7591 §2: version of the software this client instantiates.
+    #[serde(default)]
+    pub software_version: Option<String>,
+    /// RFC 7591 §2.3: a JWT asserting the client's metadata, signed by a
+    /// trusted issuer. Claims it carries override the request body.
+    #[serde(default)]
+    pub software_statement: Option<String>,
 }
 
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
@@ -351,6 +434,12 @@ pub struct ClientRegistrationResponse {
     pub post_logout_redirect_uris: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tls_client_certificate_subject_dn: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tls_client_auth_san: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub software_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub software_version: Option<String>,
     pub client_id_issued_at: i64,
 }
 
@@ -441,6 +530,21 @@ impl ClientRegistrationResponse {
                 None
             } else {
                 Some(client.tls_client_certificate_subject_dn.clone())
+            },
+            tls_client_auth_san: if client.tls_client_auth_san.is_empty() {
+                None
+            } else {
+                Some(client.tls_client_auth_san.clone())
+            },
+            software_id: if client.software_id.is_empty() {
+                None
+            } else {
+                Some(client.software_id.clone())
+            },
+            software_version: if client.software_version.is_empty() {
+                None
+            } else {
+                Some(client.software_version.clone())
             },
             client_id_issued_at: client.created_at.timestamp(),
         }

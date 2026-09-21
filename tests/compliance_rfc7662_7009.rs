@@ -154,9 +154,13 @@ async fn issue_access_token(
             scope: scope.to_string(),
             include_refresh: false,
             token_family: None,
-            resource: None,
+            resources: Vec::new(),
             cnf: None,
             authorization_details: None,
+            act: None,
+            ttl_override_secs: None,
+            sub_profile: None,
+            txn: None,
             span: tracing::Span::current(),
         })
         .await

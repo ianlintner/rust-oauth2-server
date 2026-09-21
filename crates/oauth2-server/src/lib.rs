@@ -1205,9 +1205,23 @@ pub async fn run() -> std::io::Result<()> {
             .app_data(web::Data::new(app_config.clone()))
             .app_data(web::Data::new(oidc_config.clone()))
             .app_data(web::Data::new(keyset.clone()))
+            // Phase 7 (agent / A2A OAuth) feature flags and delegation limits.
+            .app_data(web::Data::new(app_config.agent.clone()))
             .app_data(web::Data::new(key_rotation_grace_hours))
             // Stateless JWT validation flag (skips DB lookup during introspection)
             .app_data(web::Data::new(app_config.jwt.stateless_validation));
+
+        // Phase 7 (agent / A2A OAuth): Client ID Metadata Document fetcher.
+        // Registered only when the feature is on, so a URL `client_id` is
+        // rejected outright while CIMD is disabled.
+        if app_config.agent.cimd_enabled {
+            app = app.app_data(web::Data::new(
+                oauth2_actix::handlers::cimd::CimdFetcher::new(
+                    app_config.agent.cimd_allowed_hosts.clone(),
+                    app_config.agent.cimd_denied_hosts.clone(),
+                ),
+            ));
+        }
 
         // Login rate-limiter (W2-H1): per-IP and per-username credential-stuffing
         // protection.  Registered as optional app_data so tests that don't supply
@@ -1249,10 +1263,10 @@ pub async fn run() -> std::io::Result<()> {
         ));
 
         // RFC 9449: DPoP proof replay store — prevents `jti` reuse within the
-        // acceptance window. Shared across all requests so replay detection
-        // works correctly even under concurrent token requests.
+        // acceptance window. Storage-backed so replay detection also holds
+        // across restarts and across AS instances sharing one database.
         app = app.app_data(web::Data::new(
-            oauth2_actix::handlers::dpop::DpopReplayStore::new(),
+            oauth2_actix::handlers::dpop::DpopReplayStore::with_storage(storage.clone()),
         ));
 
         // RFC 9449 §§8, 9: DPoP nonce issuer. Stateless time-bucketed HMAC
@@ -1364,6 +1378,28 @@ pub async fn run() -> std::io::Result<()> {
                         "/device/verify",
                         web::post().to(oauth2_actix::handlers::device::verify_submit),
                     )
+                    // draft-rosomakho-oauth-txn-challenge-00: transaction
+                    // authorization challenge. The approval page needs the
+                    // session, which the app-wide SessionMiddleware provides
+                    // (same as `/oauth/device/verify`).
+                    .route(
+                        "/transaction_authorization",
+                        web::post().to(
+                            oauth2_actix::handlers::transaction_authorization::transaction_authorization,
+                        ),
+                    )
+                    .route(
+                        "/transaction_authorization/approve",
+                        web::get().to(
+                            oauth2_actix::handlers::transaction_authorization::approve_page,
+                        ),
+                    )
+                    .route(
+                        "/transaction_authorization/approve",
+                        web::post().to(
+                            oauth2_actix::handlers::transaction_authorization::approve_submit,
+                        ),
+                    )
                     .route(
                         "/introspect",
                         web::post().to(oauth2_actix::handlers::token::introspect),
@@ -1406,6 +1442,13 @@ pub async fn run() -> std::io::Result<()> {
                     .route(
                         "/oauth-protected-resource",
                         web::get().to(oauth2_actix::handlers::wellknown::protected_resource_metadata),
+                    )
+                    // RFC 9728: per-resource Protected Resource Metadata (agent/A2A OAuth)
+                    .route(
+                        "/oauth-protected-resource/{id}",
+                        web::get().to(
+                            oauth2_actix::handlers::wellknown::protected_resource_metadata_for_resource,
+                        ),
                     )
                     // Token Status List (draft-ietf-oauth-status-list)
                     .route(
@@ -1451,6 +1494,37 @@ pub async fn run() -> std::io::Result<()> {
                     .route(
                         "/clients/register",
                         web::post().to(oauth2_actix::handlers::client::register_client),
+                    )
+                    // Protected resources registry (RFC 8707 / RFC 9728, agent/A2A OAuth)
+                    .route(
+                        "/resources",
+                        web::get().to(oauth2_actix::handlers::admin_resources::list_resources),
+                    )
+                    .route(
+                        "/resources",
+                        web::post().to(oauth2_actix::handlers::admin_resources::create_resource),
+                    )
+                    .route(
+                        "/resources/{id}",
+                        web::delete().to(oauth2_actix::handlers::admin_resources::delete_resource),
+                    )
+                    // Trusted issuers registry (RFC 7523 JWT bearer grants / agent-A2A OAuth)
+                    .route(
+                        "/trusted-issuers",
+                        web::get()
+                            .to(oauth2_actix::handlers::admin_trusted_issuers::list_trusted_issuers),
+                    )
+                    .route(
+                        "/trusted-issuers",
+                        web::post().to(
+                            oauth2_actix::handlers::admin_trusted_issuers::create_trusted_issuer,
+                        ),
+                    )
+                    .route(
+                        "/trusted-issuers/{id}",
+                        web::delete().to(
+                            oauth2_actix::handlers::admin_trusted_issuers::delete_trusted_issuer,
+                        ),
                     )
                     .service(
                         web::scope("/api")

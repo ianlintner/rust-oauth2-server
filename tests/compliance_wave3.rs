@@ -461,9 +461,13 @@ async fn rfc9701_jwt_accept_header_returns_jwt_introspection_response() {
             scope: "read".to_string(),
             include_refresh: false,
             token_family: None,
-            resource: None,
+            resources: Vec::new(),
             cnf: None,
             authorization_details: None,
+            act: None,
+            ttl_override_secs: None,
+            sub_profile: None,
+            txn: None,
             span: tracing::Span::current(),
         })
         .await
@@ -549,9 +553,13 @@ async fn rfc9701_standard_accept_returns_json_introspection_response() {
             scope: "read".to_string(),
             include_refresh: false,
             token_family: None,
-            resource: None,
+            resources: Vec::new(),
             cnf: None,
             authorization_details: None,
+            act: None,
+            ttl_override_secs: None,
+            sub_profile: None,
+            txn: None,
             span: tracing::Span::current(),
         })
         .await
@@ -622,9 +630,13 @@ async fn rfc9701_jwt_payload_contains_token_introspection_claim() {
             scope: "openid profile".to_string(),
             include_refresh: false,
             token_family: None,
-            resource: None,
+            resources: Vec::new(),
             cnf: None,
             authorization_details: None,
+            act: None,
+            ttl_override_secs: None,
+            sub_profile: None,
+            txn: None,
             span: tracing::Span::current(),
         })
         .await

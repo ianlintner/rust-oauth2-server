@@ -36,12 +36,15 @@ pub struct OidcConfig {
 pub async fn openid_configuration(
     oidc: web::Data<OidcConfig>,
     config: Option<web::Data<oauth2_config::Config>>,
+    agent: Option<web::Data<oauth2_config::AgentConfig>>,
+    storage: Option<web::Data<DynStorage>>,
 ) -> Result<HttpResponse> {
     let base = oidc.issuer.trim_end_matches('/');
     let public_introspection = config
         .as_ref()
         .map(|cfg| cfg.jwt.public_introspection)
         .unwrap_or(false);
+    let agent = agent.as_deref().cloned().unwrap_or_default();
 
     let id_token_algs = if oidc.id_token_alg.eq_ignore_ascii_case("RS256") {
         ["RS256"]
@@ -53,7 +56,36 @@ pub async fn openid_configuration(
     } else {
         vec!["client_secret_basic", "client_secret_post"]
     };
-    let config = json!({
+
+    // RFC 8693 token-exchange + agent/A2A (Phase 7) grant types.
+    let mut grant_types_supported: Vec<&str> = vec![
+        "authorization_code",
+        "client_credentials",
+        "refresh_token",
+        "urn:ietf:params:oauth:grant-type:device_code",
+        "urn:ietf:params:oauth:grant-type:token-exchange",
+        oauth2_core::token_types::GRANT_JWT_BEARER,
+    ];
+    if agent.tac_enabled {
+        grant_types_supported.push(oauth2_core::token_types::GRANT_TRANSACTION_AUTHORIZATION);
+    }
+
+    // RFC 9396 RAR: union of the static "openid" type and every registered
+    // resource's supported authorization_details types.
+    let mut authorization_details_types_supported: Vec<String> = vec!["openid".to_string()];
+    if let Some(storage) = &storage {
+        if let Ok(resources) = storage.list_resources().await {
+            for resource in resources {
+                for ty in resource.authorization_details_types_vec() {
+                    if !authorization_details_types_supported.contains(&ty) {
+                        authorization_details_types_supported.push(ty);
+                    }
+                }
+            }
+        }
+    }
+
+    let mut config = json!({
         "issuer": base,
         "authorization_endpoint": format!("{}/oauth/authorize", base),
         "token_endpoint": format!("{}/oauth/token", base),
@@ -73,13 +105,7 @@ pub async fn openid_configuration(
         "registration_endpoint": format!("{}/connect/register", base),
         "scopes_supported": ["openid", "profile", "email", "read", "write", "admin"],
         "response_types_supported": ["code", "code id_token"],
-        "grant_types_supported": [
-            "authorization_code",
-            "client_credentials",
-            "refresh_token",
-            "urn:ietf:params:oauth:grant-type:device_code",
-            "urn:ietf:params:oauth:grant-type:token-exchange"
-        ],
+        "grant_types_supported": grant_types_supported,
         "subject_types_supported": ["public"],
         "id_token_signing_alg_values_supported": id_token_algs,
         "token_endpoint_auth_methods_supported": [
@@ -89,6 +115,8 @@ pub async fn openid_configuration(
             "private_key_jwt",
             "tls_client_auth",
             "self_signed_tls_client_auth",
+            "tls_client_auth_san_uri",
+            "tls_client_auth_san_dns",
             "none"
         ],
         "claims_supported": [
@@ -122,14 +150,44 @@ pub async fn openid_configuration(
         "dpop_signing_alg_values_supported": ["ES256", "RS256"],
         // RFC 8705: mTLS client certificate bound access tokens
         "tls_client_certificate_bound_access_tokens": true,
+        // RFC 8705 §5: mTLS endpoint aliases. This deployment terminates mTLS
+        // at the same endpoints, so the aliases mirror the primary URLs.
+        "mtls_endpoint_aliases": {
+            "token_endpoint": format!("{}/oauth/token", base),
+            "introspection_endpoint": format!("{}/oauth/introspect", base),
+            "revocation_endpoint": format!("{}/oauth/revoke", base)
+        },
         // RFC 9396: Rich Authorization Requests
-        "authorization_details_types_supported": ["openid"],
+        "authorization_details_types_supported": authorization_details_types_supported,
         // RFC 9470: Step-Up Authentication
         "acr_values_supported": [
             "urn:mace:incommon:iap:silver",
             "urn:mace:incommon:iap:bronze"
         ]
     });
+
+    // Phase 7 agent / A2A OAuth capabilities: only advertised when enabled.
+    if agent.cimd_enabled {
+        config["client_id_metadata_document_supported"] = json!(true);
+    }
+    if agent.id_jag_enabled {
+        config["identity_chaining_requested_token_types_supported"] = json!([
+            oauth2_core::token_types::JWT,
+            oauth2_core::token_types::ID_JAG,
+        ]);
+        config["authorization_grant_profiles_supported"] =
+            json!(["urn:ietf:params:oauth:grant-profile:id-jag"]);
+    }
+    if agent.tac_enabled {
+        config["transaction_authorization_endpoint"] =
+            json!(format!("{}/oauth/transaction_authorization", base));
+    }
+    if agent.obo_enabled {
+        config["requested_actor_parameter_supported"] = json!(true);
+    }
+    if agent.txn_tokens_enabled {
+        config["transaction_token_supported"] = json!(true);
+    }
 
     Ok(HttpResponse::Ok().json(config))
 }
@@ -307,6 +365,53 @@ pub async fn protected_resource_metadata(oidc: web::Data<OidcConfig>) -> Result<
         "jwks_uri": format!("{}/.well-known/jwks.json", base),
         "scopes_supported": ["openid", "profile", "email", "read", "write", "admin"]
     });
+    Ok(HttpResponse::Ok()
+        .insert_header(("Cache-Control", "public, max-age=3600"))
+        .json(metadata))
+}
+
+/// RFC 9728: per-resource Protected Resource Metadata endpoint.
+///
+/// Looks up a registered `ProtectedResource` by id and advertises its
+/// specific scopes, supported `authorization_details` types, and (when
+/// configured) the JWKS URI used to validate transaction confirmation
+/// challenges (draft-rosomakho-oauth-txn-challenge).
+pub async fn protected_resource_metadata_for_resource(
+    oidc: web::Data<OidcConfig>,
+    storage: Option<web::Data<DynStorage>>,
+    path: web::Path<String>,
+) -> Result<HttpResponse> {
+    let id = path.into_inner();
+    let base = oidc.issuer.trim_end_matches('/');
+
+    let resource = match &storage {
+        Some(storage) => storage.get_resource_by_id(&id).await.ok().flatten(),
+        None => None,
+    };
+
+    let Some(resource) = resource else {
+        return Ok(HttpResponse::NotFound().json(json!({"error": "not_found"})));
+    };
+
+    let mut metadata = json!({
+        "resource": resource.resource_uri,
+        "authorization_servers": [base],
+        "scopes_supported": resource.scopes_vec(),
+        "bearer_methods_supported": ["header"],
+        // RFC 9449: announce DPoP support
+        "dpop_signing_alg_values_supported": ["ES256", "RS256"],
+        // RFC 8705: mTLS token binding is supported
+        "tls_client_certificate_bound_access_tokens": true,
+        // RFC 9396: Rich Authorization Requests
+        "authorization_details_types_supported": resource.authorization_details_types_vec(),
+        "resource_name": resource.name,
+    });
+
+    if !resource.txn_challenge_jwks_uri.trim().is_empty() {
+        metadata["txn_challenge_jwks_uri"] = json!(resource.txn_challenge_jwks_uri);
+        metadata["txn_challenge_signing_alg_values_supported"] = json!(["RS256", "ES256"]);
+    }
+
     Ok(HttpResponse::Ok()
         .insert_header(("Cache-Control", "public, max-age=3600"))
         .json(metadata))

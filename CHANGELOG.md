@@ -1,3 +1,137 @@
+## [1.1.0] — 2026-09-21
+
+**Phase 7 — Agent & A2A Authorization.** AI agents (and agents calling
+agents) can now obtain, delegate and chain OAuth tokens. Every capability
+below is off by default and only advertised in discovery once its
+`OAUTH2_*` flag is enabled — see [`docs/agents/README.md`](docs/agents/README.md)
+for configuration and worked `curl` examples, and
+[`docs/oauth2-spec-audit.md` §10](docs/oauth2-spec-audit.md#10-phase-7--agent--a2a-authorization)
+for the full chunk tracker.
+
+### Added
+
+- RFC 8693 Token Exchange, fully implemented: `actor_token`/`act`/`may_act`
+  delegation, actor-profile `act` chains (depth-limited via
+  `OAUTH2_MAX_DELEGATION_DEPTH`), audience/resource validation against a new
+  protected-resources registry, and RAR (RFC 9396) subset enforcement across
+  exchanges.
+- `act`, `cnf`, and `resource` are now persisted on tokens and exposed by
+  introspection (`POST /oauth/introspect`).
+- Protected-resource registry (`resources` table) with admin CRUD at
+  `/admin/resources`, and per-resource Protected Resource Metadata at
+  `GET /.well-known/oauth-protected-resource/{id}` (RFC 9728 §3.1).
+- Trusted-issuer registry (`trusted_issuers` table) with admin CRUD at
+  `/admin/trusted-issuers`, backing a new
+  `urn:ietf:params:oauth:grant-type:jwt-bearer` authorization grant
+  (RFC 7523 §2.1) with JIT user provisioning.
+- Identity chaining and Identity Assertion Authorization Grant (ID-JAG)
+  support (`draft-ietf-oauth-identity-chaining`,
+  `draft-ietf-oauth-identity-assertion-authz-grant`): both acceptance (as an
+  assertion on the jwt-bearer grant) and issuance (via token exchange with
+  `requested_token_type=id-jag`), gated by `OAUTH2_ID_JAG_ENABLED`.
+- Transaction Tokens (`draft-ietf-oauth-transaction-tokens`) with the
+  draft-liu-oauth-a2a-profile claims (`purp`, immutable `tctx`), gated by
+  `OAUTH2_TXN_TOKENS_ENABLED` and `OAUTH2_TRUST_DOMAIN`, requiring asymmetric
+  client authentication.
+- Transaction Authorization Challenge
+  (`draft-rosomakho-oauth-txn-challenge`): `POST /oauth/transaction_authorization`,
+  a human approval page, and a polling grant
+  (`urn:ietf:params:oauth:grant-type:transaction-authorization`), gated by
+  `OAUTH2_TAC_ENABLED`.
+- Client ID Metadata Document (CIMD) support
+  (`draft-ietf-oauth-client-id-metadata-document`): URL-shaped `client_id`s
+  are resolved (SSRF-guarded, ≤5 KB, HTTPS-only) at `/authorize`, `/oauth/par`
+  and `/oauth/token`, gated by `OAUTH2_CIMD_ENABLED` and capped by
+  `OAUTH2_CIMD_MAX_CLIENTS`.
+- Named-agent consent: `requested_actor` on `/authorize` plus `actor_token`
+  at code exchange, so the login page can name the agent acting for the
+  user, gated by `OAUTH2_AGENT_OBO_ENABLED`.
+- Workload identity polish: SAN-based mTLS client auth
+  (`tls_client_auth_san_uri`/`_dns`), RFC 7591 §2.3 software statements
+  attested via trusted issuers, `sub_profile` classification (`user` /
+  `service` / `ai_agent`) on access tokens, and an optional AI-agent
+  access-token TTL cap (`OAUTH2_AI_AGENT_ACCESS_TOKEN_TTL_SECS`).
+- DPoP `ath` claim validation on introspection and a storage-backed DPoP
+  `jti` replay store (`dpop_jtis`), replacing the in-memory-only replay guard
+  for multi-instance deployments.
+- Migrations V23–V31 for all of the above (delegation columns on `tokens`,
+  the `resources` and `trusted_issuers` tables, `allowed_actors` on
+  `clients`, `requested_actor` on `authorization_codes`, `dpop_jtis`,
+  `transaction_authorizations`, workload-identity columns, `cimd_managed`).
+
+### Changed
+
+Everything above is behind a flag. The changes in this section are **not** —
+they apply to every deployment on upgrade.
+
+- **Token endpoint.** A JWT client assertion's `aud` may now be either the
+  issuer or the token endpoint URL (RFC 7523 §3 allows both; only the token
+  endpoint was accepted before). `resource` and `audience` may be repeated,
+  and the resulting access token carries a multi-valued `aud`.
+- **Refresh rotation.** A refreshed token keeps the `act` chain of the token
+  it replaces, so a delegation survives rotation instead of being silently
+  dropped.
+- **Introspection** responses gained `txn`, `purp` and `req_wl` for
+  transaction tokens. `act` is returned only to an authenticated caller — it
+  names the delegating agent, so it is PII on the same footing as `sub`.
+- **Client registration.** A `software_statement` is now always verified,
+  whether or not trusted issuers are configured; an unsigned or
+  unknown-issuer statement is rejected with `invalid_software_statement`
+  (previously it could be ignored). Self-service dynamic registration strips
+  body-supplied `allowed_actors`, `software_id` and `software_version` —
+  the last two are accepted only from a verified software statement, and the
+  admin endpoint remains exempt. Selecting `tls_client_auth_san_uri` or
+  `tls_client_auth_san_dns` requires a `tls_client_auth_san` value. The
+  registration response gained three fields (`allowed_actors`,
+  `software_id`, `software_version`), and an RFC 7592 update replaces
+  `tls_client_auth_san` rather than merging it.
+- **Discovery** (`/.well-known/openid-configuration` and
+  `/.well-known/oauth-authorization-server`) gained `mtls_endpoint_aliases`
+  and the two SAN client-authentication methods, and
+  `authorization_details_types_supported` is now derived from the
+  authorization-details types actually registered in the database rather
+  than from a static list.
+- **Login page** now names the client that initiated the authorization
+  request (and the agent it asked to act, when `requested_actor` was used).
+  Library API: `handlers::login::login_page` takes a `Session`.
+- **Library API break (`oauth2-actix`).** `handlers::dpop::validate_dpop_proof`
+  and `DpopReplayStore::check_and_insert` are now `async` (the replay store
+  may hit the database), and `DpopReplayStore`'s fields are private —
+  construct it with `new()` / `with_storage()`.
+- `docs/oauth2-spec-audit.md` §1 (Current Implementation Inventory) corrected
+  for Token Exchange, the JWT authorization grant, DPoP, mutual-TLS, and RFC
+  9728 Protected Resource Metadata — these had shipped in earlier waves but
+  §1 had gone stale.
+
+### Security
+
+Also always on, and rejections where previous versions accepted the request:
+
+- **Token exchange hardening.** A `subject_token_type` of `jwt` requires the
+  JOSE header to say `typ: "at+JWT"`. A refresh token is never accepted as a
+  subject token (except on the ID-JAG path, where the draft calls for it). A
+  subject token carrying `cnf` requires proof of possession — a DPoP proof or
+  the matching mTLS certificate — at the exchange. Exchanging a token issued
+  to a *different* client requires that client's `allowed_actors` to name the
+  requesting client. The resulting scope must be a subset of the requesting
+  client's own registered scope, not merely of the subject token's.
+- **URL-shaped `client_id`s are rejected** with `invalid_client` unless CIMD
+  is enabled, instead of being looked up as an opaque identifier.
+- **The transaction-approval form fails closed:** only an explicit
+  `action=approve` approves; any other (or absent) value denies.
+- Trusted issuers are an explicit, admin-controlled registry (`allowed_audiences`,
+  `subject_mapping`, `allowed_client_ids`, `jit_provision`); email-based
+  subject mapping trusts the issuer to assert accurate local email addresses.
+  See `docs/agents/README.md#security-considerations`.
+- CIMD fetches are SSRF-guarded (loopback, private/link-local/CGNAT ranges
+  blocked; HTTPS-only; no redirects; ≤5 KB); materialized `clients` rows are
+  capped by `OAUTH2_CIMD_MAX_CLIENTS` and never overwrite operator-set fields
+  on re-fetch — nor any client that was not itself created from a metadata
+  document. Row cleanup is not yet automated — a documented follow-up.
+  See `docs/agents/README.md#security-considerations`.
+- RFC 9470 step-up enforcement for the Transaction Authorization Challenge is
+  documented but not yet implemented — a documented follow-up.
+
 ## [1.0.0] — 2026-06-21
 
 **Breaking changes — consolidates all Dependabot dependency upgrades into a single major release.**

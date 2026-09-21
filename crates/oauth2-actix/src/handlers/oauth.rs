@@ -12,9 +12,13 @@ use uuid::Uuid;
 use oauth2_observability::Metrics;
 
 use crate::actors::{
-    AuthActor, ClientActor, CreateAuthorizationCode, CreateToken, GetClient, GetPARRequest,
+    AuthActor, ClientActor, CreateAuthorizationCode, CreateToken, GetPARRequest,
     MarkAuthorizationCodeUsed, StorePARRequest, TokenActorPool, ValidateAuthorizationCode,
     ValidateRefreshToken,
+};
+use crate::handlers::cimd::CimdFetcher;
+use crate::handlers::client_resolver::{
+    canonical_cimd_client_id, materialize_cimd_client, resolve_client,
 };
 use crate::handlers::dpop::{
     build_request_url_bounded, enforce_dpop_nonce, validate_dpop_proof, DpopReplayStore,
@@ -22,6 +26,8 @@ use crate::handlers::dpop::{
 use crate::handlers::dpop_nonce::{use_dpop_nonce_response, DpopNonceIssuer};
 use crate::handlers::jwks_cache::JwksCache;
 use crate::handlers::wellknown::OidcConfig;
+use oauth2_core::models::actor::SUB_PROFILE_AI_AGENT;
+use oauth2_core::models::key_set::KeySet;
 use oauth2_core::{IdTokenClaims, OAuth2Error, TokenResponse};
 use oauth2_ports::DynStorage;
 
@@ -31,7 +37,7 @@ const TOKEN_EXCHANGE_GRANT_TYPE: &str = "urn:ietf:params:oauth:grant-type:token-
 
 /// RFC 9449 §7.1: If the `cnf` claim carries a `jkt` (DPoP key thumbprint), the token
 /// response MUST use `token_type: "DPoP"` instead of `"Bearer"`.
-fn apply_dpop_token_type(
+pub(crate) fn apply_dpop_token_type(
     mut response: oauth2_core::TokenResponse,
     cnf_claim: Option<&serde_json::Value>,
 ) -> oauth2_core::TokenResponse {
@@ -92,7 +98,7 @@ pub(crate) fn parse_client_basic_auth(
     Ok(Some((client_id, client_secret)))
 }
 
-fn validate_scope_subset(requested: &str, allowed: &str) -> Result<(), OAuth2Error> {
+pub(crate) fn validate_scope_subset(requested: &str, allowed: &str) -> Result<(), OAuth2Error> {
     let allowed_scopes: Vec<&str> = allowed
         .split_whitespace()
         .filter(|s| !s.is_empty())
@@ -132,18 +138,26 @@ pub(crate) fn client_secret_matches(client: &oauth2_core::Client, presented_secr
 ///   - `client_secret_basic` / `client_secret_post`: constant-time secret comparison
 ///   - `client_secret_jwt` / `private_key_jwt`: JWT assertion validation (RFC 7523)
 ///   - `tls_client_auth`: mTLS certificate validation with optional Subject DN check
+///   - `tls_client_auth_san_uri` / `tls_client_auth_san_dns`: mTLS certificate
+///     validation against the registered `subjectAltName` (RFC 8705 §2.1.2)
 ///   - `none`: public client (caller should handle separately)
 ///
 /// `resolved_jwks` must be pre-fetched by the caller (via [`resolve_client_jwks`])
 /// when the client uses `private_key_jwt`; pass `None` for all other methods.
-/// `mtls_subject_dn` should be the Subject DN from the X-SSL-Client-S-DN header.
-fn authenticate_confidential_client(
+/// `mtls_subject_dn` should be the Subject DN from the X-SSL-Client-S-DN header,
+/// and `mtls_san_uri` / `mtls_san_dns` the subjectAltName values from the
+/// X-SSL-Client-SAN-URI / X-SSL-Client-SAN-DNS headers.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn authenticate_confidential_client(
     client: &oauth2_core::Client,
     req: &TokenRequest,
     token_endpoint_url: &str,
+    issuer: &str,
     resolved_jwks: Option<&serde_json::Value>,
     mtls_thumbprint: Option<&str>,
     mtls_subject_dn: Option<&str>,
+    mtls_san_uri: Option<&str>,
+    mtls_san_dns: Option<&str>,
 ) -> Result<(), OAuth2Error> {
     match client.token_endpoint_auth_method.as_str() {
         "client_secret_basic" | "client_secret_post" => match req.client_secret.as_deref() {
@@ -169,7 +183,13 @@ fn authenticate_confidential_client(
                 .client_assertion
                 .as_deref()
                 .ok_or_else(|| OAuth2Error::invalid_client("Missing client_assertion"))?;
-            validate_jwt_client_assertion(client, assertion, token_endpoint_url, resolved_jwks)
+            validate_jwt_client_assertion(
+                client,
+                assertion,
+                token_endpoint_url,
+                issuer,
+                resolved_jwks,
+            )
         }
         "tls_client_auth" => {
             // RFC 8705 §2.1: client is authenticated by TLS certificate.
@@ -226,6 +246,53 @@ fn authenticate_confidential_client(
                 )),
             }
         }
+        method @ ("tls_client_auth_san_uri" | "tls_client_auth_san_dns") => {
+            // RFC 8705 §2.1.2: the client is bound to a subjectAltName of its
+            // certificate rather than to the Subject DN. The reverse proxy is
+            // the only trusted source for both the thumbprint and the SAN.
+            if mtls_thumbprint.is_none() {
+                return Err(OAuth2Error::invalid_client(&format!(
+                    "{method} requires a TLS client certificate \
+                     (X-Client-Cert-Thumbprint header missing)"
+                )));
+            }
+            let expected = client.tls_client_auth_san.as_str();
+            if expected.is_empty() {
+                // Refuse rather than fall back to "any certificate": a client
+                // registered for SAN auth without a SAN has no binding at all.
+                return Err(OAuth2Error::invalid_client(&format!(
+                    "{method} requires a registered tls_client_auth_san"
+                )));
+            }
+            let (presented, header) = if method == "tls_client_auth_san_uri" {
+                (mtls_san_uri, "X-SSL-Client-SAN-URI")
+            } else {
+                (mtls_san_dns, "X-SSL-Client-SAN-DNS")
+            };
+            match presented {
+                Some(san) if san == expected => {
+                    tracing::debug!(
+                        client_id = %client.client_id,
+                        auth_method = %method,
+                        "mTLS subjectAltName validated successfully"
+                    );
+                    Ok(())
+                }
+                Some(_) => {
+                    tracing::warn!(
+                        client_id = %client.client_id,
+                        auth_method = %method,
+                        "mTLS subjectAltName mismatch"
+                    );
+                    Err(OAuth2Error::invalid_client(&format!(
+                        "{method}: client certificate subjectAltName does not match"
+                    )))
+                }
+                None => Err(OAuth2Error::invalid_client(&format!(
+                    "{method} requires the {header} header"
+                ))),
+            }
+        }
         "self_signed_tls_client_auth" => {
             // RFC 8705 §2.2: client is authenticated by a self-signed certificate.
             // Accept if the reverse proxy provided the cert thumbprint.
@@ -258,7 +325,7 @@ fn authenticate_confidential_client(
 ///   was successfully fetched/cached.
 /// - `Ok(None)` if the client does not use `private_key_jwt` (no fetch needed).
 /// - `Err(_)` if `jwks_uri` fetch fails or is unavailable without a cache.
-async fn resolve_client_jwks(
+pub(crate) async fn resolve_client_jwks(
     client: &oauth2_core::Client,
     cache: Option<&JwksCache>,
 ) -> Result<Option<serde_json::Value>, OAuth2Error> {
@@ -288,7 +355,7 @@ async fn resolve_client_jwks(
     ))
 }
 
-fn no_store_headers(mut resp: HttpResponse) -> HttpResponse {
+pub(crate) fn no_store_headers(mut resp: HttpResponse) -> HttpResponse {
     resp.headers_mut().insert(
         actix_web::http::header::CACHE_CONTROL,
         "no-store".parse().unwrap(),
@@ -333,19 +400,46 @@ fn ensure_no_duplicate_query_params(req: &HttpRequest) -> Result<(), OAuth2Error
     Ok(())
 }
 
-fn parse_form_no_dupes(body: &web::Bytes) -> Result<HashMap<String, String>, OAuth2Error> {
-    let mut map: HashMap<String, String> = HashMap::new();
+/// Form parameters that may legitimately be repeated: RFC 8707 §2 allows
+/// multiple `resource` indicators and RFC 8693 §2.1 allows multiple
+/// `audience` values. Every other parameter is still single-valued.
+const REPEATABLE_FORM_PARAMS: [&str; 2] = ["resource", "audience"];
+
+/// Parsed request body: single-valued parameters plus the collected values of
+/// the repeatable ones (see [`REPEATABLE_FORM_PARAMS`]).
+struct ParsedForm {
+    single: HashMap<String, String>,
+    repeated: HashMap<String, Vec<String>>,
+}
+
+impl ParsedForm {
+    fn get(&self, key: &str) -> Option<&String> {
+        self.single.get(key)
+    }
+
+    fn all(&self, key: &str) -> Vec<String> {
+        self.repeated.get(key).cloned().unwrap_or_default()
+    }
+}
+
+fn parse_form_no_dupes(body: &web::Bytes) -> Result<ParsedForm, OAuth2Error> {
+    let mut single: HashMap<String, String> = HashMap::new();
+    let mut repeated: HashMap<String, Vec<String>> = HashMap::new();
     for (k, v) in form_urlencoded::parse(body) {
         let key = k.into_owned();
         let val = v.into_owned();
-        if map.contains_key(&key) {
+        if REPEATABLE_FORM_PARAMS.contains(&key.as_str()) {
+            repeated.entry(key).or_default().push(val);
+            continue;
+        }
+        if single.contains_key(&key) {
             return Err(OAuth2Error::invalid_request(
                 "Duplicate form parameters are not allowed",
             ));
         }
-        map.insert(key, val);
+        single.insert(key, val);
     }
-    Ok(map)
+    Ok(ParsedForm { single, repeated })
 }
 
 #[derive(Debug, Deserialize)]
@@ -384,6 +478,11 @@ pub struct AuthorizeQuery {
     /// If present, the JWT payload claims override the corresponding query parameters.
     /// Supported signing: `alg=none` (public clients only), HS256, RS256.
     request: Option<String>,
+    /// `draft-oauth-ai-agents-on-behalf-of-user`: client_id of the agent the
+    /// user is being asked to let act on their behalf. Only honoured when
+    /// `AgentConfig::obo_enabled` is set; otherwise ignored (RFC 6749 §3.1
+    /// requires unrecognised parameters to be ignored).
+    requested_actor: Option<String>,
 }
 fn html_escape_attr(s: &str) -> String {
     s.replace('&', "&amp;")
@@ -635,6 +734,10 @@ pub async fn authorize(
     metrics: web::Data<Metrics>,
     oidc_config: web::Data<OidcConfig>,
     jwks_cache: Option<web::Data<JwksCache>>,
+    // Phase 7 (agent / A2A OAuth): Client ID Metadata Document resolution.
+    // Optional so the inline test `App` builders that predate it keep working.
+    cimd: Option<web::Data<CimdFetcher>>,
+    agent_config: Option<web::Data<oauth2_config::AgentConfig>>,
 ) -> Result<HttpResponse, OAuth2Error> {
     // OAuch: reject duplicate parameters (prevents ambiguous parsing).
     ensure_no_duplicate_query_params(&req)?;
@@ -652,6 +755,7 @@ pub async fn authorize(
         eff_authorization_details,
         eff_claims,
         eff_acr_values,
+        eff_requested_actor,
     ) = if let Some(ref request_uri) = query.request_uri {
         let entry = auth_actor
             .send(GetPARRequest {
@@ -677,6 +781,7 @@ pub async fn authorize(
             get("authorization_details").or_else(|| query.authorization_details.clone()),
             get("claims").or_else(|| query.claims.clone()),
             get("acr_values").or_else(|| query.acr_values.clone()),
+            get("requested_actor").or_else(|| query.requested_actor.clone()),
         )
     } else {
         (
@@ -690,6 +795,7 @@ pub async fn authorize(
             query.authorization_details.clone(),
             query.claims.clone(),
             query.acr_values.clone(),
+            query.requested_actor.clone(),
         )
     };
 
@@ -709,13 +815,16 @@ pub async fn authorize(
     }
 
     // Validate client and redirect_uri to prevent open redirect / code exfiltration.
-    let client = client_actor
-        .send(GetClient {
-            client_id: query.client_id.clone(),
-            span: tracing::Span::current(),
-        })
-        .await
-        .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))??;
+    let agent: oauth2_config::AgentConfig = agent_config
+        .map(|c| c.get_ref().clone())
+        .unwrap_or_default();
+    let client = resolve_client(
+        &query.client_id,
+        client_actor.get_ref(),
+        cimd.as_ref().map(|d| d.get_ref()),
+        &agent,
+    )
+    .await?;
 
     if !client.supports_grant_type("authorization_code") {
         return Err(OAuth2Error::unauthorized_client(
@@ -855,6 +964,48 @@ pub async fn authorize(
         ));
     }
 
+    // --- draft-oauth-ai-agents-on-behalf-of-user: named-agent consent ---
+    // `requested_actor` names the agent the user is being asked to let act on
+    // their behalf. The feature is opt-in: with `obo_enabled` off the
+    // parameter is an unrecognised one and RFC 6749 §3.1 requires it to be
+    // ignored. When on, it MUST name a registered client — resolved here,
+    // before the login gate, so an unknown agent never prompts the user.
+    //
+    // Resolved through the same entry point as the requesting client, so an
+    // agent named by a Client ID Metadata Document URL is recognised too. The
+    // actor is only read here, never materialized: nothing is issued against
+    // it at this point, and the row (if any) is the agent's own to create when
+    // it authenticates at the token endpoint.
+    let requested_actor: Option<oauth2_core::Client> = match eff_requested_actor
+        .as_deref()
+        .map(str::trim)
+        .filter(|a| !a.is_empty() && agent.obo_enabled)
+    {
+        None => None,
+        Some(actor_id) => {
+            match resolve_client(
+                actor_id,
+                client_actor.get_ref(),
+                cimd.as_ref().map(|d| d.get_ref()),
+                &agent,
+            )
+            .await
+            {
+                Ok(actor_client) => Some(actor_client),
+                Err(_) => {
+                    return build_authorize_error_redirect(
+                        "invalid_request",
+                        "unknown requested_actor",
+                        &redirect_uri,
+                        eff_state.as_deref(),
+                        &oidc_config.issuer,
+                        response_mode,
+                    );
+                }
+            }
+        }
+    };
+
     // --- User authentication gate ---
     // OIDC Core §3.1.2.1: handle `prompt` parameter (space-delimited list).
     let prompt_values: Vec<&str> = query
@@ -967,6 +1118,36 @@ pub async fn authorize(
                 let _ = session.insert("login_hint", hint);
             }
 
+            // Name the requesting client on the login page. A CIMD client is
+            // shown with the host its metadata came from, so two agents
+            // claiming the same name are distinguishable.
+            let _ = session.insert(
+                "client_display",
+                crate::handlers::client_resolver::client_display_name(&client),
+            );
+
+            // Named-agent consent: tell the user, on the login page, which
+            // agent the client wants to act for them. Always written (or
+            // cleared) so a prompt left over from an abandoned authorization
+            // request is never shown against an unrelated one. Both parties
+            // are named the same way the requesting client is, since either
+            // may have been resolved from a metadata document.
+            match requested_actor {
+                Some(ref actor_client) => {
+                    let _ = session.insert(
+                        "requested_actor_display",
+                        format!(
+                            "{} wants {} to access your account on your behalf.",
+                            crate::handlers::client_resolver::client_display_name(&client),
+                            crate::handlers::client_resolver::client_display_name(actor_client),
+                        ),
+                    );
+                }
+                None => {
+                    session.remove("requested_actor_display");
+                }
+            }
+
             // Clear session so the login form is shown.
             if force_login || auth_expired {
                 session.remove("user_id");
@@ -1047,9 +1228,14 @@ pub async fn authorize(
         }
     }
 
+    // The request has now cleared redirect_uri, PKCE and user authentication,
+    // so a CIMD client may be persisted — the authorization code below carries
+    // a foreign key to `clients(client_id)`.
+    materialize_cimd_client(&client, client_actor.get_ref(), &agent).await?;
+
     let auth_code = auth_actor
         .send(CreateAuthorizationCode {
-            client_id: query.client_id.clone(),
+            client_id: client.client_id.clone(),
             user_id,
             redirect_uri: redirect_uri.clone(),
             scope,
@@ -1059,6 +1245,7 @@ pub async fn authorize(
             resource: eff_resource,
             authorization_details: eff_authorization_details,
             claims_request: eff_claims,
+            requested_actor: requested_actor.map(|c| c.client_id),
             span: tracing::Span::current(),
         })
         .await
@@ -1175,37 +1362,51 @@ pub async fn authorize(
 
 #[derive(Debug, Deserialize)]
 pub struct TokenRequest {
-    grant_type: String,
-    code: Option<String>,
-    redirect_uri: Option<String>,
-    client_id: String,
-    client_secret: Option<String>,
-    refresh_token: Option<String>,
+    pub(crate) grant_type: String,
+    pub(crate) code: Option<String>,
+    pub(crate) redirect_uri: Option<String>,
+    pub(crate) client_id: String,
+    pub(crate) client_secret: Option<String>,
+    pub(crate) refresh_token: Option<String>,
     #[allow(dead_code)] // OAuth2 password grant, intentionally disabled by default
-    username: Option<String>,
+    pub(crate) username: Option<String>,
     #[allow(dead_code)] // OAuth2 password grant, intentionally disabled by default
-    password: Option<String>,
-    scope: Option<String>,
-    code_verifier: Option<String>,
-    device_code: Option<String>,
+    pub(crate) password: Option<String>,
+    pub(crate) scope: Option<String>,
+    pub(crate) code_verifier: Option<String>,
+    pub(crate) device_code: Option<String>,
     /// RFC 7521 §4.2: assertion type (e.g.
     /// `urn:ietf:params:oauth:client-assertion-type:jwt-bearer`).
-    client_assertion_type: Option<String>,
+    pub(crate) client_assertion_type: Option<String>,
     /// RFC 7521 §4.2: the assertion itself (a JWT).
-    client_assertion: Option<String>,
-    /// RFC 8707: resource server URI for the requested access token audience.
-    resource: Option<String>,
+    pub(crate) client_assertion: Option<String>,
+    /// RFC 8707 §2: resource server URIs for the requested access token
+    /// audience. The parameter may be repeated, so every occurrence is kept.
+    pub(crate) resource: Vec<String>,
+    /// RFC 7523 §2.1: the JWT authorization-grant assertion.
+    pub(crate) assertion: Option<String>,
     // RFC 8693 (Token Exchange) fields ---
+    /// RFC 8693 §2.1: logical names of the target services. Like `resource`,
+    /// the parameter may be repeated.
+    pub(crate) audience: Vec<String>,
     /// `urn:ietf:params:oauth:token-type:access_token` or similar.
-    subject_token: Option<String>,
-    #[allow(dead_code)] // RFC 8693: token type URI, reserved for full validation
-    subject_token_type: Option<String>,
-    actor_token: Option<String>,
-    #[allow(dead_code)] // RFC 8693: actor token type URI, reserved for full validation
-    actor_token_type: Option<String>,
-    requested_token_type: Option<String>,
+    pub(crate) subject_token: Option<String>,
+    pub(crate) subject_token_type: Option<String>,
+    pub(crate) actor_token: Option<String>,
+    pub(crate) actor_token_type: Option<String>,
+    pub(crate) requested_token_type: Option<String>,
     /// RFC 9396: Rich Authorization Request (JSON array string).
-    authorization_details: Option<String>,
+    pub(crate) authorization_details: Option<String>,
+    // draft-ietf-oauth-transaction-tokens fields ---
+    /// Transaction context (`tctx`) proposed by the requester, as a JSON object.
+    pub(crate) request_details: Option<String>,
+    /// Request context (`rctx`) proposed by the requester, as a JSON object.
+    pub(crate) request_context: Option<String>,
+    /// draft-liu-oauth-a2a-profile: declared purpose of the transaction.
+    pub(crate) purp: Option<String>,
+    /// `draft-rosomakho-oauth-txn-challenge-00`: handle for a pending
+    /// transaction authorization being polled.
+    pub(crate) transaction_authorization_id: Option<String>,
 }
 
 /// JWT Bearer assertion type per RFC 7523 §2.2.
@@ -1236,6 +1437,7 @@ fn validate_jwt_client_assertion(
     client: &oauth2_core::Client,
     assertion: &str,
     token_endpoint_url: &str,
+    issuer: &str,
     resolved_jwks: Option<&serde_json::Value>,
 ) -> Result<(), OAuth2Error> {
     use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
@@ -1252,8 +1454,10 @@ fn validate_jwt_client_assertion(
             }
             let key = DecodingKey::from_secret(client.client_secret.as_bytes());
             let mut validation = Validation::new(Algorithm::HS256);
-            // `aud` MUST contain the token endpoint URL (RFC 7523 §3)
-            validation.set_audience(&[token_endpoint_url]);
+            // `aud` MUST contain the token endpoint URL (RFC 7523 §3). RFC
+            // 7523bis additionally allows the issuer identifier of the
+            // authorization server; both are compared as exact strings.
+            validation.set_audience(&[token_endpoint_url, issuer]);
             validation.set_required_spec_claims(&["exp", "sub", "iss", "aud"]);
             let data = decode::<serde_json::Value>(assertion, &key, &validation).map_err(|e| {
                 OAuth2Error::invalid_client(&format!("client_secret_jwt validation failed: {e}"))
@@ -1311,7 +1515,8 @@ fn validate_jwt_client_assertion(
                 OAuth2Error::invalid_client("Failed to construct RSA key from client JWKS")
             })?;
             let mut validation = Validation::new(Algorithm::RS256);
-            validation.set_audience(&[token_endpoint_url]);
+            // RFC 7523 §3 / RFC 7523bis: token endpoint URL or issuer.
+            validation.set_audience(&[token_endpoint_url, issuer]);
             validation.set_required_spec_claims(&["exp", "sub", "iss", "aud"]);
             let data = decode::<serde_json::Value>(assertion, &decoding_key, &validation).map_err(
                 |e| OAuth2Error::invalid_client(&format!("private_key_jwt validation failed: {e}")),
@@ -1339,7 +1544,10 @@ fn validate_jwt_client_assertion(
 /// already been observed within the assertion's validity window, or if
 /// the assertion is missing a `jti` (required by RFC 7523 §3 when the
 /// AS enforces replay detection).
-fn enforce_jti_replay(client_id: &str, claims: &serde_json::Value) -> Result<(), OAuth2Error> {
+pub(crate) fn enforce_jti_replay(
+    subject: &str,
+    claims: &serde_json::Value,
+) -> Result<(), OAuth2Error> {
     let jti = claims.get("jti").and_then(|v| v.as_str()).ok_or_else(|| {
         OAuth2Error::invalid_client("client_assertion missing required jti claim (RFC 7523 §3)")
     })?;
@@ -1354,13 +1562,13 @@ fn enforce_jti_replay(client_id: &str, claims: &serde_json::Value) -> Result<(),
     let ttl = std::time::Duration::from_secs(remaining_secs);
 
     use crate::security::jti_replay::ObserveResult;
-    match jti_replay_guard().observe(client_id, jti, ttl) {
+    match jti_replay_guard().observe(subject, jti, ttl) {
         ObserveResult::Fresh => Ok(()),
         ObserveResult::Replay => {
             tracing::warn!(
-                client_id = %client_id,
+                subject = %subject,
                 jti = %jti,
-                "RFC 7523 §3: rejected replayed client_assertion jti"
+                "RFC 7523 §3: rejected replayed assertion jti"
             );
             Err(OAuth2Error::invalid_client(
                 "client_assertion jti has already been used",
@@ -1387,9 +1595,18 @@ pub async fn token(
     jwks_cache: Option<web::Data<JwksCache>>,
     dpop_replay_store: Option<web::Data<DpopReplayStore>>,
     dpop_nonce_issuer: Option<web::Data<DpopNonceIssuer>>,
+    // Phase 7 (agent / A2A OAuth): optional so the many inline test `App`
+    // builders that predate it keep working; falls back to defaults.
+    agent_config: Option<web::Data<oauth2_config::AgentConfig>>,
+    keyset: Option<web::Data<std::sync::Arc<tokio::sync::RwLock<KeySet>>>>,
+    cimd: Option<web::Data<CimdFetcher>>,
 ) -> Result<HttpResponse, OAuth2Error> {
     // OAuch: reject duplicate parameters (prevents parser differentials / smuggling).
     ensure_no_duplicate_query_params(&req)?;
+    // Phase 7 (agent / A2A OAuth): settings for every client lookup below.
+    let agent: oauth2_config::AgentConfig = agent_config
+        .map(|c| c.get_ref().clone())
+        .unwrap_or_default();
     let form_map = parse_form_no_dupes(&body)?;
 
     // Support confidential client auth via either:
@@ -1425,6 +1642,11 @@ pub async fn token(
         .or(basic_client_id)
         .or_else(|| form_map.get("client_id").cloned())
         .ok_or_else(|| OAuth2Error::invalid_request("Missing client_id"))?;
+    // Collapse the spellings of a metadata-document URL to one identifier, so
+    // client authentication, rate limiting and the rows written below all key
+    // on the same string the authorization code was issued against.
+    let client_id =
+        canonical_cimd_client_id(&client_id, cimd.as_ref().map(|d| d.get_ref()), &agent);
     let client_secret = body_client_secret.or(basic_client_secret);
 
     let client_assertion_type = form_map.get("client_assertion_type").cloned();
@@ -1447,13 +1669,19 @@ pub async fn token(
         device_code: form_map.get("device_code").cloned(),
         client_assertion_type,
         client_assertion,
-        resource: form_map.get("resource").cloned(),
+        resource: form_map.all("resource"),
+        audience: form_map.all("audience"),
+        assertion: form_map.get("assertion").cloned(),
         subject_token: form_map.get("subject_token").cloned(),
         subject_token_type: form_map.get("subject_token_type").cloned(),
         actor_token: form_map.get("actor_token").cloned(),
         actor_token_type: form_map.get("actor_token_type").cloned(),
         requested_token_type: form_map.get("requested_token_type").cloned(),
         authorization_details: form_map.get("authorization_details").cloned(),
+        request_details: form_map.get("request_details").cloned(),
+        request_context: form_map.get("request_context").cloned(),
+        purp: form_map.get("purp").cloned(),
+        transaction_authorization_id: form_map.get("transaction_authorization_id").cloned(),
     };
 
     // RFC 9449: DPoP — fully validate the DPoP proof and extract JWK Thumbprint.
@@ -1462,11 +1690,12 @@ pub async fn token(
             .to_str()
             .map_err(|_| OAuth2Error::invalid_request("DPoP header is not valid UTF-8"))?;
         let method = req.method().as_str();
-        // Build the token endpoint URL for `htu` validation.
-        let conn_info = req.connection_info();
-        let token_url =
-            build_request_url_bounded(conn_info.scheme(), conn_info.host(), req.path())?;
-        drop(conn_info);
+        // Build the token endpoint URL for `htu` validation. Scoped so the
+        // `connection_info()` Ref is released before the await below.
+        let token_url = {
+            let conn_info = req.connection_info();
+            build_request_url_bounded(conn_info.scheme(), conn_info.host(), req.path())?
+        };
         let store_ref = dpop_replay_store.as_ref().map(|d| d.as_ref());
         let default_store;
         let replay_store = match store_ref {
@@ -1476,12 +1705,10 @@ pub async fn token(
                 &default_store
             }
         };
-        Some(validate_dpop_proof(
-            dpop_str,
-            method,
-            &token_url,
-            replay_store,
-        )?)
+        // `expected_ath = None`: the token endpoint issues the access token,
+        // so no token accompanies the proof (RFC 9449 §7.1 applies to
+        // protected-resource / introspection requests).
+        Some(validate_dpop_proof(dpop_str, method, &token_url, replay_store, None).await?)
     } else {
         None
     };
@@ -1494,13 +1721,13 @@ pub async fn token(
     // retry. Skipped when no proof is presented (DPoP itself is optional).
     if let (Some(validated), Some(issuer_data)) = (&dpop_validated, &dpop_nonce_issuer) {
         let issuer = issuer_data.as_ref();
-        let lookup = client_actor
-            .send(GetClient {
-                client_id: form.client_id.clone(),
-                span: tracing::Span::current(),
-            })
-            .await
-            .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))?;
+        let lookup = resolve_client(
+            &form.client_id,
+            client_actor.get_ref(),
+            cimd.as_ref().map(|d| d.get_ref()),
+            &agent,
+        )
+        .await;
         if let Ok(client) = lookup {
             if client.dpop_nonce_required {
                 match enforce_dpop_nonce(validated, issuer) {
@@ -1530,6 +1757,19 @@ pub async fn token(
     let mtls_subject_dn: Option<String> = req
         .headers()
         .get("X-SSL-Client-S-DN")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
+
+    // RFC 8705 §2.1.2: subjectAltName values from the client certificate,
+    // forwarded by the reverse proxy for the SAN-based auth methods.
+    let mtls_san_uri: Option<String> = req
+        .headers()
+        .get("X-SSL-Client-SAN-URI")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
+    let mtls_san_dns: Option<String> = req
+        .headers()
+        .get("X-SSL-Client-SAN-DNS")
         .and_then(|v| v.to_str().ok())
         .map(|s| s.to_string());
 
@@ -1575,9 +1815,14 @@ pub async fn token(
                 storage.clone(),
                 metrics,
                 oidc_config,
+                keyset.clone(),
                 jwks_cache.clone(),
                 mtls_thumbprint.as_deref(),
                 mtls_subject_dn.as_deref(),
+                mtls_san_uri.as_deref(),
+                mtls_san_dns.as_deref(),
+                cimd.clone(),
+                agent.clone(),
             )
             .await
         }
@@ -1590,9 +1835,13 @@ pub async fn token(
                 client_actor,
                 metrics,
                 oidc_config,
+                agent.clone(),
                 jwks_cache.clone(),
                 mtls_thumbprint.as_deref(),
                 mtls_subject_dn.as_deref(),
+                mtls_san_uri.as_deref(),
+                mtls_san_dns.as_deref(),
+                cimd.clone(),
             )
             .await
         }
@@ -1606,6 +1855,10 @@ pub async fn token(
                 jwks_cache.clone(),
                 mtls_thumbprint.as_deref(),
                 mtls_subject_dn.as_deref(),
+                mtls_san_uri.as_deref(),
+                mtls_san_dns.as_deref(),
+                cimd.clone(),
+                agent.clone(),
             )
             .await
         }
@@ -1626,20 +1879,88 @@ pub async fn token(
                 jwks_cache.clone(),
                 mtls_thumbprint.as_deref(),
                 mtls_subject_dn.as_deref(),
+                mtls_san_uri.as_deref(),
+                mtls_san_dns.as_deref(),
+                cimd.clone(),
+                agent.clone(),
             )
             .await
         }
-        TOKEN_EXCHANGE_GRANT_TYPE => {
-            handle_token_exchange_grant(
+        oauth2_core::token_types::GRANT_JWT_BEARER => {
+            let storage = storage.clone().ok_or_else(|| {
+                OAuth2Error::new(
+                    "server_error",
+                    Some("Storage backend not configured for the jwt-bearer grant"),
+                )
+            })?;
+            crate::handlers::jwt_bearer::handle_jwt_bearer_grant(
+                form,
+                cnf_claim,
+                rar_details,
+                token_actor,
+                client_actor,
+                storage,
+                metrics,
+                oidc_config,
+                agent.clone(),
+                jwks_cache.clone(),
+                mtls_thumbprint.as_deref(),
+                mtls_subject_dn.as_deref(),
+                mtls_san_uri.as_deref(),
+                mtls_san_dns.as_deref(),
+                cimd.clone(),
+            )
+            .await
+        }
+        oauth2_core::token_types::GRANT_TRANSACTION_AUTHORIZATION => {
+            let storage = storage.clone().ok_or_else(|| {
+                OAuth2Error::new(
+                    "server_error",
+                    Some("Storage backend not configured for the transaction-authorization grant"),
+                )
+            })?;
+            crate::handlers::transaction_authorization::handle_transaction_authorization_grant(
                 form,
                 cnf_claim,
                 token_actor,
                 client_actor,
+                storage,
                 metrics,
                 oidc_config,
+                agent.clone(),
+                jwks_cache.clone(),
+                mtls_thumbprint.as_deref(),
+                mtls_subject_dn.as_deref(),
+                mtls_san_uri.as_deref(),
+                mtls_san_dns.as_deref(),
+                cimd.clone(),
+            )
+            .await
+        }
+        TOKEN_EXCHANGE_GRANT_TYPE => {
+            let storage = storage.ok_or_else(|| {
+                OAuth2Error::new(
+                    "server_error",
+                    Some("Storage backend not configured for token-exchange grant"),
+                )
+            })?;
+            crate::handlers::token_exchange::exchange(
+                form,
+                cnf_claim,
+                dpop_jkt.is_some(),
+                token_actor,
+                client_actor,
+                storage.get_ref().clone(),
+                metrics,
+                oidc_config,
+                agent.clone(),
+                keyset,
                 jwks_cache,
                 mtls_thumbprint.as_deref(),
                 mtls_subject_dn.as_deref(),
+                mtls_san_uri.as_deref(),
+                mtls_san_dns.as_deref(),
+                cimd.clone(),
             )
             .await
         }
@@ -1704,19 +2025,23 @@ async fn handle_device_code_grant(
     jwks_cache: Option<web::Data<JwksCache>>,
     mtls_thumbprint: Option<&str>,
     mtls_subject_dn: Option<&str>,
+    mtls_san_uri: Option<&str>,
+    mtls_san_dns: Option<&str>,
+    cimd: Option<web::Data<CimdFetcher>>,
+    agent: oauth2_config::AgentConfig,
 ) -> Result<HttpResponse, OAuth2Error> {
     let device_code = req
         .device_code
         .clone()
         .ok_or_else(|| OAuth2Error::invalid_request("Missing device_code"))?;
 
-    let client = client_actor
-        .send(GetClient {
-            client_id: req.client_id.clone(),
-            span: tracing::Span::current(),
-        })
-        .await
-        .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))??;
+    let client = resolve_client(
+        &req.client_id,
+        client_actor.get_ref(),
+        cimd.as_ref().map(|d| d.get_ref()),
+        &agent,
+    )
+    .await?;
 
     // Device code grant requires confidential clients.
     if client.is_public() {
@@ -1731,9 +2056,12 @@ async fn handle_device_code_grant(
         &client,
         &req,
         &token_endpoint_url,
+        &oidc_config.issuer,
         resolved_jwks.as_ref(),
         mtls_thumbprint,
         mtls_subject_dn,
+        mtls_san_uri,
+        mtls_san_dns,
     )?;
 
     if !client.supports_grant_type(DEVICE_CODE_GRANT_TYPE)
@@ -1775,6 +2103,12 @@ async fn handle_device_code_grant(
         ));
     }
 
+    // The device code exists, belongs to this client and is approved, so a
+    // CIMD client may now be persisted — before the token below, which
+    // references `clients(client_id)`. Deferring to here keeps a caller who
+    // only guesses device codes from writing rows at all.
+    materialize_cimd_client(&client, client_actor.get_ref(), &agent).await?;
+
     let user_id = device_auth
         .user_id
         .clone()
@@ -1789,9 +2123,13 @@ async fn handle_device_code_grant(
             scope: device_auth.scope.clone(),
             include_refresh,
             token_family: None,
-            resource: None,
+            resources: Vec::new(),
             cnf: None,
             authorization_details: None,
+            act: None,
+            ttl_override_secs: None,
+            sub_profile: None,
+            txn: None,
             span: tracing::Span::current(),
         })
         .await
@@ -1855,6 +2193,97 @@ async fn handle_device_code_grant(
     Ok(no_store_headers(HttpResponse::Ok().json(response)))
 }
 
+/// `draft-oauth-ai-agents-on-behalf-of-user`: validate the `actor_token` that
+/// a code issued with `requested_actor` must be redeemed with, and build the
+/// `act` claim for the token about to be issued.
+///
+/// Returns `Ok(None)` when the code names no agent (or the feature is off),
+/// in which case no delegation is recorded — an `act` claim is only ever
+/// emitted against a validated basis.
+#[allow(clippy::too_many_arguments)]
+async fn resolve_named_actor(
+    auth_code: &oauth2_core::AuthorizationCode,
+    req: &TokenRequest,
+    agent: &oauth2_config::AgentConfig,
+    token_actor: &web::Data<TokenActorPool>,
+    storage: Option<&DynStorage>,
+    oidc_config: &OidcConfig,
+    keyset: Option<&std::sync::Arc<tokio::sync::RwLock<KeySet>>>,
+) -> Result<Option<serde_json::Value>, OAuth2Error> {
+    let actor_id = match auth_code
+        .requested_actor
+        .as_deref()
+        .map(str::trim)
+        .filter(|a| !a.is_empty() && agent.obo_enabled)
+    {
+        Some(actor_id) => actor_id,
+        None => return Ok(None),
+    };
+
+    let actor_token = req
+        .actor_token
+        .as_deref()
+        .filter(|t| !t.is_empty())
+        .ok_or_else(|| {
+            OAuth2Error::invalid_request(
+                "actor_token is required for a code issued with requested_actor",
+            )
+        })?;
+    let actor_token_type = req
+        .actor_token_type
+        .as_deref()
+        .filter(|t| !t.is_empty())
+        .ok_or_else(|| {
+            OAuth2Error::invalid_request("actor_token_type is required when actor_token is present")
+        })?;
+    if !matches!(
+        actor_token_type,
+        oauth2_core::token_types::ACCESS_TOKEN | oauth2_core::token_types::JWT
+    ) {
+        return Err(OAuth2Error::invalid_request(
+            "actor_token_type must be an access-token or jwt token type",
+        ));
+    }
+
+    let storage = storage.ok_or_else(|| {
+        OAuth2Error::new(
+            "server_error",
+            Some("Storage backend not configured for named-agent consent"),
+        )
+    })?;
+    let keyset_snapshot = match keyset {
+        Some(ks) => Some(ks.read().await.clone()),
+        None => None,
+    };
+
+    let resolved = crate::handlers::token_exchange::resolve_token(
+        actor_token,
+        actor_token_type,
+        "actor",
+        token_actor,
+        &req.client_id,
+        storage,
+        oidc_config,
+        keyset_snapshot.as_ref(),
+        false,
+    )
+    .await?;
+
+    // The consent the user gave names one agent; only that agent may collect
+    // the token it authorized.
+    if resolved.client_id.as_deref() != Some(actor_id) {
+        return Err(OAuth2Error::invalid_grant(
+            "actor_token was not issued to the requested_actor",
+        ));
+    }
+
+    Ok(Some(
+        oauth2_core::models::actor::Actor::new(actor_id, &oidc_config.issuer)
+            .with_profile(SUB_PROFILE_AI_AGENT)
+            .to_value(),
+    ))
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn handle_authorization_code_grant(
     req: TokenRequest,
@@ -1866,9 +2295,14 @@ async fn handle_authorization_code_grant(
     storage: Option<web::Data<DynStorage>>,
     metrics: web::Data<Metrics>,
     oidc_config: web::Data<OidcConfig>,
+    keyset: Option<web::Data<std::sync::Arc<tokio::sync::RwLock<KeySet>>>>,
     jwks_cache: Option<web::Data<JwksCache>>,
     mtls_thumbprint: Option<&str>,
     mtls_subject_dn: Option<&str>,
+    mtls_san_uri: Option<&str>,
+    mtls_san_dns: Option<&str>,
+    cimd: Option<web::Data<CimdFetcher>>,
+    agent: oauth2_config::AgentConfig,
 ) -> Result<HttpResponse, OAuth2Error> {
     let code = req
         .code
@@ -1932,13 +2366,13 @@ async fn handle_authorization_code_grant(
     };
 
     // Validate client grant permissions + authenticate if required.
-    let client = client_actor
-        .send(GetClient {
-            client_id: req.client_id.clone(),
-            span: tracing::Span::current(),
-        })
-        .await
-        .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))??;
+    let client = resolve_client(
+        &req.client_id,
+        client_actor.get_ref(),
+        cimd.as_ref().map(|d| d.get_ref()),
+        &agent,
+    )
+    .await?;
 
     if !client.supports_grant_type("authorization_code") {
         return Err(OAuth2Error::unauthorized_client(
@@ -1969,11 +2403,36 @@ async fn handle_authorization_code_grant(
             &client,
             &req,
             &token_endpoint_url,
+            &oidc_config.issuer,
             resolved_jwks.as_ref(),
             mtls_thumbprint,
             mtls_subject_dn,
+            mtls_san_uri,
+            mtls_san_dns,
         )?;
     }
+
+    // The authorization code was validated against this `client_id` above and
+    // the client has authenticated (or is a public client redeeming its own
+    // PKCE-bound code), so a CIMD client may now be persisted — before the
+    // token rows below, which reference `clients(client_id)`.
+    materialize_cimd_client(&client, client_actor.get_ref(), &agent).await?;
+
+    // --- draft-oauth-ai-agents-on-behalf-of-user: named-agent consent ---
+    // A code issued with `requested_actor` only redeems against proof that the
+    // named agent is really the party collecting the token: an `actor_token`
+    // issued to exactly that client. Checked before the code is burned so a
+    // malformed request does not cost the user a valid code.
+    let act_claim = resolve_named_actor(
+        &auth_code,
+        &req,
+        &agent,
+        &token_actor,
+        storage.as_ref().map(|d| d.get_ref()),
+        &oidc_config,
+        keyset.as_ref().map(|d| d.get_ref()),
+    )
+    .await?;
 
     // Only consume (burn) the authorization code after we've authenticated/authorized the client.
     // This prevents invalid_client errors from exhausting valid codes.
@@ -2021,9 +2480,13 @@ async fn handle_authorization_code_grant(
             scope: auth_code.scope.clone(),
             include_refresh,
             token_family,
-            resource: auth_code.resource.clone(),
+            resources: auth_code.resource.clone().into_iter().collect(),
             cnf: cnf_claim.clone(),
             authorization_details: eff_auth_details,
+            act: act_claim,
+            ttl_override_secs: None,
+            sub_profile: None,
+            txn: None,
             span: tracing::Span::current(),
         })
         .await
@@ -2118,18 +2581,22 @@ async fn handle_client_credentials_grant(
     client_actor: web::Data<Addr<ClientActor>>,
     metrics: web::Data<Metrics>,
     oidc_config: web::Data<OidcConfig>,
+    agent: oauth2_config::AgentConfig,
     jwks_cache: Option<web::Data<JwksCache>>,
     mtls_thumbprint: Option<&str>,
     mtls_subject_dn: Option<&str>,
+    mtls_san_uri: Option<&str>,
+    mtls_san_dns: Option<&str>,
+    cimd: Option<web::Data<CimdFetcher>>,
 ) -> Result<HttpResponse, OAuth2Error> {
     // Validate client exists + grant permissions.
-    let client = client_actor
-        .send(GetClient {
-            client_id: req.client_id.clone(),
-            span: tracing::Span::current(),
-        })
-        .await
-        .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))??;
+    let client = resolve_client(
+        &req.client_id,
+        client_actor.get_ref(),
+        cimd.as_ref().map(|d| d.get_ref()),
+        &agent,
+    )
+    .await?;
 
     if !client.supports_grant_type("client_credentials") {
         return Err(OAuth2Error::unauthorized_client(
@@ -2152,14 +2619,33 @@ async fn handle_client_credentials_grant(
         &client,
         &req,
         &token_endpoint_url,
+        &oidc_config.issuer,
         resolved_jwks.as_ref(),
         mtls_thumbprint,
         mtls_subject_dn,
+        mtls_san_uri,
+        mtls_san_dns,
     )?;
+
+    // Client authentication succeeded; a CIMD client may now be persisted so
+    // the rows issued below satisfy the foreign key on `clients(client_id)`.
+    materialize_cimd_client(&client, client_actor.get_ref(), &agent).await?;
 
     let scope = req.scope.unwrap_or_else(|| "read".to_string());
 
     validate_scope_subset(&scope, &client.scope)?;
+
+    // Phase 7 (agent/A2A OAuth): a client that is an AI agent gets the
+    // `ai_agent` sub_profile and, when configured, a shorter access-token
+    // lifetime than ordinary service clients.
+    let (sub_profile, ttl_override_secs) = if client.is_ai_agent() {
+        (
+            Some(SUB_PROFILE_AI_AGENT.to_string()),
+            agent.ai_agent_access_token_ttl_secs,
+        )
+    } else {
+        (None, None)
+    };
 
     // Create token (no user, client-only)
     let token = token_actor
@@ -2170,9 +2656,13 @@ async fn handle_client_credentials_grant(
             scope,
             include_refresh: false,
             token_family: None,
-            resource: req.resource,
+            resources: req.resource,
             cnf: cnf_claim.clone(),
             authorization_details: rar_details,
+            act: None,
+            ttl_override_secs,
+            sub_profile,
+            txn: None,
             span: tracing::Span::current(),
         })
         .await
@@ -2183,137 +2673,6 @@ async fn handle_client_credentials_grant(
     Ok(no_store_headers(HttpResponse::Ok().json(
         apply_dpop_token_type(TokenResponse::from(token), cnf_claim.as_ref()),
     )))
-}
-
-/// RFC 8693: Token Exchange Grant.
-///
-/// Exchanges an existing security token (subject_token) for a new access token,
-/// optionally narrowing scope, changing audience, or impersonating a different subject.
-/// Supports DPoP-binding via `cnf_claim`.
-#[allow(clippy::too_many_arguments)]
-async fn handle_token_exchange_grant(
-    req: TokenRequest,
-    cnf_claim: Option<serde_json::Value>,
-    token_actor: web::Data<TokenActorPool>,
-    client_actor: web::Data<Addr<ClientActor>>,
-    metrics: web::Data<Metrics>,
-    oidc_config: web::Data<OidcConfig>,
-    jwks_cache: Option<web::Data<JwksCache>>,
-    mtls_thumbprint: Option<&str>,
-    mtls_subject_dn: Option<&str>,
-) -> Result<HttpResponse, OAuth2Error> {
-    use crate::actors::LookupToken;
-
-    let subject_token = req
-        .subject_token
-        .clone()
-        .ok_or_else(|| OAuth2Error::invalid_request("Missing subject_token"))?;
-
-    // Authenticate the client making the exchange request.
-    let client = client_actor
-        .send(GetClient {
-            client_id: req.client_id.clone(),
-            span: tracing::Span::current(),
-        })
-        .await
-        .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))??;
-
-    if !client.supports_grant_type(TOKEN_EXCHANGE_GRANT_TYPE) {
-        return Err(OAuth2Error::unauthorized_client(
-            "Client not allowed to use token-exchange",
-        ));
-    }
-    if client.is_public() {
-        return Err(OAuth2Error::invalid_client(
-            "Public clients cannot use token-exchange",
-        ));
-    }
-    let token_endpoint_url = format!("{}/oauth/token", oidc_config.issuer.trim_end_matches('/'));
-    let resolved_jwks =
-        resolve_client_jwks(&client, jwks_cache.as_ref().map(|d| d.as_ref())).await?;
-    authenticate_confidential_client(
-        &client,
-        &req,
-        &token_endpoint_url,
-        resolved_jwks.as_ref(),
-        mtls_thumbprint,
-        mtls_subject_dn,
-    )?;
-
-    // Validate the subject_token: look it up in storage.
-    let subject_tok = token_actor
-        .route(&req.client_id)
-        .send(LookupToken {
-            token: subject_token,
-            span: tracing::Span::current(),
-        })
-        .await
-        .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))??
-        .ok_or_else(|| OAuth2Error::invalid_grant("subject_token not found or expired"))?;
-
-    // Reject revoked OR expired subject tokens. The previous code checked only
-    // `revoked`, so an expired (but still-persisted) token could be exchanged
-    // for a fresh one. `is_valid()` mirrors the ValidateToken path.
-    if !subject_tok.is_valid() {
-        return Err(OAuth2Error::invalid_grant(
-            "subject_token is expired or revoked",
-        ));
-    }
-
-    // Build `act` claim when an actor_token is provided (delegation / impersonation).
-    let act_claim: Option<serde_json::Value> = req
-        .actor_token
-        .as_ref()
-        .map(|_| serde_json::json!({ "sub": req.client_id }));
-
-    // Requested scope must be a subset of the subject token's scope; default to original.
-    let scope = match req.scope {
-        Some(ref requested) => {
-            validate_scope_subset(requested, &subject_tok.scope)?;
-            requested.clone()
-        }
-        None => subject_tok.scope.clone(),
-    };
-
-    let new_token = token_actor
-        .route(&req.client_id)
-        .send(CreateToken {
-            user_id: subject_tok.user_id.clone(),
-            client_id: req.client_id.clone(),
-            scope,
-            include_refresh: false,
-            token_family: None,
-            resource: req.resource.clone(),
-            cnf: cnf_claim.clone(),
-            authorization_details: None,
-            span: tracing::Span::current(),
-        })
-        .await
-        .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))??;
-
-    metrics.oauth_token_issued_total.inc();
-
-    let issued_type = req
-        .requested_token_type
-        .clone()
-        .unwrap_or_else(|| "urn:ietf:params:oauth:token-type:access_token".to_string());
-    // RFC 9449 §7.1: use "DPoP" token_type when a DPoP-bound token was issued.
-    let token_type_str = if cnf_claim.as_ref().and_then(|c| c.get("jkt")).is_some() {
-        "DPoP"
-    } else {
-        "Bearer"
-    };
-    let mut resp = serde_json::json!({
-        "access_token": new_token.access_token,
-        "issued_token_type": issued_type,
-        "token_type": token_type_str,
-        "expires_in": new_token.expires_in,
-        "scope": new_token.scope,
-    });
-    if let Some(act) = act_claim {
-        resp["act"] = act;
-    }
-    Ok(no_store_headers(HttpResponse::Ok().json(resp)))
 }
 
 /// RFC 6749 §6 — Refresh Token Grant
@@ -2331,6 +2690,10 @@ async fn handle_refresh_token_grant(
     jwks_cache: Option<web::Data<JwksCache>>,
     mtls_thumbprint: Option<&str>,
     mtls_subject_dn: Option<&str>,
+    mtls_san_uri: Option<&str>,
+    mtls_san_dns: Option<&str>,
+    cimd: Option<web::Data<CimdFetcher>>,
+    agent: oauth2_config::AgentConfig,
 ) -> Result<HttpResponse, OAuth2Error> {
     let refresh_token_str = req
         .refresh_token
@@ -2338,13 +2701,13 @@ async fn handle_refresh_token_grant(
         .ok_or_else(|| OAuth2Error::invalid_request("Missing refresh_token"))?;
 
     // Authenticate the client.
-    let client = client_actor
-        .send(GetClient {
-            client_id: req.client_id.clone(),
-            span: tracing::Span::current(),
-        })
-        .await
-        .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))??;
+    let client = resolve_client(
+        &req.client_id,
+        client_actor.get_ref(),
+        cimd.as_ref().map(|d| d.get_ref()),
+        &agent,
+    )
+    .await?;
 
     // Public clients skip secret check; others use the unified authenticator.
     if !client.is_public() {
@@ -2356,9 +2719,12 @@ async fn handle_refresh_token_grant(
             &client,
             &req,
             &token_endpoint_url,
+            &oidc_config.issuer,
             resolved_jwks.as_ref(),
             mtls_thumbprint,
             mtls_subject_dn,
+            mtls_san_uri,
+            mtls_san_dns,
         )?;
     }
 
@@ -2385,6 +2751,14 @@ async fn handle_refresh_token_grant(
             "Refresh token does not belong to this client",
         ));
     }
+
+    // Only now may a CIMD client be persisted. A public client presents no
+    // credential here, so anything earlier would let an unauthenticated caller
+    // write a `clients` row (and exhaust the registry cap) by naming a
+    // document URL with a junk refresh token. Holding a genuine refresh token
+    // means the row already exists, so this degrades to a document refresh —
+    // and it still precedes the token rows written below.
+    materialize_cimd_client(&client, client_actor.get_ref(), &agent).await?;
 
     // Determine scope: if the request includes a scope, it must be a subset of the
     // original token's scope. If omitted, inherit the original scope.
@@ -2447,9 +2821,15 @@ async fn handle_refresh_token_grant(
             scope,
             include_refresh: true,
             token_family: Some(family),
-            resource: req.resource.clone(),
+            resources: req.resource.clone(),
             cnf: old_cnf.clone(),
             authorization_details: None,
+            // Phase 7 (7.C.4): a rotated token represents the same delegation
+            // as the one it replaces, so the recorded `act` chain carries over.
+            act: old_token.actor(),
+            ttl_override_secs: None,
+            sub_profile: None,
+            txn: None,
             span: tracing::Span::current(),
         })
         .await
@@ -2473,6 +2853,8 @@ pub async fn par(
     auth_actor: web::Data<Addr<AuthActor>>,
     client_actor: web::Data<Addr<ClientActor>>,
     jwks_cache: Option<web::Data<JwksCache>>,
+    cimd: Option<web::Data<CimdFetcher>>,
+    agent_config: Option<web::Data<oauth2_config::AgentConfig>>,
 ) -> Result<HttpResponse, OAuth2Error> {
     // Parse the application/x-www-form-urlencoded body.
     let raw = String::from_utf8(body.to_vec())
@@ -2501,23 +2883,31 @@ pub async fn par(
     }
 
     // Authenticate the client before storing any params.
-    let client = client_actor
-        .send(GetClient {
-            client_id: client_id.clone(),
-            span: tracing::Span::current(),
-        })
-        .await
-        .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))??;
+    let agent: oauth2_config::AgentConfig = agent_config
+        .map(|c| c.get_ref().clone())
+        .unwrap_or_default();
+    let client = resolve_client(
+        &client_id,
+        client_actor.get_ref(),
+        cimd.as_ref().map(|d| d.get_ref()),
+        &agent,
+    )
+    .await?;
 
     // Authenticate confidential clients; public clients are identified by client_id only.
     if !client.is_public() {
-        let token_endpoint_url = {
+        // This endpoint has no OidcConfig of its own, so the issuer is derived
+        // from the same Host header the endpoint URL is built from.
+        let (token_endpoint_url, par_issuer) = {
             let host = req
                 .headers()
                 .get(actix_web::http::header::HOST)
                 .and_then(|h| h.to_str().ok())
                 .unwrap_or("localhost");
-            format!("https://{host}/oauth/par")
+            (
+                format!("https://{host}/oauth/par"),
+                format!("https://{host}"),
+            )
         };
         let secret_from_body = params.get("client_secret").cloned();
         let basic_creds = parse_client_basic_auth(&req).unwrap_or(None);
@@ -2556,6 +2946,7 @@ pub async fn par(
                             &client,
                             &aval,
                             &token_endpoint_url,
+                            &par_issuer,
                             resolved_jwks.as_ref(),
                         )?;
                     } else {

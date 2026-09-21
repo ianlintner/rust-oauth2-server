@@ -1,9 +1,10 @@
 use async_trait::async_trait;
+use chrono::{DateTime, Utc};
 use std::sync::Arc;
 
 use oauth2_core::{
     AuditLogEntry, AuthorizationCode, Client, DenylistEntry, DeviceAuthorization, ListQuery,
-    OAuth2Error, Page, Token, User,
+    OAuth2Error, Page, ProtectedResource, Token, TransactionAuthorization, TrustedIssuer, User,
 };
 
 /// Trait implemented by all persistence backends.
@@ -17,6 +18,14 @@ pub trait Storage: Send + Sync {
     // Client operations
     async fn save_client(&self, client: &Client) -> Result<(), OAuth2Error>;
     async fn get_client(&self, client_id: &str) -> Result<Option<Client>, OAuth2Error>;
+    /// Number of client rows materialized from a Client ID Metadata Document
+    /// (`cimd_managed = true`). Used to cap how many such rows may accumulate.
+    ///
+    /// Defaults to `0` so backends that do not track the flag compile
+    /// unchanged; a backend that returns `0` disables the cap.
+    async fn count_cimd_clients(&self) -> Result<u64, OAuth2Error> {
+        Ok(0)
+    }
 
     /// Update an existing client's metadata (RFC 7592).
     async fn update_client(&self, client: &Client) -> Result<(), OAuth2Error>;
@@ -36,6 +45,13 @@ pub trait Storage: Send + Sync {
     /// Default implementation returns None so older backends are not broken.
     async fn get_user_by_id(&self, user_id: &str) -> Result<Option<User>, OAuth2Error> {
         let _ = user_id;
+        Ok(None)
+    }
+
+    /// Look up a user by their email address.
+    /// Default implementation returns None so older backends are not broken.
+    async fn get_user_by_email(&self, email: &str) -> Result<Option<User>, OAuth2Error> {
+        let _ = email;
         Ok(None)
     }
 
@@ -129,6 +145,67 @@ pub trait Storage: Send + Sync {
 
     async fn mark_device_authorization_used(&self, device_code: &str) -> Result<(), OAuth2Error> {
         let _ = device_code;
+        Ok(())
+    }
+
+    // --- Transaction Authorization Challenge
+    //     (draft-rosomakho-oauth-txn-challenge-00) ---
+    // Default implementations are no-ops so older backends stay source-compatible.
+
+    async fn save_transaction_authorization(
+        &self,
+        txn_auth: &TransactionAuthorization,
+    ) -> Result<(), OAuth2Error> {
+        let _ = txn_auth;
+        Ok(())
+    }
+
+    async fn get_transaction_authorization(
+        &self,
+        transaction_authorization_id: &str,
+    ) -> Result<Option<TransactionAuthorization>, OAuth2Error> {
+        let _ = transaction_authorization_id;
+        Ok(None)
+    }
+
+    /// Record the human decision. `approved = false` denies.
+    async fn settle_transaction_authorization(
+        &self,
+        transaction_authorization_id: &str,
+        user_id: &str,
+        approved: bool,
+    ) -> Result<(), OAuth2Error> {
+        let (_, _, _) = (transaction_authorization_id, user_id, approved);
+        Ok(())
+    }
+
+    async fn mark_transaction_authorization_used(
+        &self,
+        transaction_authorization_id: &str,
+    ) -> Result<(), OAuth2Error> {
+        let _ = transaction_authorization_id;
+        Ok(())
+    }
+
+    // --- Trusted issuers registry (RFC 7523 JWT bearer grants / agent-A2A OAuth) ---
+    // Default implementations are no-ops so older backends stay source-compatible.
+
+    async fn save_trusted_issuer(&self, trusted_issuer: &TrustedIssuer) -> Result<(), OAuth2Error> {
+        let _ = trusted_issuer;
+        Ok(())
+    }
+
+    async fn get_trusted_issuer(&self, issuer: &str) -> Result<Option<TrustedIssuer>, OAuth2Error> {
+        let _ = issuer;
+        Ok(None)
+    }
+
+    async fn list_trusted_issuers(&self) -> Result<Vec<TrustedIssuer>, OAuth2Error> {
+        Ok(vec![])
+    }
+
+    async fn delete_trusted_issuer(&self, id: &str) -> Result<(), OAuth2Error> {
+        let _ = id;
         Ok(())
     }
 
@@ -301,6 +378,29 @@ pub trait Storage: Send + Sync {
         Ok(0)
     }
 
+    // --- DPoP proof replay prevention (RFC 9449 §11.1) ---
+
+    /// Record a DPoP proof `jti` and report whether it was fresh.
+    ///
+    /// Returns `Ok(true)` when the `jti` had not been seen before (the proof
+    /// may be accepted) and `Ok(false)` when it is a replay. Backends should
+    /// also drop rows past their `expires_at` opportunistically.
+    ///
+    /// The default implementation accepts every `jti`, so a backend that does
+    /// not override it contributes no replay detection of its own: such
+    /// deployments fall back to the caller's per-process in-memory store
+    /// (`DpopReplayStore` always checks that first, whether or not storage is
+    /// configured). Detection across restarts and across AS instances requires
+    /// an override.
+    async fn dpop_jti_check_and_insert(
+        &self,
+        jti: &str,
+        expires_at: DateTime<Utc>,
+    ) -> Result<bool, OAuth2Error> {
+        let _ = (jti, expires_at);
+        Ok(true)
+    }
+
     // --- Backend capability flags ---
     //
     // These let the admin UI hide sections that would silently no-op on the
@@ -315,6 +415,37 @@ pub trait Storage: Send + Sync {
     /// Whether this backend persists audit-log entries.
     async fn supports_audit_log(&self) -> bool {
         false
+    }
+
+    // --- Protected resources registry (RFC 8707 / RFC 9728, agent/A2A OAuth) ---
+    //
+    // Default implementations are no-ops so older backends stay source-compatible.
+
+    async fn save_resource(&self, r: &ProtectedResource) -> Result<(), OAuth2Error> {
+        let _ = r;
+        Ok(())
+    }
+
+    async fn get_resource_by_uri(
+        &self,
+        uri: &str,
+    ) -> Result<Option<ProtectedResource>, OAuth2Error> {
+        let _ = uri;
+        Ok(None)
+    }
+
+    async fn get_resource_by_id(&self, id: &str) -> Result<Option<ProtectedResource>, OAuth2Error> {
+        let _ = id;
+        Ok(None)
+    }
+
+    async fn list_resources(&self) -> Result<Vec<ProtectedResource>, OAuth2Error> {
+        Ok(vec![])
+    }
+
+    async fn delete_resource(&self, id: &str) -> Result<(), OAuth2Error> {
+        let _ = id;
+        Ok(())
     }
 }
 

@@ -3,7 +3,7 @@ use tracing::{field, Instrument};
 
 use oauth2_core::{
     AuditLogEntry, AuthorizationCode, Client, DenylistEntry, DeviceAuthorization, ListQuery,
-    OAuth2Error, Page, Token, User,
+    OAuth2Error, Page, ProtectedResource, Token, TransactionAuthorization, TrustedIssuer, User,
 };
 use oauth2_ports::{DynStorage, Storage};
 
@@ -107,6 +107,23 @@ impl Storage for ObservedStorage {
             .await
     }
 
+    async fn count_cimd_clients(&self) -> Result<u64, OAuth2Error> {
+        let span = tracing::info_span!(
+            "db.query",
+            trace_id = field::Empty,
+            span_id = field::Empty,
+            "db.system" = %self.db_system,
+            "db.operation" = "count_cimd_clients",
+            "db.name" = %self.db_name,
+            "net.peer.name" = %self.net_peer_name,
+            "otel.kind" = "client",
+        );
+        annotate_span_with_trace_ids(&span);
+        async move { self.inner.count_cimd_clients().await }
+            .instrument(span)
+            .await
+    }
+
     async fn update_client(&self, client: &Client) -> Result<(), OAuth2Error> {
         let span = tracing::info_span!(
             "db.query",
@@ -194,6 +211,14 @@ impl Storage for ObservedStorage {
         );
         annotate_span_with_trace_ids(&span);
         async move { self.inner.get_user_by_id(user_id).await }
+            .instrument(span)
+            .await
+    }
+
+    async fn get_user_by_email(&self, email: &str) -> Result<Option<User>, OAuth2Error> {
+        let span = self.span("get_user_by_email");
+        annotate_span_with_trace_ids(&span);
+        async move { self.inner.get_user_by_email(email).await }
             .instrument(span)
             .await
     }
@@ -760,6 +785,51 @@ impl Storage for ObservedStorage {
             .await
     }
 
+    // --- Trusted issuers registry (RFC 7523 JWT bearer grants / agent-A2A OAuth) ---
+
+    async fn save_trusted_issuer(&self, trusted_issuer: &TrustedIssuer) -> Result<(), OAuth2Error> {
+        let span = self.span("save_trusted_issuer");
+        async move { self.inner.save_trusted_issuer(trusted_issuer).await }
+            .instrument(span)
+            .await
+    }
+
+    async fn get_trusted_issuer(&self, issuer: &str) -> Result<Option<TrustedIssuer>, OAuth2Error> {
+        let span = self.span("get_trusted_issuer");
+        async move { self.inner.get_trusted_issuer(issuer).await }
+            .instrument(span)
+            .await
+    }
+
+    async fn list_trusted_issuers(&self) -> Result<Vec<TrustedIssuer>, OAuth2Error> {
+        let span = self.span("list_trusted_issuers");
+        async move { self.inner.list_trusted_issuers().await }
+            .instrument(span)
+            .await
+    }
+
+    async fn delete_trusted_issuer(&self, id: &str) -> Result<(), OAuth2Error> {
+        let span = self.span("delete_trusted_issuer");
+        let id = id.to_string();
+        async move { self.inner.delete_trusted_issuer(&id).await }
+            .instrument(span)
+            .await
+    }
+
+    // --- DPoP proof replay prevention (RFC 9449 §11.1) ---
+
+    async fn dpop_jti_check_and_insert(
+        &self,
+        jti: &str,
+        expires_at: chrono::DateTime<chrono::Utc>,
+    ) -> Result<bool, OAuth2Error> {
+        let span = self.span("dpop_jti_check_and_insert");
+        let jti = jti.to_string();
+        async move { self.inner.dpop_jti_check_and_insert(&jti, expires_at).await }
+            .instrument(span)
+            .await
+    }
+
     // --- Backend capability flags ---
 
     async fn supports_denylist(&self) -> bool {
@@ -768,5 +838,100 @@ impl Storage for ObservedStorage {
 
     async fn supports_audit_log(&self) -> bool {
         self.inner.supports_audit_log().await
+    }
+
+    // --- Protected resources registry ---
+
+    async fn save_resource(&self, r: &ProtectedResource) -> Result<(), OAuth2Error> {
+        let span = self.span("save_resource");
+        async move { self.inner.save_resource(r).await }
+            .instrument(span)
+            .await
+    }
+
+    async fn get_resource_by_uri(
+        &self,
+        uri: &str,
+    ) -> Result<Option<ProtectedResource>, OAuth2Error> {
+        let span = self.span("get_resource_by_uri");
+        let uri = uri.to_string();
+        async move { self.inner.get_resource_by_uri(&uri).await }
+            .instrument(span)
+            .await
+    }
+
+    async fn get_resource_by_id(&self, id: &str) -> Result<Option<ProtectedResource>, OAuth2Error> {
+        let span = self.span("get_resource_by_id");
+        let id = id.to_string();
+        async move { self.inner.get_resource_by_id(&id).await }
+            .instrument(span)
+            .await
+    }
+
+    async fn list_resources(&self) -> Result<Vec<ProtectedResource>, OAuth2Error> {
+        let span = self.span("list_resources");
+        async move { self.inner.list_resources().await }
+            .instrument(span)
+            .await
+    }
+
+    async fn delete_resource(&self, id: &str) -> Result<(), OAuth2Error> {
+        let span = self.span("delete_resource");
+        let id = id.to_string();
+        async move { self.inner.delete_resource(&id).await }
+            .instrument(span)
+            .await
+    }
+
+    // --- Transaction Authorization Challenge ---
+
+    async fn save_transaction_authorization(
+        &self,
+        txn_auth: &TransactionAuthorization,
+    ) -> Result<(), OAuth2Error> {
+        let span = self.span("save_transaction_authorization");
+        async move { self.inner.save_transaction_authorization(txn_auth).await }
+            .instrument(span)
+            .await
+    }
+
+    async fn get_transaction_authorization(
+        &self,
+        transaction_authorization_id: &str,
+    ) -> Result<Option<TransactionAuthorization>, OAuth2Error> {
+        let span = self.span("get_transaction_authorization");
+        let id = transaction_authorization_id.to_string();
+        async move { self.inner.get_transaction_authorization(&id).await }
+            .instrument(span)
+            .await
+    }
+
+    async fn settle_transaction_authorization(
+        &self,
+        transaction_authorization_id: &str,
+        user_id: &str,
+        approved: bool,
+    ) -> Result<(), OAuth2Error> {
+        let span = self.span("settle_transaction_authorization");
+        let id = transaction_authorization_id.to_string();
+        let user_id = user_id.to_string();
+        async move {
+            self.inner
+                .settle_transaction_authorization(&id, &user_id, approved)
+                .await
+        }
+        .instrument(span)
+        .await
+    }
+
+    async fn mark_transaction_authorization_used(
+        &self,
+        transaction_authorization_id: &str,
+    ) -> Result<(), OAuth2Error> {
+        let span = self.span("mark_transaction_authorization_used");
+        let id = transaction_authorization_id.to_string();
+        async move { self.inner.mark_transaction_authorization_used(&id).await }
+            .instrument(span)
+            .await
     }
 }

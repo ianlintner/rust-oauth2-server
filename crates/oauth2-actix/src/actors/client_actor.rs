@@ -211,6 +211,26 @@ impl Handler<RegisterClient> for ClientActor {
                     .clone()
                     .unwrap_or_default();
 
+                // Phase 7 (agent/A2A OAuth): actor allow-list. Only the admin
+                // registration path (`register_client`) populates this field
+                // on `msg.registration`; the public RFC 7591 dynamic
+                // registration handler clears it before sending this message.
+                if let Some(ref actors) = msg.registration.allowed_actors {
+                    client.allowed_actors =
+                        serde_json::to_string(actors).unwrap_or_else(|_| "[]".to_string());
+                }
+
+                // RFC 8705 §2.1.2 / RFC 7591 §2: workload-identity metadata.
+                if let Some(ref san) = msg.registration.tls_client_auth_san {
+                    client.tls_client_auth_san = san.clone();
+                }
+                if let Some(ref id) = msg.registration.software_id {
+                    client.software_id = id.clone();
+                }
+                if let Some(ref version) = msg.registration.software_version {
+                    client.software_version = version.clone();
+                }
+
                 // Generate a registration_access_token for RFC 7591 §3.2
                 client.registration_access_token = generate_secret_of_length(48);
 
@@ -528,6 +548,151 @@ impl Handler<DeleteClient> for ClientActor {
         Box::pin(
             async move {
                 db.delete_client(&client_id).await?;
+                Ok(())
+            }
+            .instrument(actor_span),
+        )
+    }
+}
+
+// ---------------------------------------------------------------------------
+// MaterializeCimdClient — persist a client described by a metadata document
+// ---------------------------------------------------------------------------
+
+/// Store (or refresh) the `clients` row for a client resolved from a Client ID
+/// Metadata Document.
+///
+/// `tokens`, `authorization_codes` and `device_authorizations` all carry a
+/// foreign key to `clients(client_id)`, so a CIMD client that exists only as a
+/// fetched document cannot be granted anything. The document stays
+/// authoritative — the row is rewritten whenever it drifts from the document —
+/// and only a row this mechanism created itself (`cimd_managed`, no client
+/// secret) is ever overwritten, so a metadata document can never take over a
+/// client that was registered by an operator or through RFC 7591.
+///
+/// `max_clients` caps how many `cimd_managed` rows may exist. The `client_id`
+/// is attacker-chosen, so a *new* row is refused once the registry is full;
+/// refreshing rows that already exist keeps working.
+#[derive(Message)]
+#[rtype(result = "Result<(), OAuth2Error>")]
+pub struct MaterializeCimdClient {
+    pub client: Client,
+    pub max_clients: usize,
+    pub span: tracing::Span,
+}
+
+/// Compare the stored row against the document on the fields the document owns.
+///
+/// Deliberately excludes everything an operator controls (`enabled`,
+/// `allowed_actors`, `dpop_nonce_required`, …) — those are not the document's
+/// to change, so drift in them must not trigger a rewrite.
+fn cimd_row_matches(stored: &Client, doc: &Client) -> bool {
+    stored.redirect_uris == doc.redirect_uris
+        && stored.grant_types == doc.grant_types
+        && stored.scope == doc.scope
+        && stored.name == doc.name
+        && stored.token_endpoint_auth_method == doc.token_endpoint_auth_method
+        && stored.response_types == doc.response_types
+        && stored.jwks == doc.jwks
+        && stored.jwks_uri == doc.jwks_uri
+        && stored.client_uri == doc.client_uri
+        && stored.logo_uri == doc.logo_uri
+        && stored.cimd_managed
+}
+
+/// Carry operator-owned state from the stored row onto the document-derived
+/// client, so refreshing from the document never reverts an operator decision.
+fn preserve_operator_state(doc: &mut Client, existing: &Client) {
+    doc.id = existing.id.clone();
+    doc.enabled = existing.enabled;
+    doc.allowed_actors = existing.allowed_actors.clone();
+    doc.dpop_nonce_required = existing.dpop_nonce_required;
+    doc.registration_access_token = existing.registration_access_token.clone();
+    doc.require_state = existing.require_state;
+    doc.tls_client_auth_san = existing.tls_client_auth_san.clone();
+    doc.tls_client_certificate_subject_dn = existing.tls_client_certificate_subject_dn.clone();
+    doc.software_id = existing.software_id.clone();
+    doc.software_version = existing.software_version.clone();
+}
+
+impl Handler<MaterializeCimdClient> for ClientActor {
+    type Result = ResponseFuture<Result<(), OAuth2Error>>;
+
+    fn handle(&mut self, msg: MaterializeCimdClient, ctx: &mut Self::Context) -> Self::Result {
+        // Steady state: the LRU already holds a row matching the document, so
+        // no database round-trip happens on the hot path.
+        if let Some(cached) = self.get_cached_client(&msg.client.client_id) {
+            if cimd_row_matches(&cached, &msg.client) {
+                return Box::pin(async { Ok(()) });
+            }
+        }
+
+        let db = self.db.clone();
+        let self_addr = ctx.address();
+
+        let parent_span = msg.span.clone();
+        let actor_span = tracing::info_span!(
+            parent: &parent_span,
+            "actor.client.materialize_cimd",
+            trace_id = tracing::field::Empty,
+            span_id = tracing::field::Empty,
+            client_id = %msg.client.client_id
+        );
+        annotate_span_with_trace_ids(&actor_span);
+
+        let max_clients = msg.max_clients;
+
+        Box::pin(
+            async move {
+                let mut client = msg.client;
+                client.cimd_managed = true;
+
+                match db.get_client(&client.client_id).await? {
+                    Some(existing) => {
+                        // A metadata document must never take over a client
+                        // an operator (or dynamic registration) already put in
+                        // the table — whether it holds a secret or is a public
+                        // client whose `client_id` happens to be an https URL.
+                        if !existing.client_secret.is_empty() || !existing.cimd_managed {
+                            return Err(OAuth2Error::invalid_client(
+                                "client_id is already registered",
+                            ));
+                        }
+                        preserve_operator_state(&mut client, &existing);
+                        if cimd_row_matches(&existing, &client) {
+                            let _ = self_addr.try_send(CacheClient { client });
+                            return Ok(());
+                        }
+                        db.update_client(&client).await?;
+                    }
+                    None => {
+                        if max_clients > 0 && db.count_cimd_clients().await? >= max_clients as u64 {
+                            tracing::warn!(
+                                client_id = %client.client_id,
+                                max_clients,
+                                "CIMD client registry is full; refusing a new client"
+                            );
+                            return Err(OAuth2Error::invalid_client(
+                                "client metadata registry is full",
+                            ));
+                        }
+                        // A concurrent request may have inserted the same row
+                        // between the lookup and here; that is the outcome we
+                        // wanted, so adopt it instead of failing the request.
+                        if let Err(e) = db.save_client(&client).await {
+                            match db.get_client(&client.client_id).await? {
+                                Some(existing) => {
+                                    preserve_operator_state(&mut client, &existing);
+                                }
+                                None => return Err(e),
+                            }
+                        }
+                    }
+                }
+
+                let _ = self_addr.try_send(CacheClient {
+                    client: client.clone(),
+                });
                 Ok(())
             }
             .instrument(actor_span),

@@ -1,12 +1,17 @@
 use actix::Addr;
 use actix_web::{web, HttpRequest, HttpResponse, Result};
+use jsonwebtoken::{decode, Validation};
+use serde_json::Value;
 
 use crate::actors::{ClientActor, DeleteClient, GetClient, RegisterClient, UpdateClient};
 use oauth2_core::{ClientCredentials, ClientRegistration, ClientRegistrationResponse, OAuth2Error};
+use oauth2_ports::DynStorage;
 
+use crate::handlers::jwks_cache::JwksCache;
+use crate::handlers::jwt_bearer::{select_key, ALLOWED_ALGS};
 use crate::handlers::wellknown::OidcConfig;
 
-fn validate_redirect_uri(uri: &str) -> Result<(), OAuth2Error> {
+pub(crate) fn validate_redirect_uri(uri: &str) -> Result<(), OAuth2Error> {
     let uri = uri.trim();
     if uri.is_empty() {
         return Err(OAuth2Error::invalid_request(
@@ -44,7 +49,7 @@ fn validate_redirect_uri(uri: &str) -> Result<(), OAuth2Error> {
     Ok(())
 }
 
-fn validate_grant_types(grant_types: &[String]) -> Result<(), OAuth2Error> {
+pub(crate) fn validate_grant_types(grant_types: &[String]) -> Result<(), OAuth2Error> {
     // Keep registration honest: only allow grant types that the server actually supports.
     // (prevents clients from registering for unsupported grants like implicit).
     const SUPPORTED: [&str; 4] = [
@@ -72,7 +77,7 @@ fn validate_grant_types(grant_types: &[String]) -> Result<(), OAuth2Error> {
 }
 
 /// Supported `token_endpoint_auth_method` values.
-const SUPPORTED_AUTH_METHODS: [&str; 7] = [
+const SUPPORTED_AUTH_METHODS: [&str; 9] = [
     "client_secret_basic",
     "client_secret_post",
     "client_secret_jwt",
@@ -80,7 +85,13 @@ const SUPPORTED_AUTH_METHODS: [&str; 7] = [
     "none",
     "tls_client_auth",
     "self_signed_tls_client_auth",
+    "tls_client_auth_san_uri",
+    "tls_client_auth_san_dns",
 ];
+
+/// RFC 8705 §2.1.2: auth methods that bind the client to a certificate
+/// `subjectAltName` and therefore require a registered `tls_client_auth_san`.
+const SAN_AUTH_METHODS: [&str; 2] = ["tls_client_auth_san_uri", "tls_client_auth_san_dns"];
 
 fn validate_token_endpoint_auth_method(
     method: &str,
@@ -132,7 +143,7 @@ const PRIVILEGED_SCOPES: &[&str] = &["admin", "write"];
 
 /// True if any space-delimited token in `scope` is a privileged scope
 /// (case-insensitive, exact-token match — `"administrator"` does not match).
-fn scope_contains_privileged(scope: &str) -> bool {
+pub(crate) fn scope_contains_privileged(scope: &str) -> bool {
     scope
         .split_whitespace()
         .any(|s| PRIVILEGED_SCOPES.iter().any(|p| p.eq_ignore_ascii_case(s)))
@@ -182,6 +193,27 @@ fn validate_registration(reg: &ClientRegistration) -> Result<(), OAuth2Error> {
         ));
     }
 
+    validate_san_auth_method(reg)?;
+
+    Ok(())
+}
+
+/// RFC 8705 §2.1.2: a client registering for SAN-based mTLS authentication is
+/// useless (and unauthenticatable) without the SAN value to compare against,
+/// so require it up front rather than failing at the token endpoint.
+fn validate_san_auth_method(reg: &ClientRegistration) -> Result<(), OAuth2Error> {
+    if SAN_AUTH_METHODS.contains(&reg.token_endpoint_auth_method.as_str())
+        && reg
+            .tls_client_auth_san
+            .as_deref()
+            .map(str::trim)
+            .is_none_or(str::is_empty)
+    {
+        return Err(OAuth2Error::invalid_request(
+            "tls_client_auth_san is required for \
+             tls_client_auth_san_uri / tls_client_auth_san_dns",
+        ));
+    }
     Ok(())
 }
 
@@ -199,14 +231,188 @@ fn normalise_registration(reg: &mut ClientRegistration) {
 }
 
 // ---------------------------------------------------------------------------
+// RFC 7591 §2.3 software statements
+// ---------------------------------------------------------------------------
+
+fn invalid_software_statement(detail: &str) -> OAuth2Error {
+    OAuth2Error::new("invalid_software_statement", Some(detail))
+}
+
+/// Phase 7 (agent/A2A OAuth): `software_id` and `software_version` decide
+/// whether a client is treated as an AI agent — which selects the `ai_agent`
+/// `sub_profile` and the (shorter) AI-agent access-token TTL. A caller who can
+/// set them freely could either claim agent status or shed the TTL cap by
+/// dropping the `agent:` prefix, so on the self-service paths they are accepted
+/// only from a verified `software_statement`. Body-supplied values are cleared
+/// before [`apply_software_statement`] merges the attested ones back in.
+///
+/// The admin registration endpoint is exempt: an operator setting these
+/// deliberately is the intended way to register an agent without a statement.
+fn clear_self_asserted_software_metadata(reg: &mut ClientRegistration) {
+    reg.software_id = None;
+    reg.software_version = None;
+}
+
+/// RFC 7591 §2.3 — verify `software_statement` and fold its claims into the
+/// registration request.
+///
+/// The statement must be a JWT whose `iss` names an enabled `TrustedIssuer`;
+/// the signature is checked against that issuer's published JWKS. Every
+/// client-metadata claim the statement carries overrides the corresponding
+/// value in the request body, as RFC 7591 §2.3 requires.
+async fn apply_software_statement(
+    reg: &mut ClientRegistration,
+    storage: Option<&DynStorage>,
+    jwks_cache: Option<&JwksCache>,
+) -> Result<(), OAuth2Error> {
+    let statement = match reg.software_statement.as_deref().map(str::trim) {
+        Some(s) if !s.is_empty() => s.to_string(),
+        _ => return Ok(()),
+    };
+
+    let storage = storage.ok_or_else(|| {
+        OAuth2Error::new(
+            "server_error",
+            Some("Storage backend not configured; cannot verify software statements"),
+        )
+    })?;
+
+    let header = jsonwebtoken::decode_header(&statement)
+        .map_err(|_| invalid_software_statement("software_statement is not a JWT"))?;
+    if !ALLOWED_ALGS.contains(&header.alg) {
+        return Err(invalid_software_statement(
+            "software_statement uses an unsupported signature algorithm",
+        ));
+    }
+
+    // `iss` is read from the unverified payload only to select the key; the
+    // signature check below is what makes it trustworthy.
+    let iss = decode_unverified_iss(&statement)?;
+    let trusted = storage
+        .get_trusted_issuer(&iss)
+        .await?
+        .filter(|ti| ti.enabled)
+        .ok_or_else(|| {
+            invalid_software_statement("software_statement iss is not a trusted issuer")
+        })?;
+
+    let cache = jwks_cache.ok_or_else(|| {
+        OAuth2Error::new(
+            "server_error",
+            Some("JWKS cache is not configured; cannot verify software statements"),
+        )
+    })?;
+    let jwks = cache.fetch(trusted.jwks_uri.trim()).await.map_err(|e| {
+        invalid_software_statement(&format!(
+            "could not fetch the trusted issuer's JWKS: {}",
+            e.error_description.as_deref().unwrap_or(&e.error)
+        ))
+    })?;
+    let key = select_key(&jwks, &header).map_err(|e| {
+        invalid_software_statement(e.error_description.as_deref().unwrap_or(&e.error))
+    })?;
+
+    let mut validation = Validation::new(header.alg);
+    validation.set_issuer(&[iss.as_str()]);
+    // RFC 7591 §2.3 leaves `aud` and `exp` optional; `exp` is still honoured
+    // when the statement carries one.
+    validation.set_required_spec_claims(&["iss"]);
+    validation.validate_aud = false;
+
+    let claims = decode::<Value>(&statement, &key, &validation)
+        .map_err(|e| {
+            invalid_software_statement(&format!("software_statement validation failed: {e}"))
+        })?
+        .claims;
+
+    merge_software_statement_claims(reg, &claims);
+    Ok(())
+}
+
+/// Read the `iss` claim from a JWT payload without verifying the signature.
+fn decode_unverified_iss(token: &str) -> Result<String, OAuth2Error> {
+    use base64::{engine::general_purpose, Engine as _};
+    let payload = token
+        .split('.')
+        .nth(1)
+        .ok_or_else(|| invalid_software_statement("software_statement is not a JWT"))?;
+    let bytes = general_purpose::URL_SAFE_NO_PAD
+        .decode(payload)
+        .map_err(|_| invalid_software_statement("software_statement payload is not base64url"))?;
+    let claims: Value = serde_json::from_slice(&bytes)
+        .map_err(|_| invalid_software_statement("software_statement payload is not JSON"))?;
+    claims
+        .get("iss")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .ok_or_else(|| invalid_software_statement("software_statement is missing the iss claim"))
+}
+
+/// RFC 7591 §2.3: claims present in a verified software statement override the
+/// corresponding request-body values. Claims the statement omits are left alone.
+fn merge_software_statement_claims(reg: &mut ClientRegistration, claims: &Value) {
+    let string_claim = |name: &str| claims.get(name).and_then(Value::as_str).map(str::to_string);
+    let string_list = |name: &str| {
+        claims.get(name).and_then(Value::as_array).map(|a| {
+            a.iter()
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .collect::<Vec<String>>()
+        })
+    };
+
+    if let Some(v) = string_claim("software_id") {
+        reg.software_id = Some(v);
+    }
+    if let Some(v) = string_claim("software_version") {
+        reg.software_version = Some(v);
+    }
+    if let Some(v) = string_claim("client_name") {
+        reg.client_name = v;
+    }
+    if let Some(v) = string_list("redirect_uris") {
+        reg.redirect_uris = v;
+    }
+    if let Some(v) = string_list("grant_types") {
+        reg.grant_types = v;
+    }
+    if let Some(v) = string_claim("scope") {
+        reg.scope = v;
+    }
+    if let Some(v) = string_claim("token_endpoint_auth_method") {
+        reg.token_endpoint_auth_method = v;
+    }
+    // `jwks` and `jwks_uri` stay mutually exclusive (RFC 7591 §2): whichever
+    // the statement asserts replaces both request-body values.
+    if let Some(v) = claims.get("jwks") {
+        reg.jwks = Some(v.clone());
+        reg.jwks_uri = None;
+    } else if let Some(v) = string_claim("jwks_uri") {
+        reg.jwks_uri = Some(v);
+        reg.jwks = None;
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Admin registration endpoint (legacy, unchanged API contract)
 // ---------------------------------------------------------------------------
 
 /// Register a new OAuth2 client (admin endpoint — `POST /admin/clients/register`).
 pub async fn register_client(
-    registration: web::Json<ClientRegistration>,
+    mut registration: web::Json<ClientRegistration>,
     client_actor: web::Data<Addr<ClientActor>>,
+    storage: Option<web::Data<DynStorage>>,
+    jwks_cache: Option<web::Data<JwksCache>>,
 ) -> Result<HttpResponse, OAuth2Error> {
+    // RFC 7591 §2.3: a verified software statement overrides the request body,
+    // so apply it before any validation runs.
+    apply_software_statement(
+        &mut registration,
+        storage.as_ref().map(|d| d.as_ref()),
+        jwks_cache.as_ref().map(|d| d.as_ref()),
+    )
+    .await?;
+
     let reg: &ClientRegistration = &registration;
     validate_grant_types(&reg.grant_types)?;
     validate_token_endpoint_auth_method(&reg.token_endpoint_auth_method, &reg.grant_types)?;
@@ -223,6 +429,8 @@ pub async fn register_client(
     if reg.scope.trim().is_empty() {
         return Err(OAuth2Error::invalid_request("scope must not be empty"));
     }
+
+    validate_san_auth_method(reg)?;
 
     let client = client_actor
         .send(RegisterClient {
@@ -249,12 +457,27 @@ pub async fn dynamic_register(
     mut registration: web::Json<ClientRegistration>,
     client_actor: web::Data<Addr<ClientActor>>,
     oidc_config: web::Data<OidcConfig>,
+    storage: Option<web::Data<DynStorage>>,
+    jwks_cache: Option<web::Data<JwksCache>>,
 ) -> Result<HttpResponse, OAuth2Error> {
     if !dynamic_registration_enabled() {
         return Err(OAuth2Error::access_denied(
             "Dynamic client registration is disabled",
         ));
     }
+    // Phase 7 (agent/A2A OAuth): `allowed_actors` grants delegation trust and
+    // must only be set through the admin registration endpoint, never via
+    // public self-registration.
+    registration.allowed_actors = None;
+    clear_self_asserted_software_metadata(&mut registration);
+    // RFC 7591 §2.3: apply a verified software statement before defaults and
+    // validation, so its claims are what gets validated and stored.
+    apply_software_statement(
+        &mut registration,
+        storage.as_ref().map(|d| d.as_ref()),
+        jwks_cache.as_ref().map(|d| d.as_ref()),
+    )
+    .await?;
     normalise_registration(&mut registration);
     validate_registration(&registration)?;
 
@@ -341,10 +564,22 @@ pub async fn update_client_configuration(
     mut body: web::Json<ClientRegistration>,
     client_actor: web::Data<Addr<ClientActor>>,
     oidc_config: web::Data<OidcConfig>,
+    storage: Option<web::Data<DynStorage>>,
+    jwks_cache: Option<web::Data<JwksCache>>,
 ) -> Result<HttpResponse, OAuth2Error> {
     let client_id = path.into_inner();
     let mut client = authenticate_registration_token(&req, &client_id, &client_actor).await?;
 
+    // The registration access token authenticates the client, not an operator,
+    // so this is a self-service path: attested-only metadata may arrive only
+    // inside a verified software statement.
+    clear_self_asserted_software_metadata(&mut body);
+    apply_software_statement(
+        &mut body,
+        storage.as_ref().map(|d| d.as_ref()),
+        jwks_cache.as_ref().map(|d| d.as_ref()),
+    )
+    .await?;
     normalise_registration(&mut body);
     validate_registration(&body)?;
 
@@ -381,6 +616,17 @@ pub async fn update_client_configuration(
         .tls_client_certificate_subject_dn
         .clone()
         .unwrap_or_default();
+    client.tls_client_auth_san = body.tls_client_auth_san.clone().unwrap_or_default();
+    // Only a verified software statement can reach these (the body copies were
+    // cleared above), and an update that carries no statement must leave the
+    // stored values alone — silently wiping `software_id` would drop a client
+    // out of AI-agent status and out from under the agent TTL cap.
+    if let Some(id) = body.software_id.clone() {
+        client.software_id = id;
+    }
+    if let Some(version) = body.software_version.clone() {
+        client.software_version = version;
+    }
     client.updated_at = chrono::Utc::now();
 
     let updated = client_actor

@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use oauth2_core::{
     AuditLogEntry, AuthorizationCode, Client, DenylistEntry, DeviceAuthorization, ListQuery,
-    OAuth2Error, Page, Token, User,
+    OAuth2Error, Page, ProtectedResource, Token, TransactionAuthorization, TrustedIssuer, User,
 };
 use oauth2_ports::Storage;
 use sqlx::pool::PoolOptions;
@@ -195,7 +195,12 @@ impl SqlxStorage {
                 enabled INTEGER NOT NULL DEFAULT 1,
                 require_state INTEGER NOT NULL DEFAULT 0,
                 tls_client_certificate_subject_dn TEXT NOT NULL DEFAULT '',
-                dpop_nonce_required INTEGER NOT NULL DEFAULT 0
+                dpop_nonce_required INTEGER NOT NULL DEFAULT 0,
+                allowed_actors TEXT NOT NULL DEFAULT '[]',
+                tls_client_auth_san TEXT NOT NULL DEFAULT '',
+                software_id TEXT NOT NULL DEFAULT '',
+                software_version TEXT NOT NULL DEFAULT '',
+                cimd_managed BOOLEAN NOT NULL DEFAULT FALSE
             );
             "#,
         )
@@ -220,6 +225,34 @@ impl SqlxStorage {
         // `dpop_nonce_required` column was added (RFC 9449 §§8, 9).
         let _ = sqlx::query(
             "ALTER TABLE clients ADD COLUMN dpop_nonce_required INTEGER NOT NULL DEFAULT 0",
+        )
+        .execute(pool)
+        .await;
+
+        // Idempotent upgrade for existing databases bootstrapped before the
+        // `allowed_actors` column was added (Phase 7: agent/A2A OAuth).
+        let _ =
+            sqlx::query("ALTER TABLE clients ADD COLUMN allowed_actors TEXT NOT NULL DEFAULT '[]'")
+                .execute(pool)
+                .await;
+
+        // Idempotent upgrade for existing databases bootstrapped before the
+        // workload-identity columns were added (migration V30).
+        let _ = sqlx::query(
+            "ALTER TABLE clients ADD COLUMN tls_client_auth_san TEXT NOT NULL DEFAULT ''",
+        )
+        .execute(pool)
+        .await;
+        let _ = sqlx::query("ALTER TABLE clients ADD COLUMN software_id TEXT NOT NULL DEFAULT ''")
+            .execute(pool)
+            .await;
+        let _ =
+            sqlx::query("ALTER TABLE clients ADD COLUMN software_version TEXT NOT NULL DEFAULT ''")
+                .execute(pool)
+                .await;
+        // `cimd_managed` column was added (Phase 7: agent/A2A OAuth).
+        let _ = sqlx::query(
+            "ALTER TABLE clients ADD COLUMN cimd_managed BOOLEAN NOT NULL DEFAULT FALSE",
         )
         .execute(pool)
         .await;
@@ -330,6 +363,9 @@ impl SqlxStorage {
                 expires_at TEXT NOT NULL,
                 revoked INTEGER NOT NULL DEFAULT 0,
                 token_family TEXT,
+                act TEXT,
+                cnf TEXT,
+                resource TEXT,
                 FOREIGN KEY (client_id) REFERENCES clients(client_id),
                 FOREIGN KEY (user_id) REFERENCES users(id)
             );
@@ -337,6 +373,19 @@ impl SqlxStorage {
         )
         .execute(pool)
         .await?;
+
+        // Idempotent upgrade for existing databases bootstrapped before the
+        // `act`/`cnf`/`resource` delegation columns were added (RFC 8693 §4.1 /
+        // RFC 9449 §6 / RFC 8705 §3 / RFC 8707).
+        let _ = sqlx::query("ALTER TABLE tokens ADD COLUMN act TEXT")
+            .execute(pool)
+            .await;
+        let _ = sqlx::query("ALTER TABLE tokens ADD COLUMN cnf TEXT")
+            .execute(pool)
+            .await;
+        let _ = sqlx::query("ALTER TABLE tokens ADD COLUMN resource TEXT")
+            .execute(pool)
+            .await;
 
         sqlx::query(
             r#"CREATE INDEX IF NOT EXISTS idx_tokens_access_token ON tokens(access_token);"#,
@@ -381,6 +430,7 @@ impl SqlxStorage {
                 claims_request TEXT,
                 token_family TEXT,
                 dpop_jkt TEXT,
+                requested_actor TEXT,
                 FOREIGN KEY (client_id) REFERENCES clients(client_id),
                 FOREIGN KEY (user_id) REFERENCES users(id)
             );
@@ -398,6 +448,7 @@ impl SqlxStorage {
             "claims_request",
             "token_family",
             "dpop_jkt",
+            "requested_actor",
         ] {
             let _ = sqlx::query(&format!(
                 "ALTER TABLE authorization_codes ADD COLUMN {column} TEXT"
@@ -462,6 +513,111 @@ impl SqlxStorage {
         .execute(pool)
         .await?;
 
+        // Protected resources registry (RFC 8707 / RFC 9728, agent/A2A OAuth)
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS resources (
+                id TEXT PRIMARY KEY,
+                resource_uri TEXT NOT NULL UNIQUE,
+                name TEXT NOT NULL,
+                scopes TEXT NOT NULL DEFAULT '[]',
+                authorization_details_types TEXT NOT NULL DEFAULT '[]',
+                txn_challenge_jwks_uri TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            "#,
+        )
+        .execute(pool)
+        .await?;
+
+        sqlx::query(
+            r#"CREATE INDEX IF NOT EXISTS idx_resources_resource_uri ON resources(resource_uri);"#,
+        )
+        .execute(pool)
+        .await?;
+
+        // Transaction authorizations (draft-rosomakho-oauth-txn-challenge-00)
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS transaction_authorizations (
+                id TEXT PRIMARY KEY,
+                transaction_authorization_id TEXT NOT NULL UNIQUE,
+                client_id TEXT NOT NULL,
+                user_id TEXT,
+                resource_uri TEXT NOT NULL,
+                txn TEXT NOT NULL,
+                authorization_details TEXT NOT NULL DEFAULT '[]',
+                reason TEXT NOT NULL DEFAULT '',
+                reason_uri TEXT NOT NULL DEFAULT '',
+                act TEXT,
+                created_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                interval_seconds INTEGER NOT NULL DEFAULT 5,
+                approved INTEGER NOT NULL DEFAULT 0,
+                denied INTEGER NOT NULL DEFAULT 0,
+                used INTEGER NOT NULL DEFAULT 0
+            );
+            "#,
+        )
+        .execute(pool)
+        .await?;
+
+        sqlx::query(
+            r#"CREATE INDEX IF NOT EXISTS idx_transaction_authorizations_txn_auth_id ON transaction_authorizations(transaction_authorization_id);"#,
+        )
+        .execute(pool)
+        .await?;
+        sqlx::query(
+            r#"CREATE INDEX IF NOT EXISTS idx_transaction_authorizations_client_id ON transaction_authorizations(client_id);"#,
+        )
+        .execute(pool)
+        .await?;
+
+        // Trusted issuers registry (RFC 7523 JWT bearer grants / agent-A2A OAuth)
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS trusted_issuers (
+                id TEXT PRIMARY KEY,
+                issuer TEXT NOT NULL UNIQUE,
+                jwks_uri TEXT NOT NULL,
+                allowed_audiences TEXT NOT NULL DEFAULT '[]',
+                subject_mapping TEXT NOT NULL DEFAULT 'sub',
+                jit_provision INTEGER NOT NULL DEFAULT 0,
+                allowed_client_ids TEXT NOT NULL DEFAULT '[]',
+                enabled INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            "#,
+        )
+        .execute(pool)
+        .await?;
+
+        sqlx::query(
+            r#"CREATE UNIQUE INDEX IF NOT EXISTS idx_trusted_issuers_issuer ON trusted_issuers(issuer);"#,
+        )
+        .execute(pool)
+        .await?;
+
+        // DPoP proof `jti` replay store (RFC 9449 §11.1)
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS dpop_jtis (
+                jti TEXT PRIMARY KEY,
+                expires_at TEXT NOT NULL
+            );
+            "#,
+        )
+        .execute(pool)
+        .await?;
+
+        sqlx::query(
+            r#"CREATE INDEX IF NOT EXISTS idx_dpop_jtis_expires_at ON dpop_jtis(expires_at);"#,
+        )
+        .execute(pool)
+        .await?;
+
         Ok(())
     }
 }
@@ -491,8 +647,8 @@ impl Storage for SqlxStorage {
             DatabasePool::Sqlite(pool) => {
                 sqlx::query(
                     r#"
-                    INSERT INTO clients (id, client_id, client_secret, redirect_uris, grant_types, scope, name, created_at, updated_at, token_endpoint_auth_method, registration_access_token, response_types, contacts, logo_uri, client_uri, policy_uri, tos_uri, jwks, jwks_uri, backchannel_logout_uri, backchannel_logout_session_required, frontchannel_logout_uri, frontchannel_logout_session_required, post_logout_redirect_uris, enabled, require_state, tls_client_certificate_subject_dn, dpop_nonce_required)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO clients (id, client_id, client_secret, redirect_uris, grant_types, scope, name, created_at, updated_at, token_endpoint_auth_method, registration_access_token, response_types, contacts, logo_uri, client_uri, policy_uri, tos_uri, jwks, jwks_uri, backchannel_logout_uri, backchannel_logout_session_required, frontchannel_logout_uri, frontchannel_logout_session_required, post_logout_redirect_uris, enabled, require_state, tls_client_certificate_subject_dn, dpop_nonce_required, allowed_actors, tls_client_auth_san, software_id, software_version, cimd_managed)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     "#,
                 )
                 .bind(&client.id)
@@ -523,14 +679,19 @@ impl Storage for SqlxStorage {
                 .bind(client.require_state)
                 .bind(&client.tls_client_certificate_subject_dn)
                 .bind(client.dpop_nonce_required)
+                .bind(&client.allowed_actors)
+                .bind(&client.tls_client_auth_san)
+                .bind(&client.software_id)
+                .bind(&client.software_version)
+                .bind(client.cimd_managed)
                 .execute(pool)
                 .await?;
             }
             DatabasePool::Postgres(pool) => {
                 sqlx::query(
                     r#"
-                    INSERT INTO clients (id, client_id, client_secret, redirect_uris, grant_types, scope, name, created_at, updated_at, token_endpoint_auth_method, registration_access_token, response_types, contacts, logo_uri, client_uri, policy_uri, tos_uri, jwks, jwks_uri, backchannel_logout_uri, backchannel_logout_session_required, frontchannel_logout_uri, frontchannel_logout_session_required, post_logout_redirect_uris, enabled, require_state, tls_client_certificate_subject_dn, dpop_nonce_required)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28)
+                    INSERT INTO clients (id, client_id, client_secret, redirect_uris, grant_types, scope, name, created_at, updated_at, token_endpoint_auth_method, registration_access_token, response_types, contacts, logo_uri, client_uri, policy_uri, tos_uri, jwks, jwks_uri, backchannel_logout_uri, backchannel_logout_session_required, frontchannel_logout_uri, frontchannel_logout_session_required, post_logout_redirect_uris, enabled, require_state, tls_client_certificate_subject_dn, dpop_nonce_required, allowed_actors, tls_client_auth_san, software_id, software_version, cimd_managed)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33)
                     "#,
                 )
                 .bind(&client.id)
@@ -561,6 +722,11 @@ impl Storage for SqlxStorage {
                 .bind(client.require_state)
                 .bind(&client.tls_client_certificate_subject_dn)
                 .bind(client.dpop_nonce_required)
+                .bind(&client.allowed_actors)
+                .bind(&client.tls_client_auth_san)
+                .bind(&client.software_id)
+                .bind(&client.software_version)
+                .bind(client.cimd_managed)
                 .execute(pool)
                 .await?;
             }
@@ -588,6 +754,23 @@ impl Storage for SqlxStorage {
         Ok(client)
     }
 
+    async fn count_cimd_clients(&self) -> Result<u64, OAuth2Error> {
+        let count: i64 = match self.read_pool() {
+            DatabasePool::Sqlite(pool) => {
+                sqlx::query_scalar("SELECT COUNT(*) FROM clients WHERE cimd_managed = TRUE")
+                    .fetch_one(pool)
+                    .await?
+            }
+            DatabasePool::Postgres(pool) => {
+                sqlx::query_scalar("SELECT COUNT(*) FROM clients WHERE cimd_managed = TRUE")
+                    .fetch_one(pool)
+                    .await?
+            }
+        };
+
+        Ok(count.max(0) as u64)
+    }
+
     async fn update_client(&self, client: &Client) -> Result<(), OAuth2Error> {
         match &self.pool {
             DatabasePool::Sqlite(pool) => {
@@ -609,7 +792,12 @@ impl Storage for SqlxStorage {
                         post_logout_redirect_uris = ?,
                         tls_client_certificate_subject_dn = ?,
                         enabled = ?,
-                        dpop_nonce_required = ?
+                        dpop_nonce_required = ?,
+                        allowed_actors = ?,
+                        tls_client_auth_san = ?,
+                        software_id = ?,
+                        software_version = ?,
+                        cimd_managed = ?
                     WHERE client_id = ?
                     "#,
                 )
@@ -637,6 +825,11 @@ impl Storage for SqlxStorage {
                 .bind(&client.tls_client_certificate_subject_dn)
                 .bind(client.enabled)
                 .bind(client.dpop_nonce_required)
+                .bind(&client.allowed_actors)
+                .bind(&client.tls_client_auth_san)
+                .bind(&client.software_id)
+                .bind(&client.software_version)
+                .bind(client.cimd_managed)
                 .bind(&client.client_id)
                 .execute(pool)
                 .await?;
@@ -660,8 +853,13 @@ impl Storage for SqlxStorage {
                         post_logout_redirect_uris = $21,
                         tls_client_certificate_subject_dn = $22,
                         enabled = $23,
-                        dpop_nonce_required = $24
-                    WHERE client_id = $25
+                        dpop_nonce_required = $24,
+                        allowed_actors = $25,
+                        tls_client_auth_san = $26,
+                        software_id = $27,
+                        software_version = $28,
+                        cimd_managed = $29
+                    WHERE client_id = $30
                     "#,
                 )
                 .bind(&client.client_secret)
@@ -688,6 +886,11 @@ impl Storage for SqlxStorage {
                 .bind(&client.tls_client_certificate_subject_dn)
                 .bind(client.enabled)
                 .bind(client.dpop_nonce_required)
+                .bind(&client.allowed_actors)
+                .bind(&client.tls_client_auth_san)
+                .bind(&client.software_id)
+                .bind(&client.software_version)
+                .bind(client.cimd_managed)
                 .bind(&client.client_id)
                 .execute(pool)
                 .await?;
@@ -799,13 +1002,36 @@ impl Storage for SqlxStorage {
         Ok(user)
     }
 
+    async fn get_user_by_email(&self, email: &str) -> Result<Option<User>, OAuth2Error> {
+        let user = match self.read_pool() {
+            DatabasePool::Sqlite(pool) => {
+                sqlx::query_as::<_, User>(
+                    "SELECT id, username, password_hash, email, enabled, role, created_at, updated_at FROM users WHERE email = ?",
+                )
+                .bind(email)
+                .fetch_optional(pool)
+                .await?
+            }
+            DatabasePool::Postgres(pool) => {
+                sqlx::query_as::<_, User>(
+                    "SELECT id, username, password_hash, email, enabled, role, created_at, updated_at FROM users WHERE email = $1",
+                )
+                .bind(email)
+                .fetch_optional(pool)
+                .await?
+            }
+        };
+
+        Ok(user)
+    }
+
     async fn save_token(&self, token: &Token) -> Result<(), OAuth2Error> {
         match &self.pool {
             DatabasePool::Sqlite(pool) => {
                 sqlx::query(
                     r#"
-                    INSERT INTO tokens (id, access_token, refresh_token, token_type, expires_in, scope, client_id, user_id, created_at, expires_at, revoked, token_family)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO tokens (id, access_token, refresh_token, token_type, expires_in, scope, client_id, user_id, created_at, expires_at, revoked, token_family, act, cnf, resource)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     "#,
                 )
                 .bind(&token.id)
@@ -820,14 +1046,17 @@ impl Storage for SqlxStorage {
                 .bind(token.expires_at)
                 .bind(token.revoked)
                 .bind(&token.token_family)
+                .bind(&token.act)
+                .bind(&token.cnf)
+                .bind(&token.resource)
                 .execute(pool)
                 .await?;
             }
             DatabasePool::Postgres(pool) => {
                 sqlx::query(
                     r#"
-                    INSERT INTO tokens (id, access_token, refresh_token, token_type, expires_in, scope, client_id, user_id, created_at, expires_at, revoked, token_family)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+                    INSERT INTO tokens (id, access_token, refresh_token, token_type, expires_in, scope, client_id, user_id, created_at, expires_at, revoked, token_family, act, cnf, resource)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
                     "#,
                 )
                 .bind(&token.id)
@@ -842,6 +1071,9 @@ impl Storage for SqlxStorage {
                 .bind(token.expires_at)
                 .bind(token.revoked)
                 .bind(&token.token_family)
+                .bind(&token.act)
+                .bind(&token.cnf)
+                .bind(&token.resource)
                 .execute(pool)
                 .await?;
             }
@@ -990,8 +1222,8 @@ impl Storage for SqlxStorage {
             DatabasePool::Sqlite(pool) => {
                 sqlx::query(
                     r#"
-                    INSERT INTO authorization_codes (id, code, client_id, user_id, redirect_uri, scope, created_at, expires_at, used, code_challenge, code_challenge_method, nonce, resource, authorization_details, claims_request, token_family, dpop_jkt)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO authorization_codes (id, code, client_id, user_id, redirect_uri, scope, created_at, expires_at, used, code_challenge, code_challenge_method, nonce, resource, authorization_details, claims_request, token_family, dpop_jkt, requested_actor)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     "#,
                 )
                 .bind(&auth_code.id)
@@ -1011,14 +1243,15 @@ impl Storage for SqlxStorage {
                 .bind(&auth_code.claims_request)
                 .bind(&auth_code.token_family)
                 .bind(&auth_code.dpop_jkt)
+                .bind(&auth_code.requested_actor)
                 .execute(pool)
                 .await?;
             }
             DatabasePool::Postgres(pool) => {
                 sqlx::query(
                     r#"
-                    INSERT INTO authorization_codes (id, code, client_id, user_id, redirect_uri, scope, created_at, expires_at, used, code_challenge, code_challenge_method, nonce, resource, authorization_details, claims_request, token_family, dpop_jkt)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+                    INSERT INTO authorization_codes (id, code, client_id, user_id, redirect_uri, scope, created_at, expires_at, used, code_challenge, code_challenge_method, nonce, resource, authorization_details, claims_request, token_family, dpop_jkt, requested_actor)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
                     "#,
                 )
                 .bind(&auth_code.id)
@@ -1038,6 +1271,7 @@ impl Storage for SqlxStorage {
                 .bind(&auth_code.claims_request)
                 .bind(&auth_code.token_family)
                 .bind(&auth_code.dpop_jkt)
+                .bind(&auth_code.requested_actor)
                 .execute(pool)
                 .await?;
             }
@@ -1933,6 +2167,130 @@ impl Storage for SqlxStorage {
         Ok(entry.filter(|e| e.is_active()))
     }
 
+    // --- Trusted issuers registry (RFC 7523 JWT bearer grants / agent-A2A OAuth) ---
+
+    async fn save_trusted_issuer(&self, trusted_issuer: &TrustedIssuer) -> Result<(), OAuth2Error> {
+        match &self.pool {
+            DatabasePool::Sqlite(pool) => {
+                sqlx::query(
+                    r#"
+                    INSERT INTO trusted_issuers (id, issuer, jwks_uri, allowed_audiences, subject_mapping, jit_provision, allowed_client_ids, enabled, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(issuer) DO UPDATE SET
+                        jwks_uri = excluded.jwks_uri,
+                        allowed_audiences = excluded.allowed_audiences,
+                        subject_mapping = excluded.subject_mapping,
+                        jit_provision = excluded.jit_provision,
+                        allowed_client_ids = excluded.allowed_client_ids,
+                        enabled = excluded.enabled,
+                        updated_at = excluded.updated_at
+                    "#,
+                )
+                .bind(&trusted_issuer.id)
+                .bind(&trusted_issuer.issuer)
+                .bind(&trusted_issuer.jwks_uri)
+                .bind(&trusted_issuer.allowed_audiences)
+                .bind(&trusted_issuer.subject_mapping)
+                .bind(trusted_issuer.jit_provision)
+                .bind(&trusted_issuer.allowed_client_ids)
+                .bind(trusted_issuer.enabled)
+                .bind(trusted_issuer.created_at)
+                .bind(trusted_issuer.updated_at)
+                .execute(pool)
+                .await?;
+            }
+            DatabasePool::Postgres(pool) => {
+                sqlx::query(
+                    r#"
+                    INSERT INTO trusted_issuers (id, issuer, jwks_uri, allowed_audiences, subject_mapping, jit_provision, allowed_client_ids, enabled, created_at, updated_at)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                    ON CONFLICT (issuer) DO UPDATE SET
+                        jwks_uri = EXCLUDED.jwks_uri,
+                        allowed_audiences = EXCLUDED.allowed_audiences,
+                        subject_mapping = EXCLUDED.subject_mapping,
+                        jit_provision = EXCLUDED.jit_provision,
+                        allowed_client_ids = EXCLUDED.allowed_client_ids,
+                        enabled = EXCLUDED.enabled,
+                        updated_at = EXCLUDED.updated_at
+                    "#,
+                )
+                .bind(&trusted_issuer.id)
+                .bind(&trusted_issuer.issuer)
+                .bind(&trusted_issuer.jwks_uri)
+                .bind(&trusted_issuer.allowed_audiences)
+                .bind(&trusted_issuer.subject_mapping)
+                .bind(trusted_issuer.jit_provision)
+                .bind(&trusted_issuer.allowed_client_ids)
+                .bind(trusted_issuer.enabled)
+                .bind(trusted_issuer.created_at)
+                .bind(trusted_issuer.updated_at)
+                .execute(pool)
+                .await?;
+            }
+        }
+        Ok(())
+    }
+
+    async fn get_trusted_issuer(&self, issuer: &str) -> Result<Option<TrustedIssuer>, OAuth2Error> {
+        let ti = match self.read_pool() {
+            DatabasePool::Sqlite(pool) => {
+                sqlx::query_as::<_, TrustedIssuer>("SELECT * FROM trusted_issuers WHERE issuer = ?")
+                    .bind(issuer)
+                    .fetch_optional(pool)
+                    .await?
+            }
+            DatabasePool::Postgres(pool) => {
+                sqlx::query_as::<_, TrustedIssuer>(
+                    "SELECT * FROM trusted_issuers WHERE issuer = $1",
+                )
+                .bind(issuer)
+                .fetch_optional(pool)
+                .await?
+            }
+        };
+
+        Ok(ti)
+    }
+
+    async fn list_trusted_issuers(&self) -> Result<Vec<TrustedIssuer>, OAuth2Error> {
+        let items = match self.read_pool() {
+            DatabasePool::Sqlite(pool) => {
+                sqlx::query_as::<_, TrustedIssuer>(
+                    "SELECT * FROM trusted_issuers ORDER BY created_at DESC",
+                )
+                .fetch_all(pool)
+                .await?
+            }
+            DatabasePool::Postgres(pool) => {
+                sqlx::query_as::<_, TrustedIssuer>(
+                    "SELECT * FROM trusted_issuers ORDER BY created_at DESC",
+                )
+                .fetch_all(pool)
+                .await?
+            }
+        };
+
+        Ok(items)
+    }
+
+    async fn delete_trusted_issuer(&self, id: &str) -> Result<(), OAuth2Error> {
+        match &self.pool {
+            DatabasePool::Sqlite(pool) => {
+                sqlx::query("DELETE FROM trusted_issuers WHERE id = ?")
+                    .bind(id)
+                    .execute(pool)
+                    .await?;
+            }
+            DatabasePool::Postgres(pool) => {
+                sqlx::query("DELETE FROM trusted_issuers WHERE id = $1")
+                    .bind(id)
+                    .execute(pool)
+                    .await?;
+            }
+        }
+        Ok(())
+    }
+
     // --- Admin: audit log ---
 
     async fn write_audit_log(&self, entry: &AuditLogEntry) -> Result<(), OAuth2Error> {
@@ -2023,6 +2381,50 @@ impl Storage for SqlxStorage {
         Ok(Page::new(items, total as u64, limit, offset))
     }
 
+    /// RFC 9449 §11.1: record a DPoP proof `jti`, reporting whether it was
+    /// fresh. `INSERT ... ON CONFLICT DO NOTHING` makes the check atomic, so
+    /// two concurrent replays cannot both be accepted. Expired rows are
+    /// dropped opportunistically on the way in.
+    async fn dpop_jti_check_and_insert(
+        &self,
+        jti: &str,
+        expires_at: chrono::DateTime<chrono::Utc>,
+    ) -> Result<bool, OAuth2Error> {
+        let now = chrono::Utc::now();
+        let inserted = match &self.pool {
+            DatabasePool::Sqlite(pool) => {
+                sqlx::query("DELETE FROM dpop_jtis WHERE expires_at < ?")
+                    .bind(now)
+                    .execute(pool)
+                    .await?;
+                sqlx::query(
+                    "INSERT INTO dpop_jtis (jti, expires_at) VALUES (?, ?) ON CONFLICT(jti) DO NOTHING",
+                )
+                .bind(jti)
+                .bind(expires_at)
+                .execute(pool)
+                .await?
+                .rows_affected()
+            }
+            DatabasePool::Postgres(pool) => {
+                sqlx::query("DELETE FROM dpop_jtis WHERE expires_at < $1")
+                    .bind(now)
+                    .execute(pool)
+                    .await?;
+                sqlx::query(
+                    "INSERT INTO dpop_jtis (jti, expires_at) VALUES ($1, $2) ON CONFLICT (jti) DO NOTHING",
+                )
+                .bind(jti)
+                .bind(expires_at)
+                .execute(pool)
+                .await?
+                .rows_affected()
+            }
+        };
+
+        Ok(inserted > 0)
+    }
+
     async fn revoke_tokens_by_client_id(&self, client_id: &str) -> Result<u64, OAuth2Error> {
         let rows = match &self.pool {
             DatabasePool::Sqlite(pool) => {
@@ -2049,6 +2451,273 @@ impl Storage for SqlxStorage {
 
     async fn supports_audit_log(&self) -> bool {
         true
+    }
+
+    // --- Protected resources registry ---
+
+    async fn save_resource(&self, r: &ProtectedResource) -> Result<(), OAuth2Error> {
+        match &self.pool {
+            DatabasePool::Sqlite(pool) => {
+                sqlx::query(
+                    r#"
+                    INSERT INTO resources (id, resource_uri, name, scopes, authorization_details_types, txn_challenge_jwks_uri, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    "#,
+                )
+                .bind(&r.id)
+                .bind(&r.resource_uri)
+                .bind(&r.name)
+                .bind(&r.scopes)
+                .bind(&r.authorization_details_types)
+                .bind(&r.txn_challenge_jwks_uri)
+                .bind(r.created_at)
+                .bind(r.updated_at)
+                .execute(pool)
+                .await?;
+            }
+            DatabasePool::Postgres(pool) => {
+                sqlx::query(
+                    r#"
+                    INSERT INTO resources (id, resource_uri, name, scopes, authorization_details_types, txn_challenge_jwks_uri, created_at, updated_at)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                    "#,
+                )
+                .bind(&r.id)
+                .bind(&r.resource_uri)
+                .bind(&r.name)
+                .bind(&r.scopes)
+                .bind(&r.authorization_details_types)
+                .bind(&r.txn_challenge_jwks_uri)
+                .bind(r.created_at)
+                .bind(r.updated_at)
+                .execute(pool)
+                .await?;
+            }
+        }
+        Ok(())
+    }
+
+    async fn get_resource_by_uri(
+        &self,
+        uri: &str,
+    ) -> Result<Option<ProtectedResource>, OAuth2Error> {
+        let resource = match self.read_pool() {
+            DatabasePool::Sqlite(pool) => {
+                sqlx::query_as::<_, ProtectedResource>(
+                    "SELECT * FROM resources WHERE resource_uri = ?",
+                )
+                .bind(uri)
+                .fetch_optional(pool)
+                .await?
+            }
+            DatabasePool::Postgres(pool) => {
+                sqlx::query_as::<_, ProtectedResource>(
+                    "SELECT * FROM resources WHERE resource_uri = $1",
+                )
+                .bind(uri)
+                .fetch_optional(pool)
+                .await?
+            }
+        };
+        Ok(resource)
+    }
+
+    async fn get_resource_by_id(&self, id: &str) -> Result<Option<ProtectedResource>, OAuth2Error> {
+        let resource = match self.read_pool() {
+            DatabasePool::Sqlite(pool) => {
+                sqlx::query_as::<_, ProtectedResource>("SELECT * FROM resources WHERE id = ?")
+                    .bind(id)
+                    .fetch_optional(pool)
+                    .await?
+            }
+            DatabasePool::Postgres(pool) => {
+                sqlx::query_as::<_, ProtectedResource>("SELECT * FROM resources WHERE id = $1")
+                    .bind(id)
+                    .fetch_optional(pool)
+                    .await?
+            }
+        };
+        Ok(resource)
+    }
+
+    async fn list_resources(&self) -> Result<Vec<ProtectedResource>, OAuth2Error> {
+        let items = match self.read_pool() {
+            DatabasePool::Sqlite(pool) => {
+                sqlx::query_as::<_, ProtectedResource>(
+                    "SELECT * FROM resources ORDER BY created_at DESC",
+                )
+                .fetch_all(pool)
+                .await?
+            }
+            DatabasePool::Postgres(pool) => {
+                sqlx::query_as::<_, ProtectedResource>(
+                    "SELECT * FROM resources ORDER BY created_at DESC",
+                )
+                .fetch_all(pool)
+                .await?
+            }
+        };
+        Ok(items)
+    }
+
+    async fn delete_resource(&self, id: &str) -> Result<(), OAuth2Error> {
+        match &self.pool {
+            DatabasePool::Sqlite(pool) => {
+                sqlx::query("DELETE FROM resources WHERE id = ?")
+                    .bind(id)
+                    .execute(pool)
+                    .await?;
+            }
+            DatabasePool::Postgres(pool) => {
+                sqlx::query("DELETE FROM resources WHERE id = $1")
+                    .bind(id)
+                    .execute(pool)
+                    .await?;
+            }
+        }
+        Ok(())
+    }
+
+    // --- Transaction Authorization Challenge ---
+
+    async fn save_transaction_authorization(
+        &self,
+        txn_auth: &TransactionAuthorization,
+    ) -> Result<(), OAuth2Error> {
+        match &self.pool {
+            DatabasePool::Sqlite(pool) => {
+                sqlx::query(
+                    r#"
+                    INSERT INTO transaction_authorizations (id, transaction_authorization_id, client_id, user_id, resource_uri, txn, authorization_details, reason, reason_uri, act, created_at, expires_at, interval_seconds, approved, denied, used)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    "#,
+                )
+                .bind(&txn_auth.id)
+                .bind(&txn_auth.transaction_authorization_id)
+                .bind(&txn_auth.client_id)
+                .bind(&txn_auth.user_id)
+                .bind(&txn_auth.resource_uri)
+                .bind(&txn_auth.txn)
+                .bind(&txn_auth.authorization_details)
+                .bind(&txn_auth.reason)
+                .bind(&txn_auth.reason_uri)
+                .bind(&txn_auth.act)
+                .bind(txn_auth.created_at)
+                .bind(txn_auth.expires_at)
+                .bind(txn_auth.interval_seconds)
+                .bind(txn_auth.approved)
+                .bind(txn_auth.denied)
+                .bind(txn_auth.used)
+                .execute(pool)
+                .await?;
+            }
+            DatabasePool::Postgres(pool) => {
+                sqlx::query(
+                    r#"
+                    INSERT INTO transaction_authorizations (id, transaction_authorization_id, client_id, user_id, resource_uri, txn, authorization_details, reason, reason_uri, act, created_at, expires_at, interval_seconds, approved, denied, used)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+                    "#,
+                )
+                .bind(&txn_auth.id)
+                .bind(&txn_auth.transaction_authorization_id)
+                .bind(&txn_auth.client_id)
+                .bind(&txn_auth.user_id)
+                .bind(&txn_auth.resource_uri)
+                .bind(&txn_auth.txn)
+                .bind(&txn_auth.authorization_details)
+                .bind(&txn_auth.reason)
+                .bind(&txn_auth.reason_uri)
+                .bind(&txn_auth.act)
+                .bind(txn_auth.created_at)
+                .bind(txn_auth.expires_at)
+                .bind(txn_auth.interval_seconds)
+                .bind(txn_auth.approved)
+                .bind(txn_auth.denied)
+                .bind(txn_auth.used)
+                .execute(pool)
+                .await?;
+            }
+        }
+        Ok(())
+    }
+
+    async fn get_transaction_authorization(
+        &self,
+        transaction_authorization_id: &str,
+    ) -> Result<Option<TransactionAuthorization>, OAuth2Error> {
+        let record = match self.read_pool() {
+            DatabasePool::Sqlite(pool) => sqlx::query_as::<_, TransactionAuthorization>(
+                "SELECT * FROM transaction_authorizations WHERE transaction_authorization_id = ?",
+            )
+            .bind(transaction_authorization_id)
+            .fetch_optional(pool)
+            .await?,
+            DatabasePool::Postgres(pool) => sqlx::query_as::<_, TransactionAuthorization>(
+                "SELECT * FROM transaction_authorizations WHERE transaction_authorization_id = $1",
+            )
+            .bind(transaction_authorization_id)
+            .fetch_optional(pool)
+            .await?,
+        };
+        Ok(record)
+    }
+
+    async fn settle_transaction_authorization(
+        &self,
+        transaction_authorization_id: &str,
+        user_id: &str,
+        approved: bool,
+    ) -> Result<(), OAuth2Error> {
+        match &self.pool {
+            DatabasePool::Sqlite(pool) => {
+                sqlx::query(
+                    "UPDATE transaction_authorizations SET approved = ?, denied = ?, user_id = ? WHERE transaction_authorization_id = ?",
+                )
+                .bind(approved)
+                .bind(!approved)
+                .bind(user_id)
+                .bind(transaction_authorization_id)
+                .execute(pool)
+                .await?;
+            }
+            DatabasePool::Postgres(pool) => {
+                sqlx::query(
+                    "UPDATE transaction_authorizations SET approved = $1, denied = $2, user_id = $3 WHERE transaction_authorization_id = $4",
+                )
+                .bind(approved)
+                .bind(!approved)
+                .bind(user_id)
+                .bind(transaction_authorization_id)
+                .execute(pool)
+                .await?;
+            }
+        }
+        Ok(())
+    }
+
+    async fn mark_transaction_authorization_used(
+        &self,
+        transaction_authorization_id: &str,
+    ) -> Result<(), OAuth2Error> {
+        match &self.pool {
+            DatabasePool::Sqlite(pool) => {
+                sqlx::query(
+                    "UPDATE transaction_authorizations SET used = 1 WHERE transaction_authorization_id = ?",
+                )
+                .bind(transaction_authorization_id)
+                .execute(pool)
+                .await?;
+            }
+            DatabasePool::Postgres(pool) => {
+                sqlx::query(
+                    "UPDATE transaction_authorizations SET used = true WHERE transaction_authorization_id = $1",
+                )
+                .bind(transaction_authorization_id)
+                .execute(pool)
+                .await?;
+            }
+        }
+        Ok(())
     }
 }
 

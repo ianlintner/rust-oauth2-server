@@ -61,6 +61,7 @@ nav:
       - Configuration: getting-started/configuration.md
   - Use the server:
       - OAuth & OIDC: usage/oauth2-oidc.md
+      - Agent & A2A OAuth: agents/README.md
       - Admin & API: usage/admin-api.md
       - Integrations: usage/integrations.md
   - Examples:
