@@ -760,6 +760,20 @@ impl Storage for ObservedStorage {
             .await
     }
 
+    // --- DPoP proof replay prevention (RFC 9449 §11.1) ---
+
+    async fn dpop_jti_check_and_insert(
+        &self,
+        jti: &str,
+        expires_at: chrono::DateTime<chrono::Utc>,
+    ) -> Result<bool, OAuth2Error> {
+        let span = self.span("dpop_jti_check_and_insert");
+        let jti = jti.to_string();
+        async move { self.inner.dpop_jti_check_and_insert(&jti, expires_at).await }
+            .instrument(span)
+            .await
+    }
+
     // --- Backend capability flags ---
 
     async fn supports_denylist(&self) -> bool {

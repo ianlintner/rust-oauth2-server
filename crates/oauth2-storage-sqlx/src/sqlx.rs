@@ -445,6 +445,24 @@ impl SqlxStorage {
         .execute(pool)
         .await?;
 
+        // DPoP proof `jti` replay store (RFC 9449 §11.1)
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS dpop_jtis (
+                jti TEXT PRIMARY KEY,
+                expires_at TEXT NOT NULL
+            );
+            "#,
+        )
+        .execute(pool)
+        .await?;
+
+        sqlx::query(
+            r#"CREATE INDEX IF NOT EXISTS idx_dpop_jtis_expires_at ON dpop_jtis(expires_at);"#,
+        )
+        .execute(pool)
+        .await?;
+
         Ok(())
     }
 }
@@ -2004,6 +2022,50 @@ impl Storage for SqlxStorage {
         };
 
         Ok(Page::new(items, total as u64, limit, offset))
+    }
+
+    /// RFC 9449 §11.1: record a DPoP proof `jti`, reporting whether it was
+    /// fresh. `INSERT ... ON CONFLICT DO NOTHING` makes the check atomic, so
+    /// two concurrent replays cannot both be accepted. Expired rows are
+    /// dropped opportunistically on the way in.
+    async fn dpop_jti_check_and_insert(
+        &self,
+        jti: &str,
+        expires_at: chrono::DateTime<chrono::Utc>,
+    ) -> Result<bool, OAuth2Error> {
+        let now = chrono::Utc::now();
+        let inserted = match &self.pool {
+            DatabasePool::Sqlite(pool) => {
+                sqlx::query("DELETE FROM dpop_jtis WHERE expires_at < ?")
+                    .bind(now)
+                    .execute(pool)
+                    .await?;
+                sqlx::query(
+                    "INSERT INTO dpop_jtis (jti, expires_at) VALUES (?, ?) ON CONFLICT(jti) DO NOTHING",
+                )
+                .bind(jti)
+                .bind(expires_at)
+                .execute(pool)
+                .await?
+                .rows_affected()
+            }
+            DatabasePool::Postgres(pool) => {
+                sqlx::query("DELETE FROM dpop_jtis WHERE expires_at < $1")
+                    .bind(now)
+                    .execute(pool)
+                    .await?;
+                sqlx::query(
+                    "INSERT INTO dpop_jtis (jti, expires_at) VALUES ($1, $2) ON CONFLICT (jti) DO NOTHING",
+                )
+                .bind(jti)
+                .bind(expires_at)
+                .execute(pool)
+                .await?
+                .rows_affected()
+            }
+        };
+
+        Ok(inserted > 0)
     }
 
     async fn revoke_tokens_by_client_id(&self, client_id: &str) -> Result<u64, OAuth2Error> {

@@ -23,6 +23,7 @@ redis = ["dep:redis"]
 
 [dependencies]
 async-trait = "0.1"
+chrono = { version = "0.4", features = ["serde"] }
 
 # Core domain + ports
 oauth2-core = { path = "../oauth2-core" }

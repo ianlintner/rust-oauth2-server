@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use chrono::{DateTime, Utc};
 use std::sync::Arc;
 
 use oauth2_core::{
@@ -299,6 +300,26 @@ pub trait Storage: Send + Sync {
     async fn revoke_tokens_by_client_id(&self, client_id: &str) -> Result<u64, OAuth2Error> {
         let _ = client_id;
         Ok(0)
+    }
+
+    // --- DPoP proof replay prevention (RFC 9449 §11.1) ---
+
+    /// Record a DPoP proof `jti` and report whether it was fresh.
+    ///
+    /// Returns `Ok(true)` when the `jti` had not been seen before (the proof
+    /// may be accepted) and `Ok(false)` when it is a replay. Backends should
+    /// also drop rows past their `expires_at` opportunistically.
+    ///
+    /// The default implementation accepts every `jti`, which keeps the
+    /// in-memory replay store (the historical behaviour) as the effective
+    /// defence for backends that do not persist proofs.
+    async fn dpop_jti_check_and_insert(
+        &self,
+        jti: &str,
+        expires_at: DateTime<Utc>,
+    ) -> Result<bool, OAuth2Error> {
+        let _ = (jti, expires_at);
+        Ok(true)
     }
 
     // --- Backend capability flags ---

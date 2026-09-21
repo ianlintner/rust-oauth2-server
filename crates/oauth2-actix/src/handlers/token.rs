@@ -227,13 +227,16 @@ pub async fn introspect(
                                 OAuth2Error::invalid_request("DPoP header is not valid UTF-8")
                             })?;
                             let method = req.method().as_str();
-                            let conn_info = req.connection_info();
-                            let introspect_url = build_request_url_bounded(
-                                conn_info.scheme(),
-                                conn_info.host(),
-                                req.path(),
-                            )?;
-                            drop(conn_info);
+                            // Scoped so the `connection_info()` Ref is
+                            // released before the await below.
+                            let introspect_url = {
+                                let conn_info = req.connection_info();
+                                build_request_url_bounded(
+                                    conn_info.scheme(),
+                                    conn_info.host(),
+                                    req.path(),
+                                )?
+                            };
                             let store_ref = dpop_replay_store.as_ref().map(|d| d.as_ref());
                             let default_store;
                             let replay_store = match store_ref {
@@ -243,12 +246,18 @@ pub async fn introspect(
                                     &default_store
                                 }
                             };
+                            // RFC 9449 §7.1: the proof accompanies an access
+                            // token, so `ath` is REQUIRED and must hash to the
+                            // exact token presented for introspection.
                             match validate_dpop_proof(
                                 dpop_str,
                                 method,
                                 &introspect_url,
                                 replay_store,
-                            ) {
+                                Some(&form.token),
+                            )
+                            .await
+                            {
                                 Ok(validated) => {
                                     // Verify the proof's JWK thumbprint matches the token's cnf.jkt.
                                     let proof_jkt = validated.jkt;

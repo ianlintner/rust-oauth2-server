@@ -13,26 +13,56 @@ use std::time::{Duration, Instant};
 
 use base64::{engine::general_purpose, Engine as _};
 use oauth2_core::OAuth2Error;
+use oauth2_ports::DynStorage;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
+use subtle::ConstantTimeEq;
 
 use crate::handlers::dpop_nonce::DpopNonceIssuer;
 
-/// In-memory DPoP proof replay store.
+/// DPoP proof replay store (RFC 9449 §11.1).
 ///
-/// Keyed by `jti`; value is the expiry time (`iat` + acceptance window).
-/// Entries are cleaned up lazily on each insertion.
+/// Two backings:
+/// - in-memory (the default): a `jti` -> expiry map, scoped to this process;
+/// - storage-backed: the `jti` is persisted via `Storage::dpop_jti_check_and_insert`,
+///   so replays are detected across restarts and across AS instances sharing
+///   one database.
 #[derive(Clone, Default)]
-pub struct DpopReplayStore(pub Arc<Mutex<HashMap<String, Instant>>>);
+pub struct DpopReplayStore {
+    memory: Arc<Mutex<HashMap<String, Instant>>>,
+    storage: Option<DynStorage>,
+}
 
 impl DpopReplayStore {
+    /// In-memory store, scoped to this process.
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// Check the `jti` and record it if fresh. Returns `Err` if already seen.
-    pub fn check_and_insert(&self, jti: &str, expiry: Instant) -> Result<(), OAuth2Error> {
-        let mut store = self.0.lock().map_err(|_| {
+    /// Store backed by persistent storage, shared across instances.
+    pub fn with_storage(storage: DynStorage) -> Self {
+        Self {
+            memory: Arc::new(Mutex::new(HashMap::new())),
+            storage: Some(storage),
+        }
+    }
+
+    /// Check the `jti` and record it if fresh, keeping the record for `ttl`.
+    /// Returns `Err(invalid_dpop_proof)` if the `jti` has already been seen.
+    pub async fn check_and_insert(&self, jti: &str, ttl: Duration) -> Result<(), OAuth2Error> {
+        if let Some(storage) = &self.storage {
+            let expires_at = chrono::Utc::now()
+                + chrono::Duration::from_std(ttl).unwrap_or_else(|_| chrono::Duration::zero());
+            let fresh = storage.dpop_jti_check_and_insert(jti, expires_at).await?;
+            return if fresh { Ok(()) } else { Err(replay_error()) };
+        }
+
+        self.check_and_insert_in_memory(jti, Instant::now() + ttl)
+    }
+
+    /// In-memory path, kept separate so the mutex guard never spans an await.
+    fn check_and_insert_in_memory(&self, jti: &str, expiry: Instant) -> Result<(), OAuth2Error> {
+        let mut store = self.memory.lock().map_err(|_| {
             OAuth2Error::new("server_error", Some("DPoP replay store lock poisoned"))
         })?;
 
@@ -41,14 +71,18 @@ impl DpopReplayStore {
         store.retain(|_, exp| *exp > now);
 
         if store.contains_key(jti) {
-            return Err(OAuth2Error::new(
-                "invalid_dpop_proof",
-                Some("DPoP proof jti has already been used (replay)"),
-            ));
+            return Err(replay_error());
         }
         store.insert(jti.to_string(), expiry);
         Ok(())
     }
+}
+
+fn replay_error() -> OAuth2Error {
+    OAuth2Error::new(
+        "invalid_dpop_proof",
+        Some("DPoP proof jti has already been used (replay)"),
+    )
 }
 
 /// Acceptance window for DPoP `iat` claim (±300 seconds per RFC 9449 §4.3).
@@ -106,6 +140,11 @@ struct DpopClaims {
     /// enforced when the client has `dpop_nonce_required = true`.
     #[serde(default)]
     nonce: Option<String>,
+    /// RFC 9449 §4.2 — hash of the access token this proof accompanies.
+    /// Required whenever an access token is presented alongside the proof
+    /// (§7.1); absent at the token endpoint, which issues the token.
+    #[serde(default)]
+    ath: Option<String>,
 }
 
 /// Outcome of a successful DPoP proof validation.
@@ -161,11 +200,16 @@ pub fn enforce_dpop_nonce(
 /// - `method`: HTTP method of the current request (e.g. `"POST"`)
 /// - `url`: full URL of the current request (query string is stripped for `htu` comparison)
 /// - `replay_store`: DPoP-specific replay prevention store
-pub fn validate_dpop_proof(
+/// - `expected_ath`: the access token presented with this proof, if any. When
+///   `Some`, the proof MUST carry `ath == base64url(SHA-256(token))`
+///   (RFC 9449 §4.3 step 12 / §7.1); when `None` (token endpoint) `ath` is
+///   neither required nor checked.
+pub async fn validate_dpop_proof(
     dpop_proof: &str,
     method: &str,
     url: &str,
     replay_store: &DpopReplayStore,
+    expected_ath: Option<&str>,
 ) -> Result<DpopValidated, OAuth2Error> {
     // ── Step 1: decode the JOSE header ──────────────────────────────────────
     let header = jsonwebtoken::decode_header(dpop_proof).map_err(|_| {
@@ -227,15 +271,41 @@ pub fn validate_dpop_proof(
         ));
     }
 
-    // ── Step 9: jti replay prevention ───────────────────────────────────────
-    // Set expiry to iat + skew + some buffer so the store doesn't grow unbounded.
-    let expiry = Instant::now() + Duration::from_secs((DPOP_IAT_SKEW_SECS * 2 + 60) as u64);
-    replay_store.check_and_insert(&claims.jti, expiry)?;
+    // ── Step 9: ath binds the proof to the presented access token ───────────
+    // RFC 9449 §4.3 step 12: when the proof accompanies an access token, `ath`
+    // is REQUIRED (§7.1) and must hash to that exact token. Checked before the
+    // replay insert so an invalid proof does not burn its `jti`.
+    if let Some(access_token) = expected_ath {
+        let presented = claims.ath.as_deref().ok_or_else(|| {
+            OAuth2Error::new(
+                "invalid_dpop_proof",
+                Some("DPoP proof must carry the ath claim when an access token is presented"),
+            )
+        })?;
+        let expected = compute_ath(access_token);
+        if presented.as_bytes().ct_eq(expected.as_bytes()).unwrap_u8() != 1 {
+            return Err(OAuth2Error::new(
+                "invalid_dpop_proof",
+                Some("DPoP proof ath does not match the presented access token"),
+            ));
+        }
+    }
+
+    // ── Step 10: jti replay prevention ──────────────────────────────────────
+    // Keep the record for iat + skew + a buffer so the store doesn't grow unbounded.
+    let ttl = Duration::from_secs((DPOP_IAT_SKEW_SECS * 2 + 60) as u64);
+    replay_store.check_and_insert(&claims.jti, ttl).await?;
 
     Ok(DpopValidated {
         jkt,
         nonce: claims.nonce,
     })
+}
+
+/// RFC 9449 §4.2 — `ath`: base64url (no padding) of the SHA-256 hash of the
+/// ASCII access token.
+pub fn compute_ath(access_token: &str) -> String {
+    general_purpose::URL_SAFE_NO_PAD.encode(Sha256::digest(access_token.as_bytes()))
 }
 
 /// Compute the RFC 7638 JWK Thumbprint as a base64url-encoded SHA-256 hash.
@@ -384,20 +454,28 @@ mod tests {
         );
     }
 
-    #[test]
-    fn dpop_replay_store_rejects_duplicate_jti() {
+    #[actix_web::test]
+    async fn dpop_replay_store_rejects_duplicate_jti() {
         let store = DpopReplayStore::new();
-        let expiry = Instant::now() + Duration::from_secs(60);
-        store.check_and_insert("test-jti", expiry).unwrap();
-        let result = store.check_and_insert("test-jti", expiry);
+        let ttl = Duration::from_secs(60);
+        store.check_and_insert("test-jti", ttl).await.unwrap();
+        let result = store.check_and_insert("test-jti", ttl).await;
         assert!(result.is_err());
     }
 
-    #[test]
-    fn dpop_replay_store_accepts_different_jti() {
+    #[actix_web::test]
+    async fn dpop_replay_store_accepts_different_jti() {
         let store = DpopReplayStore::new();
-        let expiry = Instant::now() + Duration::from_secs(60);
-        store.check_and_insert("jti-1", expiry).unwrap();
-        store.check_and_insert("jti-2", expiry).unwrap();
+        let ttl = Duration::from_secs(60);
+        store.check_and_insert("jti-1", ttl).await.unwrap();
+        store.check_and_insert("jti-2", ttl).await.unwrap();
+    }
+
+    #[test]
+    fn compute_ath_is_base64url_sha256_of_the_token() {
+        // SHA-256("abc") — RFC 6234 test vector.
+        let expected = general_purpose::URL_SAFE_NO_PAD.encode(Sha256::digest(b"abc"));
+        assert_eq!(compute_ath("abc"), expected);
+        assert!(!compute_ath("abc").contains('='), "ath must be unpadded");
     }
 }

@@ -1249,10 +1249,10 @@ pub async fn run() -> std::io::Result<()> {
         ));
 
         // RFC 9449: DPoP proof replay store — prevents `jti` reuse within the
-        // acceptance window. Shared across all requests so replay detection
-        // works correctly even under concurrent token requests.
+        // acceptance window. Storage-backed so replay detection also holds
+        // across restarts and across AS instances sharing one database.
         app = app.app_data(web::Data::new(
-            oauth2_actix::handlers::dpop::DpopReplayStore::new(),
+            oauth2_actix::handlers::dpop::DpopReplayStore::with_storage(storage.clone()),
         ));
 
         // RFC 9449 §§8, 9: DPoP nonce issuer. Stateless time-bucketed HMAC

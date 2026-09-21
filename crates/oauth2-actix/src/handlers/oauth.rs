@@ -1462,11 +1462,12 @@ pub async fn token(
             .to_str()
             .map_err(|_| OAuth2Error::invalid_request("DPoP header is not valid UTF-8"))?;
         let method = req.method().as_str();
-        // Build the token endpoint URL for `htu` validation.
-        let conn_info = req.connection_info();
-        let token_url =
-            build_request_url_bounded(conn_info.scheme(), conn_info.host(), req.path())?;
-        drop(conn_info);
+        // Build the token endpoint URL for `htu` validation. Scoped so the
+        // `connection_info()` Ref is released before the await below.
+        let token_url = {
+            let conn_info = req.connection_info();
+            build_request_url_bounded(conn_info.scheme(), conn_info.host(), req.path())?
+        };
         let store_ref = dpop_replay_store.as_ref().map(|d| d.as_ref());
         let default_store;
         let replay_store = match store_ref {
@@ -1476,12 +1477,10 @@ pub async fn token(
                 &default_store
             }
         };
-        Some(validate_dpop_proof(
-            dpop_str,
-            method,
-            &token_url,
-            replay_store,
-        )?)
+        // `expected_ath = None`: the token endpoint issues the access token,
+        // so no token accompanies the proof (RFC 9449 §7.1 applies to
+        // protected-resource / introspection requests).
+        Some(validate_dpop_proof(dpop_str, method, &token_url, replay_store, None).await?)
     } else {
         None
     };
