@@ -10,10 +10,11 @@
 //! and `TokenActor`'s `CreateToken` handler in
 //! `crates/oauth2-actix/src/actors/token_actor.rs`).
 //!
-//! The `Actor` typed shape (from a separate, concurrently-developed task)
-//! does not exist yet in this worktree, so `act` is exercised here as a raw
-//! `serde_json::Value` shaped like `{"sub": ..., "iss": ...}` per
-//! `oauth2_core::Actor`'s documented shape in the global constraints.
+//! `act` is exercised here as a raw `serde_json::Value` shaped like
+//! `{"sub": ..., "iss": ...}`, which is what the `tokens.act` column stores
+//! and what introspection returns verbatim. Introspection is called with
+//! client credentials because `act` and `sub` are only returned to an
+//! authenticated caller.
 
 use actix::Actor;
 use actix_web::{test, web, App};
@@ -161,7 +162,11 @@ async fn jwt_mode_persists_and_introspects_delegation() {
         &app,
         test::TestRequest::post()
             .uri("/oauth/introspect")
-            .set_form([("token", created.access_token.as_str())])
+            .set_form([
+                ("token", created.access_token.as_str()),
+                ("client_id", client_id.as_str()),
+                ("client_secret", "secret"),
+            ])
             .to_request(),
     )
     .await;
@@ -256,7 +261,11 @@ async fn opaque_mode_persists_and_introspects_delegation() {
         &app,
         test::TestRequest::post()
             .uri("/oauth/introspect")
-            .set_form([("token", created.access_token.as_str())])
+            .set_form([
+                ("token", created.access_token.as_str()),
+                ("client_id", client_id.as_str()),
+                ("client_secret", "secret"),
+            ])
             .to_request(),
     )
     .await;
