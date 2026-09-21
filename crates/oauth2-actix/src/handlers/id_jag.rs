@@ -20,7 +20,6 @@ use uuid::Uuid;
 
 use actix_web::HttpResponse;
 use oauth2_config::AgentConfig;
-use oauth2_core::models::actor::{Actor, ActorChainError, SUB_PROFILE_SERVICE};
 use oauth2_core::models::key_set::{Algorithm as KeyAlgorithm, KeySet, SigningKey};
 use oauth2_core::token_types;
 use oauth2_core::OAuth2Error;
@@ -161,36 +160,9 @@ pub(crate) async fn issue(ctx: &ExchangeContext) -> Result<HttpResponse, OAuth2E
     };
 
     // --- Delegation ----------------------------------------------------------
-    // Mirrors the access-token path: an `act` chain only when an actor token
-    // was presented and authorised, otherwise whatever the subject carried.
-    let act = match ctx.actor.as_ref() {
-        None => ctx.subject.act.clone(),
-        Some(actor) => {
-            let issuer = ctx.oidc_config.issuer.clone();
-            let new_actor = Actor::new(actor.sub.clone(), issuer)
-                .with_profile(actor.sub_profile.as_deref().unwrap_or(SUB_PROFILE_SERVICE));
-            let chain = match ctx.subject.act.as_ref() {
-                Some(existing) => {
-                    let inner = Actor::from_value(existing).map_err(|e| {
-                        OAuth2Error::invalid_grant(&format!(
-                            "subject_token carries a malformed act claim: {e}"
-                        ))
-                    })?;
-                    new_actor.with_inner(inner)
-                }
-                None => new_actor,
-            };
-            chain
-                .validate_chain(ctx.config.max_delegation_depth)
-                .map_err(|e| match e {
-                    ActorChainError::DepthExceeded { .. } => {
-                        OAuth2Error::invalid_request(&e.to_string())
-                    }
-                    other => OAuth2Error::invalid_grant(&other.to_string()),
-                })?;
-            Some(chain.to_value())
-        }
-    };
+    // The exchange algorithm built the `act` chain once, at step 5, from the
+    // authorised actor token and whatever the subject already carried.
+    let act = ctx.act.clone();
 
     // RFC 9449: a DPoP proof at this endpoint binds the assertion to the same
     // key, so the downstream AS can require proof of possession on redemption.

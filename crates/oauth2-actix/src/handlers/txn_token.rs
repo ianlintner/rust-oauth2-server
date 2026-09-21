@@ -193,7 +193,10 @@ pub(crate) async fn issue(ctx: &ExchangeContext) -> Result<HttpResponse, OAuth2E
         None => ctx.subject.scope.clone(),
     };
 
-    let act = ctx.subject.act.clone();
+    // The exchange algorithm built the `act` chain once, at step 5: an
+    // authorised `actor_token` on this request extends what the subject token
+    // already carried, so the txn token records the delegation too.
+    let act = ctx.act.clone();
     let purp = if ctx.config.a2a_profile_enabled {
         ctx.req.purp.clone()
     } else {

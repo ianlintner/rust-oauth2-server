@@ -1123,3 +1123,46 @@ async fn discovery_advertises_transaction_tokens_only_when_enabled() {
         "doc: {disabled}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// 12. Delegation authorised at the txn request itself
+// ---------------------------------------------------------------------------
+
+/// Regression: an `actor_token` presented with the transaction-token request
+/// is authorised by steps 4-5 of the exchange algorithm, but the txn arm used
+/// to stamp the *subject token's* `act` instead of the chain those steps had
+/// just built — so the delegation never reached the transaction token.
+#[actix_web::test]
+async fn an_authorised_actor_token_is_recorded_in_the_txn_act_claim() {
+    let storage = storage().await;
+    storage
+        .save_client(&workload("wl_agent", "read write"))
+        .await
+        .expect("save agent workload");
+    let mut subject_client = base_client("wl_user", "read write");
+    subject_client.allowed_actors = json!(["wl_agent"]).to_string();
+    storage
+        .save_client(&subject_client)
+        .await
+        .expect("save subject client");
+    save_user(&storage, "alice").await;
+
+    let subject = mint(&storage, Some("alice"), "wl_user", "read", None).await;
+    let actor = mint(&storage, None, "wl_agent", "read", None).await;
+
+    let app = oauth_app!(storage, agent_config(true, Some(TRUST_DOMAIN), true));
+    let mut request = txn_request(subject.access_token.as_str(), ACCESS_TOKEN);
+    request.push(("actor_token", actor.access_token.as_str()));
+    request.push(("actor_token_type", ACCESS_TOKEN));
+    let resp = post_pkj!(app, "wl_agent", &request);
+
+    assert_eq!(resp.status(), 200);
+    let body = body_of(resp).await;
+    let (_, claims) = decode_txn(body["access_token"].as_str().expect("access_token"));
+    assert_eq!(claims["sub"], "alice", "claims: {claims}");
+    assert_eq!(claims["act"]["sub"], "wl_agent", "claims: {claims}");
+    assert_eq!(claims["act"]["iss"], ISSUER, "claims: {claims}");
+    // The A2A profile mirrors the two ends of the chain explicitly.
+    assert_eq!(claims["actor"], "wl_agent", "claims: {claims}");
+    assert_eq!(claims["principal"], "alice", "claims: {claims}");
+}

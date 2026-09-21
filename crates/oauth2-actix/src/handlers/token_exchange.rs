@@ -76,6 +76,12 @@ pub(crate) struct ExchangeContext {
     pub dpop_present: bool,
     pub subject: ResolvedToken,
     pub actor: Option<ResolvedToken>,
+    /// The `act` chain for the token about to be issued, computed once at
+    /// step 5 of the exchange algorithm: the delegation recorded by an
+    /// authorised `actor_token`, or whatever the subject token already
+    /// carried. `None` until `handle_token_exchange_grant` fills it in, so
+    /// the per-token-type arms all record the same chain.
+    pub act: Option<Value>,
     pub config: AgentConfig,
     pub storage: DynStorage,
     pub token_actor: web::Data<TokenActorPool>,
@@ -231,6 +237,7 @@ pub(crate) async fn exchange(
         dpop_present,
         subject,
         actor,
+        act: None,
         config,
         storage,
         token_actor,
@@ -657,12 +664,12 @@ pub(crate) fn verify_jwt<T: serde::de::DeserializeOwned>(
 // ---------------------------------------------------------------------------
 
 pub(crate) async fn handle_token_exchange_grant(
-    ctx: ExchangeContext,
+    mut ctx: ExchangeContext,
 ) -> Result<HttpResponse, OAuth2Error> {
     let issuer = ctx.oidc_config.issuer.clone();
 
     // --- Steps 4 + 5: delegation policy and `act` chain construction. -------
-    let act_claim: Option<Value> = match ctx.actor.as_ref() {
+    let act_chain: Option<Value> = match ctx.actor.as_ref() {
         None => {
             // Without an actor token there is no delegation to record, but the
             // exchange still moves a token from one client to another, so the
@@ -697,6 +704,9 @@ pub(crate) async fn handle_token_exchange_grant(
             Some(chain.to_value())
         }
     };
+    // Recorded on the context so every issuing arm below — access token,
+    // ID-JAG, transaction token — stamps the same chain.
+    ctx.act = act_chain;
 
     // The requested token type steers step 6 and is dispatched on at step 9.
     let requested_token_type = ctx
@@ -806,7 +816,7 @@ pub(crate) async fn handle_token_exchange_grant(
             resources,
             cnf: cnf.clone(),
             authorization_details,
-            act: act_claim,
+            act: ctx.act.clone(),
             ttl_override_secs: None,
             sub_profile: None,
             txn: None,
