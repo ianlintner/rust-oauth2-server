@@ -238,6 +238,21 @@ fn invalid_software_statement(detail: &str) -> OAuth2Error {
     OAuth2Error::new("invalid_software_statement", Some(detail))
 }
 
+/// Phase 7 (agent/A2A OAuth): `software_id` and `software_version` decide
+/// whether a client is treated as an AI agent — which selects the `ai_agent`
+/// `sub_profile` and the (shorter) AI-agent access-token TTL. A caller who can
+/// set them freely could either claim agent status or shed the TTL cap by
+/// dropping the `agent:` prefix, so on the self-service paths they are accepted
+/// only from a verified `software_statement`. Body-supplied values are cleared
+/// before [`apply_software_statement`] merges the attested ones back in.
+///
+/// The admin registration endpoint is exempt: an operator setting these
+/// deliberately is the intended way to register an agent without a statement.
+fn clear_self_asserted_software_metadata(reg: &mut ClientRegistration) {
+    reg.software_id = None;
+    reg.software_version = None;
+}
+
 /// RFC 7591 §2.3 — verify `software_statement` and fold its claims into the
 /// registration request.
 ///
@@ -454,6 +469,7 @@ pub async fn dynamic_register(
     // must only be set through the admin registration endpoint, never via
     // public self-registration.
     registration.allowed_actors = None;
+    clear_self_asserted_software_metadata(&mut registration);
     // RFC 7591 §2.3: apply a verified software statement before defaults and
     // validation, so its claims are what gets validated and stored.
     apply_software_statement(
@@ -548,10 +564,22 @@ pub async fn update_client_configuration(
     mut body: web::Json<ClientRegistration>,
     client_actor: web::Data<Addr<ClientActor>>,
     oidc_config: web::Data<OidcConfig>,
+    storage: Option<web::Data<DynStorage>>,
+    jwks_cache: Option<web::Data<JwksCache>>,
 ) -> Result<HttpResponse, OAuth2Error> {
     let client_id = path.into_inner();
     let mut client = authenticate_registration_token(&req, &client_id, &client_actor).await?;
 
+    // The registration access token authenticates the client, not an operator,
+    // so this is a self-service path: attested-only metadata may arrive only
+    // inside a verified software statement.
+    clear_self_asserted_software_metadata(&mut body);
+    apply_software_statement(
+        &mut body,
+        storage.as_ref().map(|d| d.as_ref()),
+        jwks_cache.as_ref().map(|d| d.as_ref()),
+    )
+    .await?;
     normalise_registration(&mut body);
     validate_registration(&body)?;
 
@@ -589,8 +617,16 @@ pub async fn update_client_configuration(
         .clone()
         .unwrap_or_default();
     client.tls_client_auth_san = body.tls_client_auth_san.clone().unwrap_or_default();
-    client.software_id = body.software_id.clone().unwrap_or_default();
-    client.software_version = body.software_version.clone().unwrap_or_default();
+    // Only a verified software statement can reach these (the body copies were
+    // cleared above), and an update that carries no statement must leave the
+    // stored values alone — silently wiping `software_id` would drop a client
+    // out of AI-agent status and out from under the agent TTL cap.
+    if let Some(id) = body.software_id.clone() {
+        client.software_id = id;
+    }
+    if let Some(version) = body.software_version.clone() {
+        client.software_version = version;
+    }
     client.updated_at = chrono::Utc::now();
 
     let updated = client_actor

@@ -407,6 +407,31 @@ async fn san_auth_rejects_a_client_without_a_registered_san() {
     assert_eq!(body["error"], "invalid_client", "body: {body}");
 }
 
+/// SAN headers are only consulted for the SAN auth methods. A
+/// `client_secret_basic` client that presents a perfectly good certificate and
+/// SAN still has to present its secret.
+#[actix_web::test]
+async fn san_headers_do_not_authenticate_a_client_secret_basic_client() {
+    let storage = setup_storage().await;
+    let mut client = san_client("secret_client", "client_secret_basic", SAN_URI);
+    client.client_secret = "the-real-secret".to_string();
+    storage.save_client(&client).await.expect("save client");
+
+    let (status, body) = post_token!(
+        storage,
+        deps(&storage, AgentConfig::default()),
+        cc_body("secret_client"),
+        [
+            ("X-Client-Cert-Thumbprint", THUMBPRINT),
+            ("X-SSL-Client-SAN-URI", SAN_URI),
+            ("X-SSL-Client-SAN-DNS", SAN_DNS),
+        ]
+    );
+
+    assert_eq!(status, 401, "body: {body}");
+    assert_eq!(body["error"], "invalid_client", "body: {body}");
+}
+
 // ---------------------------------------------------------------------------
 // RFC 8414 / RFC 8705 §5 — discovery metadata
 // ---------------------------------------------------------------------------
@@ -693,6 +718,249 @@ async fn registration_stores_the_san_for_san_auth_methods() {
         .expect("lookup")
         .expect("client exists");
     assert_eq!(stored.tls_client_auth_san, SAN_URI);
+}
+
+/// A statement signed by a *disabled* trusted issuer must be refused: the
+/// registry row is how an operator withdraws trust from an attester.
+#[actix_web::test]
+async fn software_statement_from_a_disabled_issuer_is_rejected() {
+    let jwks_uri = spawn_jwks_server();
+    let storage = setup_storage().await;
+    let mut trusted = TrustedIssuer::new(TRUSTED_ISS.to_string(), jwks_uri.clone());
+    trusted.enabled = false;
+    storage
+        .save_trusted_issuer(&trusted)
+        .await
+        .expect("save trusted issuer");
+
+    let now = chrono::Utc::now().timestamp();
+    let statement = sign_statement(
+        &json!({
+            "iss": TRUSTED_ISS,
+            "iat": now,
+            "exp": now + 300,
+            "software_id": "agent:revoked",
+        }),
+        true,
+    );
+
+    let (status, body) = post_register!(
+        storage,
+        deps(&storage, AgentConfig::default()),
+        json!({
+            "client_name": "Revoked attester",
+            "redirect_uris": ["https://revoked.example/cb"],
+            "grant_types": ["client_credentials"],
+            "scope": "read",
+            "token_endpoint_auth_method": "client_secret_basic",
+            "software_statement": statement,
+        })
+    );
+
+    assert_eq!(status, 400, "body: {body}");
+    assert_eq!(body["error"], "invalid_software_statement", "body: {body}");
+}
+
+// ---------------------------------------------------------------------------
+// Attested-only metadata: `software_id` / `software_version`
+// ---------------------------------------------------------------------------
+
+/// The public RFC 7591 endpoint. Enabling the flag is process-wide, and every
+/// registration test in this binary that uses it wants it on.
+macro_rules! post_dynamic_register {
+    ($storage:expr, $deps:expr, $body:expr) => {{
+        std::env::set_var("OAUTH2_DYNAMIC_REGISTRATION_ENABLED", "true");
+        let d = $deps;
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(d.client_actor))
+                .app_data(web::Data::new($storage.clone()))
+                .app_data(web::Data::new(d.oidc_config))
+                .app_data(web::Data::new(d.jwks_cache))
+                .route(
+                    "/connect/register",
+                    web::post().to(oauth2_actix::handlers::client::dynamic_register),
+                ),
+        )
+        .await;
+
+        let req = test::TestRequest::post()
+            .uri("/connect/register")
+            .set_json($body)
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        let status = resp.status();
+        let body: Value = test::read_body_json(resp).await;
+        (status, body)
+    }};
+}
+
+/// An anonymous self-registration must not be able to claim agent status:
+/// `software_id` in the body, with no software statement, is dropped.
+#[actix_web::test]
+async fn public_registration_ignores_a_self_asserted_software_id() {
+    let storage = setup_storage().await;
+
+    let (status, body) = post_dynamic_register!(
+        storage,
+        deps(&storage, AgentConfig::default()),
+        json!({
+            "client_name": "Self-asserted agent",
+            "redirect_uris": ["https://self.example/cb"],
+            "grant_types": ["client_credentials"],
+            "scope": "read",
+            "token_endpoint_auth_method": "tls_client_auth_san_uri",
+            "tls_client_auth_san": SAN_URI,
+            "software_id": "agent:impostor",
+            "software_version": "9.9.9",
+        })
+    );
+
+    assert_eq!(status, 201, "body: {body}");
+    let client_id = body["client_id"].as_str().expect("client_id").to_string();
+    let stored = storage
+        .get_client(&client_id)
+        .await
+        .expect("lookup")
+        .expect("client exists");
+    assert_eq!(stored.software_id, "", "body: {body}");
+    assert_eq!(stored.software_version, "", "body: {body}");
+
+    // ... and the tokens it gets are plain service tokens.
+    let (status, token_body) = post_token!(
+        storage,
+        deps(&storage, AgentConfig::default()),
+        cc_body(&client_id),
+        [
+            ("X-Client-Cert-Thumbprint", THUMBPRINT),
+            ("X-SSL-Client-SAN-URI", SAN_URI),
+        ]
+    );
+    assert_eq!(status, 200, "body: {token_body}");
+    assert_eq!(
+        claims_of(&token_body).sub_profile.as_deref(),
+        Some(SUB_PROFILE_SERVICE)
+    );
+}
+
+/// The same `software_id`, this time attested by a trusted issuer, is stored
+/// and does confer agent status.
+#[actix_web::test]
+async fn public_registration_accepts_an_attested_software_id() {
+    let jwks_uri = spawn_jwks_server();
+    let storage = setup_storage().await;
+    setup_statement_issuer(&storage, &jwks_uri).await;
+
+    let now = chrono::Utc::now().timestamp();
+    let statement = sign_statement(
+        &json!({
+            "iss": TRUSTED_ISS,
+            "iat": now,
+            "exp": now + 300,
+            "software_id": "agent:attested",
+            "software_version": "1.2.3",
+        }),
+        true,
+    );
+
+    let (status, body) = post_dynamic_register!(
+        storage,
+        deps(&storage, AgentConfig::default()),
+        json!({
+            "client_name": "Attested agent",
+            "redirect_uris": ["https://attested-agent.example/cb"],
+            "grant_types": ["client_credentials"],
+            "scope": "read",
+            "token_endpoint_auth_method": "tls_client_auth_san_uri",
+            "tls_client_auth_san": SAN_URI,
+            "software_id": "agent:impostor",
+            "software_statement": statement,
+        })
+    );
+
+    assert_eq!(status, 201, "body: {body}");
+    let client_id = body["client_id"].as_str().expect("client_id").to_string();
+    let stored = storage
+        .get_client(&client_id)
+        .await
+        .expect("lookup")
+        .expect("client exists");
+    assert_eq!(stored.software_id, "agent:attested", "body: {body}");
+    assert_eq!(stored.software_version, "1.2.3", "body: {body}");
+
+    let (status, token_body) = post_token!(
+        storage,
+        deps(&storage, AgentConfig::default()),
+        cc_body(&client_id),
+        [
+            ("X-Client-Cert-Thumbprint", THUMBPRINT),
+            ("X-SSL-Client-SAN-URI", SAN_URI),
+        ]
+    );
+    assert_eq!(status, 200, "body: {token_body}");
+    assert_eq!(
+        claims_of(&token_body).sub_profile.as_deref(),
+        Some(SUB_PROFILE_AI_AGENT)
+    );
+}
+
+/// RFC 7592 update: the registration access token authenticates the client, not
+/// an operator, so an unattested body can neither claim nor shed agent status.
+#[actix_web::test]
+async fn rfc7592_update_cannot_set_software_id_without_a_statement() {
+    let storage = setup_storage().await;
+    let mut client = san_client("updater", "tls_client_auth_san_uri", SAN_URI);
+    client.registration_access_token = "rat-secret-value".to_string();
+    client.software_id = "agent:original".to_string();
+    client.software_version = "1.0.0".to_string();
+    storage.save_client(&client).await.expect("save client");
+
+    let d = deps(&storage, AgentConfig::default());
+    let app = test::init_service(
+        App::new()
+            .app_data(web::Data::new(d.client_actor))
+            .app_data(web::Data::new(storage.clone()))
+            .app_data(web::Data::new(d.oidc_config))
+            .app_data(web::Data::new(d.jwks_cache))
+            .route(
+                "/connect/register/{client_id}",
+                web::put().to(oauth2_actix::handlers::client::update_client_configuration),
+            ),
+    )
+    .await;
+
+    let req = test::TestRequest::put()
+        .uri("/connect/register/updater")
+        .insert_header(("Authorization", "Bearer rat-secret-value"))
+        .set_json(json!({
+            "client_name": "Renamed",
+            "redirect_uris": ["https://updater.example/cb"],
+            "grant_types": ["client_credentials"],
+            "scope": "read",
+            "token_endpoint_auth_method": "tls_client_auth_san_uri",
+            "tls_client_auth_san": SAN_URI,
+            "software_id": "agent:escalated",
+            "software_version": "9.9.9",
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    let status = resp.status();
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(status, 200, "body: {body}");
+
+    let stored = storage
+        .get_client("updater")
+        .await
+        .expect("lookup")
+        .expect("client exists");
+    assert_eq!(
+        stored.name, "Renamed",
+        "the rest of the update still applies"
+    );
+    // Neither escalated nor silently wiped: dropping `software_id` would take
+    // the client out from under the AI-agent TTL cap.
+    assert_eq!(stored.software_id, "agent:original");
+    assert_eq!(stored.software_version, "1.0.0");
 }
 
 // ---------------------------------------------------------------------------
