@@ -5,6 +5,7 @@
 
 pub mod chrono_serde;
 pub mod models;
+pub mod token_types;
 pub mod utils;
 
 pub use models::*;

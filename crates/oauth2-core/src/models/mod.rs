@@ -1,3 +1,4 @@
+pub mod actor;
 pub mod audit;
 pub mod authorization;
 pub mod client;
@@ -10,6 +11,7 @@ pub mod scope;
 pub mod token;
 pub mod user;
 
+pub use actor::*;
 pub use audit::*;
 pub use authorization::*;
 pub use client::*;
