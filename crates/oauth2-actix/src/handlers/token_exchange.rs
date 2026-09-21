@@ -55,6 +55,9 @@ pub(crate) struct ResolvedToken {
     pub sub_profile: Option<String>,
     pub authorization_details: Option<Value>,
     pub cnf: Option<Value>,
+    /// `true` when this token is an OIDC ID token, which carries no scope of
+    /// its own and therefore needs the request to name one explicitly.
+    pub is_id_token: bool,
 }
 
 /// Everything the exchange algorithm operates on once the request has been
@@ -149,6 +152,7 @@ pub(crate) async fn exchange(
         "subject",
         &token_actor,
         &req.client_id,
+        &storage,
         &oidc_config,
         keyset_snapshot.as_ref(),
     )
@@ -172,6 +176,7 @@ pub(crate) async fn exchange(
                 "actor",
                 &token_actor,
                 &req.client_id,
+                &storage,
                 &oidc_config,
                 keyset_snapshot.as_ref(),
             )
@@ -249,13 +254,14 @@ async fn resolve_token(
     token_type: &str,
     which: &str,
     token_actor: &web::Data<TokenActorPool>,
-    routing_client_id: &str,
+    requesting_client_id: &str,
+    storage: &DynStorage,
     oidc_config: &OidcConfig,
     keyset: Option<&KeySet>,
 ) -> Result<ResolvedToken, OAuth2Error> {
     match token_type {
         token_types::ACCESS_TOKEN => {
-            let row = lookup(raw, token_actor, routing_client_id)
+            let row = lookup(raw, token_actor, requesting_client_id)
                 .await?
                 .ok_or_else(|| {
                     OAuth2Error::invalid_grant(&format!("{which}_token not found or expired"))
@@ -302,6 +308,7 @@ async fn resolve_token(
                     .as_ref()
                     .and_then(|c| c.cnf.clone())
                     .or_else(|| row.cnf_value()),
+                is_id_token: false,
             })
         }
         token_types::JWT => {
@@ -325,7 +332,7 @@ async fn resolve_token(
             // A JWT this server issued must still be on record and valid. The
             // lookup is by access token, so anything not stored as one (a
             // refresh token, a replayed copy of a deleted token) is refused.
-            let row = lookup(raw, token_actor, routing_client_id).await?;
+            let row = lookup(raw, token_actor, requesting_client_id).await?;
             if claims.iss == oidc_config.issuer {
                 let row = row.as_ref().ok_or_else(|| {
                     OAuth2Error::invalid_grant(&format!(
@@ -369,9 +376,32 @@ async fn resolve_token(
                 sub_profile: claims.sub_profile.clone(),
                 authorization_details: claims.authorization_details.clone(),
                 cnf: claims.cnf.clone(),
+                is_id_token: false,
             })
         }
         token_types::ID_TOKEN => {
+            // `IdTokenClaims` is a strict subset of the access/refresh token
+            // `Claims` payload, so an access or refresh token would otherwise
+            // deserialize here and bypass this arm's (deliberately absent)
+            // revocation and `cnf` handling. Rule both out explicitly.
+            let header = jsonwebtoken::decode_header(raw).map_err(|_| {
+                OAuth2Error::invalid_request(&format!("{which}_token header is malformed"))
+            })?;
+            if header.typ.as_deref() == Some("at+JWT") {
+                return Err(OAuth2Error::invalid_request(&format!(
+                    "{which}_token is not an ID token"
+                )));
+            }
+            // ID tokens are never stored in `tokens`; anything that is, is one
+            // of our access or refresh tokens wearing the wrong type URN.
+            let is_our_stored_token = storage.get_token_by_access_token(raw).await?.is_some()
+                || storage.get_token_by_refresh_token(raw).await?.is_some();
+            if is_our_stored_token {
+                return Err(OAuth2Error::invalid_request(&format!(
+                    "{which}_token is not an ID token"
+                )));
+            }
+
             let claims: IdTokenClaims = verify_jwt(raw, oidc_config, keyset).map_err(|_| {
                 OAuth2Error::invalid_grant(&format!("{which}_token is not a valid id_token"))
             })?;
@@ -380,10 +410,19 @@ async fn resolve_token(
                     "{which}_token was not issued by this authorization server"
                 )));
             }
+            // OIDC Core §2: an ID token's audience is the client it was issued
+            // to, which must be the client presenting it here.
+            if claims.aud != requesting_client_id {
+                return Err(OAuth2Error::invalid_grant(&format!(
+                    "{which}_token was not issued to this client"
+                )));
+            }
             Ok(ResolvedToken {
                 sub: claims.sub.clone(),
                 client_id: Some(claims.aud.clone()),
                 user_id: Some(claims.sub.clone()),
+                // An ID token authorizes nothing by itself; the request must
+                // name the scope it wants (checked against the client only).
                 scope: String::new(),
                 aud: vec![claims.aud.clone()],
                 act: None,
@@ -391,6 +430,7 @@ async fn resolve_token(
                 sub_profile: None,
                 authorization_details: None,
                 cnf: None,
+                is_id_token: true,
             })
         }
         other => Err(OAuth2Error::invalid_request(&format!(
@@ -517,12 +557,21 @@ pub(crate) async fn handle_token_exchange_grant(
     .await?;
 
     // --- Step 7: scope must stay a subset of the subject token's scope. -----
-    let scope = match ctx.req.scope {
-        Some(ref requested) => {
-            validate_scope_subset(requested, &ctx.subject.scope)?;
-            requested.clone()
+    let scope = if ctx.subject.is_id_token {
+        // An ID token carries no scope, so there is nothing to narrow: the
+        // request must state what it wants and the client ceiling below is
+        // the only bound.
+        ctx.req.scope.clone().ok_or_else(|| {
+            OAuth2Error::invalid_request("scope is required when the subject is an ID token")
+        })?
+    } else {
+        match ctx.req.scope {
+            Some(ref requested) => {
+                validate_scope_subset(requested, &ctx.subject.scope)?;
+                requested.clone()
+            }
+            None => ctx.subject.scope.clone(),
         }
-        None => ctx.subject.scope.clone(),
     };
     // …and within what the requesting client is itself registered for, as the
     // client_credentials grant already enforces.

@@ -19,7 +19,7 @@ use oauth2_actix::actors::{CreateToken, TokenActor, TokenActorPool};
 use oauth2_actix::handlers::dpop::{compute_ath, validate_dpop_proof, DpopReplayStore};
 use oauth2_actix::handlers::wellknown::OidcConfig;
 use oauth2_config::{AgentConfig, Config};
-use oauth2_core::{Claims, Client, ProtectedResource, Token, User};
+use oauth2_core::{Claims, Client, IdTokenClaims, ProtectedResource, Token, User};
 use oauth2_observability::Metrics;
 use oauth2_ports::DynStorage;
 use rsa::pkcs1::EncodeRsaPrivateKey;
@@ -428,6 +428,192 @@ async fn scope_beyond_the_requesting_clients_registration_is_invalid_scope() {
     assert_eq!(resp.status(), 400);
     let body: Value = test::read_body_json(resp).await;
     assert_eq!(body["error"], "invalid_scope", "body: {body}");
+}
+
+// ---------------------------------------------------------------------------
+// 2a. ID token subjects (OIDC Core)
+// ---------------------------------------------------------------------------
+
+/// Mint an ID token the way the authorization-code flow does (`IdTokenClaims`
+/// signed with the HS256 secret).
+fn id_token(subject: &str, audience: &str) -> String {
+    IdTokenClaims::new(
+        ISSUER,
+        subject.to_string(),
+        audience.to_string(),
+        3600,
+        None,
+    )
+    .encode(JWT_SECRET)
+    .expect("encode id_token")
+}
+
+async fn id_token_fixture() -> DynStorage {
+    let storage = storage().await;
+    storage
+        .save_client(&client("tx_client", &[TOKEN_EXCHANGE]))
+        .await
+        .expect("save client");
+    save_user(&storage, "alice").await;
+    storage
+}
+
+#[actix_web::test]
+async fn id_token_subject_is_exchanged_with_an_explicit_scope() {
+    let storage = id_token_fixture().await;
+    let subject = id_token("alice", "tx_client");
+
+    let app = oauth_app!(storage, AgentConfig::default());
+    let resp = post_token!(
+        app,
+        "tx_client",
+        &[
+            ("grant_type", TOKEN_EXCHANGE),
+            ("subject_token", subject.as_str()),
+            (
+                "subject_token_type",
+                "urn:ietf:params:oauth:token-type:id_token"
+            ),
+            ("scope", "read"),
+        ]
+    );
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["scope"], "read", "body: {body}");
+    let issued = body["access_token"]
+        .as_str()
+        .expect("access_token")
+        .to_string();
+
+    // Introspect as the owning client so the subject is disclosed.
+    let req = test::TestRequest::post()
+        .uri("/oauth/introspect")
+        .insert_header(("Host", HOST))
+        .set_form([
+            ("token", issued.as_str()),
+            ("client_id", "tx_client"),
+            ("client_secret", "tx_client_secret"),
+        ])
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let intro: Value = test::read_body_json(resp).await;
+    assert_eq!(intro["active"], json!(true), "introspection: {intro}");
+    assert_eq!(intro["sub"], "alice", "introspection: {intro}");
+}
+
+/// `IdTokenClaims` is a subset of the access/refresh `Claims` payload, so the
+/// id_token arm must not be usable to launder either of them (it performs no
+/// revocation check and drops `cnf`).
+#[actix_web::test]
+async fn access_token_presented_as_an_id_token_is_rejected() {
+    let storage = id_token_fixture().await;
+    let subject = mint(&storage, Some("alice"), "tx_client", "read", vec![], None).await;
+
+    let app = oauth_app!(storage, AgentConfig::default());
+    let resp = post_token!(
+        app,
+        "tx_client",
+        &[
+            ("grant_type", TOKEN_EXCHANGE),
+            ("subject_token", subject.access_token.as_str()),
+            (
+                "subject_token_type",
+                "urn:ietf:params:oauth:token-type:id_token"
+            ),
+            ("scope", "read"),
+        ]
+    );
+    assert_eq!(resp.status(), 400);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["error"], "invalid_request", "body: {body}");
+}
+
+#[actix_web::test]
+async fn refresh_token_presented_as_an_id_token_is_rejected() {
+    let storage = id_token_fixture().await;
+    let pair = fixture_actor(&storage)
+        .send(CreateToken {
+            user_id: Some("alice".to_string()),
+            client_id: "tx_client".to_string(),
+            scope: "read".to_string(),
+            include_refresh: true,
+            token_family: None,
+            resources: Vec::new(),
+            cnf: None,
+            authorization_details: None,
+            act: None,
+            span: tracing::Span::current(),
+        })
+        .await
+        .expect("send CreateToken")
+        .expect("create token");
+    let refresh = pair.refresh_token.expect("refresh token");
+
+    let app = oauth_app!(storage, AgentConfig::default());
+    let resp = post_token!(
+        app,
+        "tx_client",
+        &[
+            ("grant_type", TOKEN_EXCHANGE),
+            ("subject_token", refresh.as_str()),
+            (
+                "subject_token_type",
+                "urn:ietf:params:oauth:token-type:id_token"
+            ),
+            ("scope", "read"),
+        ]
+    );
+    assert_eq!(resp.status(), 400);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["error"], "invalid_request", "body: {body}");
+}
+
+#[actix_web::test]
+async fn id_token_issued_to_another_client_is_invalid_grant() {
+    let storage = id_token_fixture().await;
+    let subject = id_token("alice", "some_other_client");
+
+    let app = oauth_app!(storage, AgentConfig::default());
+    let resp = post_token!(
+        app,
+        "tx_client",
+        &[
+            ("grant_type", TOKEN_EXCHANGE),
+            ("subject_token", subject.as_str()),
+            (
+                "subject_token_type",
+                "urn:ietf:params:oauth:token-type:id_token"
+            ),
+            ("scope", "read"),
+        ]
+    );
+    assert_eq!(resp.status(), 400);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["error"], "invalid_grant", "body: {body}");
+}
+
+#[actix_web::test]
+async fn id_token_subject_without_scope_is_invalid_request() {
+    let storage = id_token_fixture().await;
+    let subject = id_token("alice", "tx_client");
+
+    let app = oauth_app!(storage, AgentConfig::default());
+    let resp = post_token!(
+        app,
+        "tx_client",
+        &[
+            ("grant_type", TOKEN_EXCHANGE),
+            ("subject_token", subject.as_str()),
+            (
+                "subject_token_type",
+                "urn:ietf:params:oauth:token-type:id_token"
+            ),
+        ]
+    );
+    assert_eq!(resp.status(), 400);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["error"], "invalid_request", "body: {body}");
 }
 
 // ---------------------------------------------------------------------------
