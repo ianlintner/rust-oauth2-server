@@ -32,7 +32,7 @@ const TOKEN_EXCHANGE_GRANT_TYPE: &str = "urn:ietf:params:oauth:grant-type:token-
 
 /// RFC 9449 §7.1: If the `cnf` claim carries a `jkt` (DPoP key thumbprint), the token
 /// response MUST use `token_type: "DPoP"` instead of `"Bearer"`.
-fn apply_dpop_token_type(
+pub(crate) fn apply_dpop_token_type(
     mut response: oauth2_core::TokenResponse,
     cnf_claim: Option<&serde_json::Value>,
 ) -> oauth2_core::TokenResponse {
@@ -1231,6 +1231,8 @@ pub struct TokenRequest {
     /// RFC 8707 §2: resource server URIs for the requested access token
     /// audience. The parameter may be repeated, so every occurrence is kept.
     pub(crate) resource: Vec<String>,
+    /// RFC 7523 §2.1: the JWT authorization-grant assertion.
+    pub(crate) assertion: Option<String>,
     // RFC 8693 (Token Exchange) fields ---
     /// RFC 8693 §2.1: logical names of the target services. Like `resource`,
     /// the parameter may be repeated.
@@ -1380,7 +1382,10 @@ fn validate_jwt_client_assertion(
 /// already been observed within the assertion's validity window, or if
 /// the assertion is missing a `jti` (required by RFC 7523 §3 when the
 /// AS enforces replay detection).
-fn enforce_jti_replay(client_id: &str, claims: &serde_json::Value) -> Result<(), OAuth2Error> {
+pub(crate) fn enforce_jti_replay(
+    subject: &str,
+    claims: &serde_json::Value,
+) -> Result<(), OAuth2Error> {
     let jti = claims.get("jti").and_then(|v| v.as_str()).ok_or_else(|| {
         OAuth2Error::invalid_client("client_assertion missing required jti claim (RFC 7523 §3)")
     })?;
@@ -1395,13 +1400,13 @@ fn enforce_jti_replay(client_id: &str, claims: &serde_json::Value) -> Result<(),
     let ttl = std::time::Duration::from_secs(remaining_secs);
 
     use crate::security::jti_replay::ObserveResult;
-    match jti_replay_guard().observe(client_id, jti, ttl) {
+    match jti_replay_guard().observe(subject, jti, ttl) {
         ObserveResult::Fresh => Ok(()),
         ObserveResult::Replay => {
             tracing::warn!(
-                client_id = %client_id,
+                subject = %subject,
                 jti = %jti,
-                "RFC 7523 §3: rejected replayed client_assertion jti"
+                "RFC 7523 §3: rejected replayed assertion jti"
             );
             Err(OAuth2Error::invalid_client(
                 "client_assertion jti has already been used",
@@ -1494,6 +1499,7 @@ pub async fn token(
         client_assertion,
         resource: form_map.all("resource"),
         audience: form_map.all("audience"),
+        assertion: form_map.get("assertion").cloned(),
         subject_token: form_map.get("subject_token").cloned(),
         subject_token_type: form_map.get("subject_token_type").cloned(),
         actor_token: form_map.get("actor_token").cloned(),
@@ -1668,6 +1674,32 @@ pub async fn token(
                 storage,
                 metrics,
                 oidc_config,
+                jwks_cache.clone(),
+                mtls_thumbprint.as_deref(),
+                mtls_subject_dn.as_deref(),
+            )
+            .await
+        }
+        oauth2_core::token_types::GRANT_JWT_BEARER => {
+            let storage = storage.clone().ok_or_else(|| {
+                OAuth2Error::new(
+                    "server_error",
+                    Some("Storage backend not configured for the jwt-bearer grant"),
+                )
+            })?;
+            let agent_config = agent_config
+                .map(|c| c.get_ref().clone())
+                .unwrap_or_default();
+            crate::handlers::jwt_bearer::handle_jwt_bearer_grant(
+                form,
+                cnf_claim,
+                rar_details,
+                token_actor,
+                client_actor,
+                storage,
+                metrics,
+                oidc_config,
+                agent_config,
                 jwks_cache.clone(),
                 mtls_thumbprint.as_deref(),
                 mtls_subject_dn.as_deref(),

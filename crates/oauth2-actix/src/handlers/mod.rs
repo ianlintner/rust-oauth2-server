@@ -11,6 +11,7 @@ pub mod dpop_nonce;
 pub mod events;
 pub mod id_jag;
 pub mod jwks_cache;
+pub mod jwt_bearer;
 pub mod login;
 pub mod oauth;
 pub mod oidc_logout;
