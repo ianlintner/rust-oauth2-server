@@ -46,6 +46,10 @@ criteria = "safe-to-deploy"
 version = "3.13.0"
 criteria = "safe-to-deploy"
 
+[[exemptions.actix-http]]
+version = "3.13.6"
+criteria = "safe-to-deploy"
+
 [[exemptions.actix-macros]]
 version = "0.2.4"
 criteria = "safe-to-deploy"
@@ -297,8 +301,16 @@ criteria = "safe-to-deploy"
 version = "1.17.0"
 criteria = "safe-to-deploy"
 
+[[exemptions.aws-lc-rs]]
+version = "1.18.1"
+criteria = "safe-to-deploy"
+
 [[exemptions.aws-lc-sys]]
 version = "0.41.0"
+criteria = "safe-to-deploy"
+
+[[exemptions.aws-lc-sys]]
+version = "0.45.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.axum]]
@@ -423,6 +435,10 @@ criteria = "safe-to-deploy"
 
 [[exemptions.cc]]
 version = "1.2.65"
+criteria = "safe-to-deploy"
+
+[[exemptions.chacha20]]
+version = "0.10.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.chrono]]
@@ -988,6 +1004,10 @@ criteria = "safe-to-deploy"
 version = "0.4.15"
 criteria = "safe-to-deploy"
 
+[[exemptions.h2]]
+version = "0.4.19"
+criteria = "safe-to-deploy"
+
 [[exemptions.hashbrown]]
 version = "0.14.5"
 criteria = "safe-to-deploy"
@@ -1333,6 +1353,10 @@ criteria = "safe-to-deploy"
 version = "0.18.1"
 criteria = "safe-to-deploy"
 suggest = false
+
+[[exemptions.lru]]
+version = "0.18.4"
+criteria = "safe-to-deploy"
 
 [[exemptions.lru-slab]]
 version = "0.1.2"
@@ -1953,6 +1977,10 @@ criteria = "safe-to-deploy"
 version = "0.23.40"
 criteria = "safe-to-deploy"
 
+[[exemptions.rustls]]
+version = "0.23.45"
+criteria = "safe-to-deploy"
+
 [[exemptions.rustls-connector]]
 version = "0.20.2"
 criteria = "safe-to-deploy"
@@ -1991,6 +2019,10 @@ criteria = "safe-to-deploy"
 
 [[exemptions.rustls-webpki]]
 version = "0.103.13"
+criteria = "safe-to-deploy"
+
+[[exemptions.rustls-webpki]]
+version = "0.103.15"
 criteria = "safe-to-deploy"
 
 [[exemptions.ryu]]

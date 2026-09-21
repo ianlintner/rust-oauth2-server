@@ -439,6 +439,23 @@ impl SqlxStorage {
         .execute(pool)
         .await?;
 
+        // Idempotent upgrades for existing databases bootstrapped before these
+        // `authorization_codes` columns were added (mirrors migrations V18, V22
+        // and the RAR/claims columns). `CREATE TABLE IF NOT EXISTS` never
+        // alters an existing table, and INSERT/SELECT * need every column.
+        for column in [
+            "authorization_details",
+            "claims_request",
+            "token_family",
+            "dpop_jkt",
+        ] {
+            let _ = sqlx::query(&format!(
+                "ALTER TABLE authorization_codes ADD COLUMN {column} TEXT"
+            ))
+            .execute(pool)
+            .await;
+        }
+
         sqlx::query(
             r#"CREATE INDEX IF NOT EXISTS idx_authorization_codes_code ON authorization_codes(code);"#,
         )
