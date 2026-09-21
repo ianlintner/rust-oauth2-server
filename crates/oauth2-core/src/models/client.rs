@@ -105,10 +105,22 @@ pub struct Client {
     #[serde(default)]
     #[cfg_attr(feature = "sqlx", sqlx(default))]
     pub dpop_nonce_required: bool,
+    /// Phase 7 (agent/A2A OAuth): JSON array of actor `client_id` strings
+    /// this client permits to be named in an `actor_token` (RFC 8693 token
+    /// exchange) where this client is the subject. Defaults to `"[]"`
+    /// (no actor delegation permitted) so existing clients continue to
+    /// work; operators opt in per-client.
+    #[serde(default = "default_allowed_actors")]
+    #[cfg_attr(feature = "sqlx", sqlx(default))]
+    pub allowed_actors: String,
 }
 
 fn default_true() -> bool {
     true
+}
+
+fn default_allowed_actors() -> String {
+    "[]".to_string()
 }
 
 impl Client {
@@ -151,12 +163,25 @@ impl Client {
             require_state: false,
             tls_client_certificate_subject_dn: String::new(),
             dpop_nonce_required: false,
+            allowed_actors: default_allowed_actors(),
         }
     }
 
     /// Returns `true` for public clients that use PKCE without a client secret.
     pub fn is_public(&self) -> bool {
         self.token_endpoint_auth_method == "none"
+    }
+
+    /// Parse `allowed_actors` (a JSON array of `client_id` strings). Invalid
+    /// or missing JSON yields an empty list rather than an error.
+    pub fn allowed_actors_vec(&self) -> Vec<String> {
+        serde_json::from_str(&self.allowed_actors).unwrap_or_default()
+    }
+
+    /// Returns `true` when `client_id` is present in this client's
+    /// `allowed_actors` list. Invalid JSON in `allowed_actors` yields `false`.
+    pub fn allows_actor(&self, client_id: &str) -> bool {
+        self.allowed_actors_vec().iter().any(|a| a == client_id)
     }
 
     /// Returns `true` for clients using JWT-based authentication.
@@ -297,6 +322,11 @@ pub struct ClientRegistration {
     /// Only relevant when `token_endpoint_auth_method = "tls_client_auth"`.
     #[serde(default)]
     pub tls_client_certificate_subject_dn: Option<String>,
+    /// Phase 7 (agent/A2A OAuth): actor `client_id` allow-list. Only honoured
+    /// on the admin registration path (`POST /admin/clients/register`); the
+    /// public RFC 7591 dynamic registration endpoint ignores this field.
+    #[serde(default)]
+    pub allowed_actors: Option<Vec<String>>,
 }
 
 #[cfg_attr(feature = "openapi", derive(ToSchema))]

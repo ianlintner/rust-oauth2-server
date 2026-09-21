@@ -211,6 +211,15 @@ impl Handler<RegisterClient> for ClientActor {
                     .clone()
                     .unwrap_or_default();
 
+                // Phase 7 (agent/A2A OAuth): actor allow-list. Only the admin
+                // registration path (`register_client`) populates this field
+                // on `msg.registration`; the public RFC 7591 dynamic
+                // registration handler clears it before sending this message.
+                if let Some(ref actors) = msg.registration.allowed_actors {
+                    client.allowed_actors =
+                        serde_json::to_string(actors).unwrap_or_else(|_| "[]".to_string());
+                }
+
                 // Generate a registration_access_token for RFC 7591 §3.2
                 client.registration_access_token = generate_secret_of_length(48);
 

@@ -255,6 +255,10 @@ pub async fn dynamic_register(
             "Dynamic client registration is disabled",
         ));
     }
+    // Phase 7 (agent/A2A OAuth): `allowed_actors` grants delegation trust and
+    // must only be set through the admin registration endpoint, never via
+    // public self-registration.
+    registration.allowed_actors = None;
     normalise_registration(&mut registration);
     validate_registration(&registration)?;
 
