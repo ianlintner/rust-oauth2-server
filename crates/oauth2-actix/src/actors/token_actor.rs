@@ -164,6 +164,11 @@ pub struct CreateToken {
     pub cnf: Option<serde_json::Value>,
     /// RFC 9396: Rich Authorization Request details to embed in the JWT.
     pub authorization_details: Option<serde_json::Value>,
+    /// RFC 8693 §4.1: actor (`act`) claim to embed when this token represents
+    /// a delegated/impersonated identity. Persisted on the token row (and, for
+    /// JWT access tokens, embedded in the `act` claim) so it can be surfaced
+    /// at introspection time regardless of token format.
+    pub act: Option<serde_json::Value>,
     pub span: tracing::Span,
 }
 
@@ -242,6 +247,8 @@ impl Handler<CreateToken> for TokenActor {
                     access_claims.cnf = msg.cnf.clone();
                     // RFC 9396: embed authorization_details if provided.
                     access_claims.authorization_details = msg.authorization_details.clone();
+                    // RFC 8693 §4.1: embed act (actor) claim if this token was delegated.
+                    access_claims.act = msg.act.clone();
 
                     if let Some(ref key) = signing_key {
                         access_claims.encode_with_key(key)
@@ -271,6 +278,10 @@ impl Handler<CreateToken> for TokenActor {
                     None
                 };
 
+                // RFC 8707: persist the resource indicator(s) this token was
+                // scoped to (currently at most one per request).
+                let resources: Vec<String> = msg.resource.clone().into_iter().collect();
+
                 let token = Token::new(
                     access_token,
                     refresh_token,
@@ -279,7 +290,8 @@ impl Handler<CreateToken> for TokenActor {
                     msg.scope.clone(),
                     access_token_ttl_secs as i32,
                     msg.token_family,
-                );
+                )
+                .with_delegation(msg.act.as_ref(), msg.cnf.as_ref(), &resources);
 
                 db.save_token(&token).await?;
 
@@ -909,6 +921,9 @@ impl Handler<ValidateTokenStateless> for TokenActor {
             expires_at,
             revoked: false,
             token_family: None,
+            act: claims.act.as_ref().map(|v| v.to_string()),
+            cnf: claims.cnf.as_ref().map(|v| v.to_string()),
+            resource: None,
         })
     }
 }

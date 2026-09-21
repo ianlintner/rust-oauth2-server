@@ -338,6 +338,9 @@ impl SqlxStorage {
                 expires_at TEXT NOT NULL,
                 revoked INTEGER NOT NULL DEFAULT 0,
                 token_family TEXT,
+                act TEXT,
+                cnf TEXT,
+                resource TEXT,
                 FOREIGN KEY (client_id) REFERENCES clients(client_id),
                 FOREIGN KEY (user_id) REFERENCES users(id)
             );
@@ -345,6 +348,19 @@ impl SqlxStorage {
         )
         .execute(pool)
         .await?;
+
+        // Idempotent upgrade for existing databases bootstrapped before the
+        // `act`/`cnf`/`resource` delegation columns were added (RFC 8693 §4.1 /
+        // RFC 9449 §6 / RFC 8705 §3 / RFC 8707).
+        let _ = sqlx::query("ALTER TABLE tokens ADD COLUMN act TEXT")
+            .execute(pool)
+            .await;
+        let _ = sqlx::query("ALTER TABLE tokens ADD COLUMN cnf TEXT")
+            .execute(pool)
+            .await;
+        let _ = sqlx::query("ALTER TABLE tokens ADD COLUMN resource TEXT")
+            .execute(pool)
+            .await;
 
         sqlx::query(
             r#"CREATE INDEX IF NOT EXISTS idx_tokens_access_token ON tokens(access_token);"#,
@@ -826,8 +842,8 @@ impl Storage for SqlxStorage {
             DatabasePool::Sqlite(pool) => {
                 sqlx::query(
                     r#"
-                    INSERT INTO tokens (id, access_token, refresh_token, token_type, expires_in, scope, client_id, user_id, created_at, expires_at, revoked, token_family)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO tokens (id, access_token, refresh_token, token_type, expires_in, scope, client_id, user_id, created_at, expires_at, revoked, token_family, act, cnf, resource)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     "#,
                 )
                 .bind(&token.id)
@@ -842,14 +858,17 @@ impl Storage for SqlxStorage {
                 .bind(token.expires_at)
                 .bind(token.revoked)
                 .bind(&token.token_family)
+                .bind(&token.act)
+                .bind(&token.cnf)
+                .bind(&token.resource)
                 .execute(pool)
                 .await?;
             }
             DatabasePool::Postgres(pool) => {
                 sqlx::query(
                     r#"
-                    INSERT INTO tokens (id, access_token, refresh_token, token_type, expires_in, scope, client_id, user_id, created_at, expires_at, revoked, token_family)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+                    INSERT INTO tokens (id, access_token, refresh_token, token_type, expires_in, scope, client_id, user_id, created_at, expires_at, revoked, token_family, act, cnf, resource)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
                     "#,
                 )
                 .bind(&token.id)
@@ -864,6 +883,9 @@ impl Storage for SqlxStorage {
                 .bind(token.expires_at)
                 .bind(token.revoked)
                 .bind(&token.token_family)
+                .bind(&token.act)
+                .bind(&token.cnf)
+                .bind(&token.resource)
                 .execute(pool)
                 .await?;
             }

@@ -40,6 +40,7 @@ fn inactive_introspection_response() -> HttpResponse {
         jti: None,
         iss: None,
         cnf: None,
+        act: None,
     }))
 }
 
@@ -341,7 +342,18 @@ pub async fn introspect(
                     .as_ref()
                     .map(|c| c.iss.clone())
                     .or_else(|| oidc_config.as_ref().map(|c| c.issuer.clone())),
-                cnf: claims.as_ref().and_then(|c| c.cnf.clone()),
+                // Prefer the JWT `cnf`/`act` claims (source of truth for JWT
+                // access tokens); fall back to the values persisted on the
+                // token row (needed for opaque access tokens, which have no
+                // JWT payload to decode).
+                cnf: claims
+                    .as_ref()
+                    .and_then(|c| c.cnf.clone())
+                    .or_else(|| token.cnf_value()),
+                act: claims
+                    .as_ref()
+                    .and_then(|c| c.act.clone())
+                    .or_else(|| token.actor()),
             };
 
             // RFC 9701: if the caller explicitly accepts token-introspection+jwt,
