@@ -97,6 +97,8 @@ pub(crate) async fn exchange(
     jwks_cache: Option<web::Data<JwksCache>>,
     mtls_thumbprint: Option<&str>,
     mtls_subject_dn: Option<&str>,
+    mtls_san_uri: Option<&str>,
+    mtls_san_dns: Option<&str>,
 ) -> Result<HttpResponse, OAuth2Error> {
     // --- Step 1: authenticate the client making the exchange request. -------
     let client = client_actor
@@ -128,6 +130,8 @@ pub(crate) async fn exchange(
         resolved_jwks.as_ref(),
         mtls_thumbprint,
         mtls_subject_dn,
+        mtls_san_uri,
+        mtls_san_dns,
     )?;
 
     // --- Step 2: resolve the subject token. ---------------------------------
@@ -626,6 +630,8 @@ pub(crate) async fn handle_token_exchange_grant(
             cnf: cnf.clone(),
             authorization_details,
             act: act_claim,
+            ttl_override_secs: None,
+            sub_profile: None,
             span: tracing::Span::current(),
         })
         .await

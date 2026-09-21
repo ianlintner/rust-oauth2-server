@@ -43,7 +43,8 @@ const IAT_SKEW_SECS: i64 = 60;
 /// Signature algorithms accepted on an incoming assertion. Symmetric
 /// algorithms are excluded on purpose: the verification key comes from the
 /// issuer's public JWKS.
-const ALLOWED_ALGS: [Algorithm; 3] = [Algorithm::RS256, Algorithm::ES256, Algorithm::PS256];
+pub(crate) const ALLOWED_ALGS: [Algorithm; 3] =
+    [Algorithm::RS256, Algorithm::ES256, Algorithm::PS256];
 
 /// RFC 7523 §2.1 — exchange a JWT assertion from a trusted issuer for an
 /// access token. Never issues a refresh token.
@@ -61,6 +62,8 @@ pub(crate) async fn handle_jwt_bearer_grant(
     jwks_cache: Option<web::Data<JwksCache>>,
     mtls_thumbprint: Option<&str>,
     mtls_subject_dn: Option<&str>,
+    mtls_san_uri: Option<&str>,
+    mtls_san_dns: Option<&str>,
 ) -> Result<HttpResponse, OAuth2Error> {
     let assertion = req
         .assertion
@@ -100,6 +103,8 @@ pub(crate) async fn handle_jwt_bearer_grant(
         resolved_jwks.as_ref(),
         mtls_thumbprint,
         mtls_subject_dn,
+        mtls_san_uri,
+        mtls_san_dns,
     )?;
 
     // --- 2. Resolve the trusted issuer from the unverified `iss` ---------
@@ -269,6 +274,8 @@ pub(crate) async fn handle_jwt_bearer_grant(
             cnf: cnf_claim.clone(),
             authorization_details: authorization_details.clone(),
             act,
+            ttl_override_secs: None,
+            sub_profile: None,
             span: tracing::Span::current(),
         })
         .await
@@ -356,7 +363,10 @@ async fn verify_assertion(
 
 /// Pick the verification key from a JWKS: by `kid` when the header names one,
 /// otherwise the first key of the right type for the header's algorithm.
-fn select_key(jwks: &Value, header: &jsonwebtoken::Header) -> Result<DecodingKey, OAuth2Error> {
+pub(crate) fn select_key(
+    jwks: &Value,
+    header: &jsonwebtoken::Header,
+) -> Result<DecodingKey, OAuth2Error> {
     let keys = jwks
         .get("keys")
         .and_then(Value::as_array)

@@ -220,6 +220,17 @@ impl Handler<RegisterClient> for ClientActor {
                         serde_json::to_string(actors).unwrap_or_else(|_| "[]".to_string());
                 }
 
+                // RFC 8705 §2.1.2 / RFC 7591 §2: workload-identity metadata.
+                if let Some(ref san) = msg.registration.tls_client_auth_san {
+                    client.tls_client_auth_san = san.clone();
+                }
+                if let Some(ref id) = msg.registration.software_id {
+                    client.software_id = id.clone();
+                }
+                if let Some(ref version) = msg.registration.software_version {
+                    client.software_version = version.clone();
+                }
+
                 // Generate a registration_access_token for RFC 7591 §3.2
                 client.registration_access_token = generate_secret_of_length(48);
 
