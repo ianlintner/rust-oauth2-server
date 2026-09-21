@@ -406,9 +406,12 @@ Drives `resource`/`audience` validation in token exchange and per-resource
 ```bash
 curl -s https://auth.example.com/admin/resources \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
-  -d resource_uri=https://api.example.com/mcp \
-  -d name="Example MCP server" \
-  -d scopes='["mcp.read","mcp.write"]'
+  -H "Content-Type: application/json" \
+  -d '{
+    "resource_uri": "https://api.example.com/mcp",
+    "name": "Example MCP server",
+    "scopes": ["mcp.read", "mcp.write"]
+  }'
 ```
 
 `GET /admin/resources` lists, `DELETE /admin/resources/{id}` removes. A
@@ -423,10 +426,13 @@ and ID-JAG/TAC challenge signature verification.
 ```bash
 curl -s https://auth.example.com/admin/trusted-issuers \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
-  -d issuer=https://idp.example.com \
-  -d jwks_uri=https://idp.example.com/.well-known/jwks.json \
-  -d subject_mapping=email \
-  -d jit_provision=true
+  -H "Content-Type: application/json" \
+  -d '{
+    "issuer": "https://idp.example.com",
+    "jwks_uri": "https://idp.example.com/.well-known/jwks.json",
+    "subject_mapping": "email",
+    "jit_provision": true
+  }'
 ```
 
 `subject_mapping` is `"sub"` (default) or `"email"`. `allowed_client_ids`
