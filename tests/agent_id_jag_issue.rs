@@ -104,6 +104,8 @@ async fn mint(
             cnf: None,
             authorization_details,
             act: None,
+            ttl_override_secs: None,
+            sub_profile: None,
             span: tracing::Span::current(),
         })
         .await

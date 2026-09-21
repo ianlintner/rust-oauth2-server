@@ -362,6 +362,9 @@ mod tests {
             actor_token_type: None,
             requested_token_type: requested_token_type.map(str::to_string),
             authorization_details: None,
+            request_details: None,
+            request_context: None,
+            purp: None,
         }
     }
 
