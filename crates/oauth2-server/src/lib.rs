@@ -1465,6 +1465,24 @@ pub async fn run() -> std::io::Result<()> {
                         "/resources/{id}",
                         web::delete().to(oauth2_actix::handlers::admin_resources::delete_resource),
                     )
+                    // Trusted issuers registry (RFC 7523 JWT bearer grants / agent-A2A OAuth)
+                    .route(
+                        "/trusted-issuers",
+                        web::get()
+                            .to(oauth2_actix::handlers::admin_trusted_issuers::list_trusted_issuers),
+                    )
+                    .route(
+                        "/trusted-issuers",
+                        web::post().to(
+                            oauth2_actix::handlers::admin_trusted_issuers::create_trusted_issuer,
+                        ),
+                    )
+                    .route(
+                        "/trusted-issuers/{id}",
+                        web::delete().to(
+                            oauth2_actix::handlers::admin_trusted_issuers::delete_trusted_issuer,
+                        ),
+                    )
                     .service(
                         web::scope("/api")
                             .route(

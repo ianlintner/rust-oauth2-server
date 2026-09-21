@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use oauth2_core::{
     AuditLogEntry, AuthorizationCode, Client, DenylistEntry, DeviceAuthorization, ListQuery,
-    OAuth2Error, Page, ProtectedResource, Token, User,
+    OAuth2Error, Page, ProtectedResource, Token, TrustedIssuer, User,
 };
 use oauth2_ports::Storage;
 use sqlx::pool::PoolOptions;
@@ -494,6 +494,32 @@ impl SqlxStorage {
         .execute(pool)
         .await?;
 
+        // Trusted issuers registry (RFC 7523 JWT bearer grants / agent-A2A OAuth)
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS trusted_issuers (
+                id TEXT PRIMARY KEY,
+                issuer TEXT NOT NULL UNIQUE,
+                jwks_uri TEXT NOT NULL,
+                allowed_audiences TEXT NOT NULL DEFAULT '[]',
+                subject_mapping TEXT NOT NULL DEFAULT 'sub',
+                jit_provision INTEGER NOT NULL DEFAULT 0,
+                allowed_client_ids TEXT NOT NULL DEFAULT '[]',
+                enabled INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            "#,
+        )
+        .execute(pool)
+        .await?;
+
+        sqlx::query(
+            r#"CREATE UNIQUE INDEX IF NOT EXISTS idx_trusted_issuers_issuer ON trusted_issuers(issuer);"#,
+        )
+        .execute(pool)
+        .await?;
+
         Ok(())
     }
 }
@@ -829,6 +855,29 @@ impl Storage for SqlxStorage {
                     "SELECT id, username, password_hash, email, enabled, role, created_at, updated_at FROM users WHERE id = $1",
                 )
                 .bind(user_id)
+                .fetch_optional(pool)
+                .await?
+            }
+        };
+
+        Ok(user)
+    }
+
+    async fn get_user_by_email(&self, email: &str) -> Result<Option<User>, OAuth2Error> {
+        let user = match self.read_pool() {
+            DatabasePool::Sqlite(pool) => {
+                sqlx::query_as::<_, User>(
+                    "SELECT id, username, password_hash, email, enabled, role, created_at, updated_at FROM users WHERE email = ?",
+                )
+                .bind(email)
+                .fetch_optional(pool)
+                .await?
+            }
+            DatabasePool::Postgres(pool) => {
+                sqlx::query_as::<_, User>(
+                    "SELECT id, username, password_hash, email, enabled, role, created_at, updated_at FROM users WHERE email = $1",
+                )
+                .bind(email)
                 .fetch_optional(pool)
                 .await?
             }
@@ -1977,6 +2026,130 @@ impl Storage for SqlxStorage {
         };
 
         Ok(entry.filter(|e| e.is_active()))
+    }
+
+    // --- Trusted issuers registry (RFC 7523 JWT bearer grants / agent-A2A OAuth) ---
+
+    async fn save_trusted_issuer(&self, trusted_issuer: &TrustedIssuer) -> Result<(), OAuth2Error> {
+        match &self.pool {
+            DatabasePool::Sqlite(pool) => {
+                sqlx::query(
+                    r#"
+                    INSERT INTO trusted_issuers (id, issuer, jwks_uri, allowed_audiences, subject_mapping, jit_provision, allowed_client_ids, enabled, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(issuer) DO UPDATE SET
+                        jwks_uri = excluded.jwks_uri,
+                        allowed_audiences = excluded.allowed_audiences,
+                        subject_mapping = excluded.subject_mapping,
+                        jit_provision = excluded.jit_provision,
+                        allowed_client_ids = excluded.allowed_client_ids,
+                        enabled = excluded.enabled,
+                        updated_at = excluded.updated_at
+                    "#,
+                )
+                .bind(&trusted_issuer.id)
+                .bind(&trusted_issuer.issuer)
+                .bind(&trusted_issuer.jwks_uri)
+                .bind(&trusted_issuer.allowed_audiences)
+                .bind(&trusted_issuer.subject_mapping)
+                .bind(trusted_issuer.jit_provision)
+                .bind(&trusted_issuer.allowed_client_ids)
+                .bind(trusted_issuer.enabled)
+                .bind(trusted_issuer.created_at)
+                .bind(trusted_issuer.updated_at)
+                .execute(pool)
+                .await?;
+            }
+            DatabasePool::Postgres(pool) => {
+                sqlx::query(
+                    r#"
+                    INSERT INTO trusted_issuers (id, issuer, jwks_uri, allowed_audiences, subject_mapping, jit_provision, allowed_client_ids, enabled, created_at, updated_at)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                    ON CONFLICT (issuer) DO UPDATE SET
+                        jwks_uri = EXCLUDED.jwks_uri,
+                        allowed_audiences = EXCLUDED.allowed_audiences,
+                        subject_mapping = EXCLUDED.subject_mapping,
+                        jit_provision = EXCLUDED.jit_provision,
+                        allowed_client_ids = EXCLUDED.allowed_client_ids,
+                        enabled = EXCLUDED.enabled,
+                        updated_at = EXCLUDED.updated_at
+                    "#,
+                )
+                .bind(&trusted_issuer.id)
+                .bind(&trusted_issuer.issuer)
+                .bind(&trusted_issuer.jwks_uri)
+                .bind(&trusted_issuer.allowed_audiences)
+                .bind(&trusted_issuer.subject_mapping)
+                .bind(trusted_issuer.jit_provision)
+                .bind(&trusted_issuer.allowed_client_ids)
+                .bind(trusted_issuer.enabled)
+                .bind(trusted_issuer.created_at)
+                .bind(trusted_issuer.updated_at)
+                .execute(pool)
+                .await?;
+            }
+        }
+        Ok(())
+    }
+
+    async fn get_trusted_issuer(&self, issuer: &str) -> Result<Option<TrustedIssuer>, OAuth2Error> {
+        let ti = match self.read_pool() {
+            DatabasePool::Sqlite(pool) => {
+                sqlx::query_as::<_, TrustedIssuer>("SELECT * FROM trusted_issuers WHERE issuer = ?")
+                    .bind(issuer)
+                    .fetch_optional(pool)
+                    .await?
+            }
+            DatabasePool::Postgres(pool) => {
+                sqlx::query_as::<_, TrustedIssuer>(
+                    "SELECT * FROM trusted_issuers WHERE issuer = $1",
+                )
+                .bind(issuer)
+                .fetch_optional(pool)
+                .await?
+            }
+        };
+
+        Ok(ti)
+    }
+
+    async fn list_trusted_issuers(&self) -> Result<Vec<TrustedIssuer>, OAuth2Error> {
+        let items = match self.read_pool() {
+            DatabasePool::Sqlite(pool) => {
+                sqlx::query_as::<_, TrustedIssuer>(
+                    "SELECT * FROM trusted_issuers ORDER BY created_at DESC",
+                )
+                .fetch_all(pool)
+                .await?
+            }
+            DatabasePool::Postgres(pool) => {
+                sqlx::query_as::<_, TrustedIssuer>(
+                    "SELECT * FROM trusted_issuers ORDER BY created_at DESC",
+                )
+                .fetch_all(pool)
+                .await?
+            }
+        };
+
+        Ok(items)
+    }
+
+    async fn delete_trusted_issuer(&self, id: &str) -> Result<(), OAuth2Error> {
+        match &self.pool {
+            DatabasePool::Sqlite(pool) => {
+                sqlx::query("DELETE FROM trusted_issuers WHERE id = ?")
+                    .bind(id)
+                    .execute(pool)
+                    .await?;
+            }
+            DatabasePool::Postgres(pool) => {
+                sqlx::query("DELETE FROM trusted_issuers WHERE id = $1")
+                    .bind(id)
+                    .execute(pool)
+                    .await?;
+            }
+        }
+        Ok(())
     }
 
     // --- Admin: audit log ---

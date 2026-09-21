@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use oauth2_core::{
     AuditLogEntry, AuthorizationCode, Client, DenylistEntry, DeviceAuthorization, ListQuery,
-    OAuth2Error, Page, ProtectedResource, Token, User,
+    OAuth2Error, Page, ProtectedResource, Token, TrustedIssuer, User,
 };
 
 /// Trait implemented by all persistence backends.
@@ -36,6 +36,13 @@ pub trait Storage: Send + Sync {
     /// Default implementation returns None so older backends are not broken.
     async fn get_user_by_id(&self, user_id: &str) -> Result<Option<User>, OAuth2Error> {
         let _ = user_id;
+        Ok(None)
+    }
+
+    /// Look up a user by their email address.
+    /// Default implementation returns None so older backends are not broken.
+    async fn get_user_by_email(&self, email: &str) -> Result<Option<User>, OAuth2Error> {
+        let _ = email;
         Ok(None)
     }
 
@@ -129,6 +136,28 @@ pub trait Storage: Send + Sync {
 
     async fn mark_device_authorization_used(&self, device_code: &str) -> Result<(), OAuth2Error> {
         let _ = device_code;
+        Ok(())
+    }
+
+    // --- Trusted issuers registry (RFC 7523 JWT bearer grants / agent-A2A OAuth) ---
+    // Default implementations are no-ops so older backends stay source-compatible.
+
+    async fn save_trusted_issuer(&self, trusted_issuer: &TrustedIssuer) -> Result<(), OAuth2Error> {
+        let _ = trusted_issuer;
+        Ok(())
+    }
+
+    async fn get_trusted_issuer(&self, issuer: &str) -> Result<Option<TrustedIssuer>, OAuth2Error> {
+        let _ = issuer;
+        Ok(None)
+    }
+
+    async fn list_trusted_issuers(&self) -> Result<Vec<TrustedIssuer>, OAuth2Error> {
+        Ok(vec![])
+    }
+
+    async fn delete_trusted_issuer(&self, id: &str) -> Result<(), OAuth2Error> {
+        let _ = id;
         Ok(())
     }
 
