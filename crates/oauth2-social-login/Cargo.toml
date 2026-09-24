@@ -2,7 +2,7 @@
 name = "oauth2-social-login"
 version = "0.6.2"
 edition = "2021"
-rust-version = "1.88"
+rust-version.workspace = true
 license = "MIT OR Apache-2.0"
 
 [dependencies]

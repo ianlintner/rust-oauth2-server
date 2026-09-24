@@ -2,7 +2,7 @@
 name = "oauth2-storage-mongo"
 version = "0.6.2"
 edition = "2021"
-rust-version = "1.88"
+rust-version.workspace = true
 license = "MIT OR Apache-2.0"
 description = "MongoDB storage adapter for rust-oauth2-server (implements oauth2-ports::Storage)"
 repository = "https://github.com/ianlintner/rust-oauth2-server"
