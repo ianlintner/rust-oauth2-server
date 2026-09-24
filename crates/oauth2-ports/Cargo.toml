@@ -2,6 +2,7 @@
 name = "oauth2-ports"
 version = "0.6.2"
 edition = "2021"
+rust-version = "1.88"
 license = "MIT OR Apache-2.0"
 description = "Ports (traits) for integrating rust-oauth2-server core with custom adapters (storage, etc.)"
 repository = "https://github.com/ianlintner/rust_oauth2_server"

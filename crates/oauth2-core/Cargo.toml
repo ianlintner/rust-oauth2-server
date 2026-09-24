@@ -2,6 +2,7 @@
 name = "oauth2-core"
 version = "0.6.2"
 edition = "2021"
+rust-version = "1.88"
 license = "MIT OR Apache-2.0"
 description = "Core domain types and logic for rust-oauth2-server (framework-agnostic)"
 repository = "https://github.com/ianlintner/rust-oauth2_server"
