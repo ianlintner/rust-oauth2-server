@@ -74,6 +74,9 @@ user-name = "Alex Crichton"
 [[publisher.wit-bindgen]]
 version = "0.57.1"
 when = "2026-04-17"
+user-id = 1
+user-login = "alexcrichton"
+user-name = "Alex Crichton"
 trusted-publisher = "github:bytecodealliance/wit-bindgen"
 
 [[audits.bytecode-alliance.wildcard-audits.arbitrary]]
