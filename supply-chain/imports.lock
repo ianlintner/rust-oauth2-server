@@ -793,8 +793,7 @@ notes = """
 Grepped for \"crypt\", \"cipher\", \"fs\", \"net\" - there were no hits
 (except for a benign \"fs\" hit in a doc comment)
 
-Notes from the `unsafe` review can be found in https://crrev.com/
-c/5385745."""
+See https://crrev.com/c/5385745."""
 aggregated-from = "https://chromium.googlesource.com/chromium/src/+/main/third_party/rust/chromium_crates_io/supply-chain/audits.toml?format=TEXT"
 
 [[audits.google.audits.proc-macro2]]
