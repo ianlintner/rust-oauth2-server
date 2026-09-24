@@ -5,7 +5,7 @@
 # merge. It is an advisory oracle — GitHub CI + branch protection remain the real
 # merge gate. The image must be on openclaw's allowlist (official toolchain images
 # or the cluster ACR); arbitrary images are rejected.
-image: rust:1.83-bookworm
+image: rust:1.88-bookworm
 
 # The official rust image ships cargo/rustc but is built with `--profile minimal`,
 # so the clippy & rustfmt components must be added (~1s). The apt packages are
