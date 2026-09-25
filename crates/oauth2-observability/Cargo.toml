@@ -2,6 +2,7 @@
 name = "oauth2-observability"
 version = "0.6.2"
 edition = "2021"
+rust-version.workspace = true
 license = "MIT OR Apache-2.0"
 description = "Observability helpers (metrics + telemetry) for rust-oauth2-server"
 repository = "https://github.com/ianlintner/rust_oauth2_server"
