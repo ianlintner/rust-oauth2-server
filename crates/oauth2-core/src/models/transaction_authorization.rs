@@ -36,6 +36,12 @@ pub struct TransactionAuthorization {
     pub reason_uri: String,
     /// Optional RFC 8693 `act` chain from the challenge, as a JSON string.
     pub act: Option<String>,
+    /// Space-delimited requested authentication context class references (RFC 9470).
+    #[serde(default)]
+    pub acr_values: String,
+    /// Maximum acceptable age of the approving authentication, in seconds (RFC 9470).
+    #[serde(default)]
+    pub max_age: Option<i64>,
     #[serde(deserialize_with = "crate::chrono_serde::deserialize")]
     pub created_at: DateTime<Utc>,
     #[serde(deserialize_with = "crate::chrono_serde::deserialize")]
@@ -66,6 +72,8 @@ impl TransactionAuthorization {
             reason: String::new(),
             reason_uri: String::new(),
             act: None,
+            acr_values: String::new(),
+            max_age: None,
             created_at: now,
             expires_at: now + Duration::seconds(expires_in_seconds),
             interval_seconds: DEFAULT_TRANSACTION_POLL_INTERVAL_SECONDS,

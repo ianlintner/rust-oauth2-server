@@ -23,17 +23,12 @@
 //! (`OAUTH2_TAC_ENABLED`); with the flag off the endpoints refuse every
 //! request and discovery does not advertise them.
 //!
-//! # RFC 9470 step-up (not yet enforced)
+//! # RFC 9470 step-up
 //!
-//! A challenge may carry `acr_values` / `max_age` to demand that the approving
-//! session be fresh or authenticated at a given assurance level; when the
-//! session does not satisfy them the approval page should bounce the user
-//! through `/auth/login` with `prompt=login` before showing the approval form.
-//! That is **not implemented yet**: the Phase 1.D `max_age` check lives inline
-//! in `handlers::oauth::authorize` rather than in a reusable helper, and this
-//! module deliberately does not fork a second copy of it. Implementing it means
-//! extracting that check into a shared helper, persisting the challenge's
-//! `acr_values` / `max_age` on the pending row, and applying the helper here.
+//! Challenges may carry `acr_values` (a string or array) and/or `max_age`.
+//! The approval session must contain a matching `acr` and a recent `auth_time`;
+//! otherwise the UI forces a fresh login and POST approval fails closed with
+//! `insufficient_user_authentication`.
 
 use actix::Addr;
 use actix_session::Session;
@@ -254,6 +249,8 @@ pub async fn transaction_authorization(
     record.reason = verified.reason;
     record.reason_uri = verified.reason_uri;
     record.act = verified.act.map(|a| a.to_string());
+    record.acr_values = verified.acr_values;
+    record.max_age = verified.max_age;
 
     storage.save_transaction_authorization(&record).await?;
 
@@ -308,6 +305,8 @@ struct VerifiedChallenge {
     reason: String,
     reason_uri: String,
     act: Option<Value>,
+    acr_values: String,
+    max_age: Option<i64>,
     exp: i64,
 }
 
@@ -439,6 +438,35 @@ async fn verify_challenge(
         OAuth2Error::invalid_request("transaction_challenge exp claim is not a number")
     })?;
 
+    let acr_values = match claims.get("acr_values") {
+        Some(Value::String(value)) => value.split_whitespace().collect::<Vec<_>>().join(" "),
+        Some(Value::Array(values)) => values
+            .iter()
+            .map(|v| {
+                v.as_str().ok_or_else(|| {
+                    OAuth2Error::invalid_request(
+                        "transaction_challenge acr_values must contain strings",
+                    )
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?
+            .join(" "),
+        Some(_) => {
+            return Err(OAuth2Error::invalid_request(
+                "transaction_challenge acr_values must be a string or array",
+            ))
+        }
+        None => String::new(),
+    };
+    let max_age = match claims.get("max_age") {
+        Some(value) => Some(value.as_i64().filter(|age| *age >= 0).ok_or_else(|| {
+            OAuth2Error::invalid_request(
+                "transaction_challenge max_age must be a non-negative integer",
+            )
+        })?),
+        None => None,
+    };
+
     Ok(VerifiedChallenge {
         resource,
         txn,
@@ -446,6 +474,8 @@ async fn verify_challenge(
         reason,
         reason_uri,
         act,
+        acr_values,
+        max_age,
         exp,
     })
 }
@@ -546,6 +576,50 @@ async fn load_actionable(
     Ok(record)
 }
 
+/// Return an RFC 9470 error when the session does not meet the challenge's
+/// requested authentication context or freshness.
+fn step_up_satisfied(record: &TransactionAuthorization, session: &Session) -> bool {
+    let actual_acr: Option<String> = session.get("acr").unwrap_or(None);
+    let auth_time: Option<i64> = session.get("auth_time").unwrap_or(None);
+    step_up_requirements_satisfied(
+        &record.acr_values,
+        record.max_age,
+        actual_acr.as_deref(),
+        auth_time,
+    )
+}
+
+fn step_up_requirements_satisfied(
+    acr_values: &str,
+    max_age: Option<i64>,
+    actual_acr: Option<&str>,
+    auth_time: Option<i64>,
+) -> bool {
+    if !acr_values.trim().is_empty()
+        && !actual_acr.is_some_and(|acr| {
+            acr_values
+                .split_whitespace()
+                .any(|requested| requested == acr)
+        })
+    {
+        return false;
+    }
+    if let Some(max_age) = max_age {
+        if !auth_time.is_some_and(|at| chrono::Utc::now().timestamp().saturating_sub(at) <= max_age)
+        {
+            return false;
+        }
+    }
+    true
+}
+
+fn insufficient_authentication() -> OAuth2Error {
+    OAuth2Error::new(
+        "insufficient_user_authentication",
+        Some("the transaction requires additional user authentication"),
+    )
+}
+
 /// `GET /oauth/transaction_authorization/approve` — the human-facing approval
 /// page. Requires an authenticated session, exactly like the device
 /// verification page.
@@ -584,6 +658,22 @@ pub async fn approve_page(
 
     let record = load_actionable(storage.as_ref(), id).await?;
 
+    if !step_up_satisfied(&record, &session) {
+        session.remove("user_id");
+        session.remove("authenticated");
+        session
+            .insert(
+                "return_to",
+                format!(
+                    "/oauth/transaction_authorization/approve?transaction_authorization_id={id}"
+                ),
+            )
+            .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))?;
+        return Ok(HttpResponse::Found()
+            .append_header(("Location", "/auth/login?prompt=login"))
+            .finish());
+    }
+
     // A missing client row must not break the page; fall back to the id.
     let client_name = client_actor
         .send(GetClient {
@@ -620,6 +710,10 @@ pub async fn approve_submit(
     let user_id = user_id.ok_or_else(|| OAuth2Error::access_denied("Authentication required"))?;
 
     let record = load_actionable(storage.as_ref(), &form.transaction_authorization_id).await?;
+
+    if !step_up_satisfied(&record, &session) {
+        return Err(insufficient_authentication());
+    }
 
     // Fail closed: only an explicit approval approves. An unrecognised (or
     // absent) `action` is a denial, not a silent consent.
@@ -880,5 +974,33 @@ mod tests {
             ..Default::default()
         };
         assert!(require_tac_enabled(&on).is_ok());
+    }
+
+    #[test]
+    fn step_up_accepts_matching_acr_and_fresh_authentication() {
+        let now = chrono::Utc::now().timestamp();
+        assert!(step_up_requirements_satisfied(
+            "urn:example:loa:2 urn:example:loa:3",
+            Some(60),
+            Some("urn:example:loa:2"),
+            Some(now - 10),
+        ));
+    }
+
+    #[test]
+    fn step_up_rejects_wrong_acr_and_stale_authentication() {
+        let now = chrono::Utc::now().timestamp();
+        assert!(!step_up_requirements_satisfied(
+            "urn:example:loa:2",
+            Some(60),
+            Some("urn:example:loa:1"),
+            Some(now - 10),
+        ));
+        assert!(!step_up_requirements_satisfied(
+            "",
+            Some(60),
+            None,
+            Some(now - 61),
+        ));
     }
 }
