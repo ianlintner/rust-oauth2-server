@@ -551,6 +551,8 @@ impl SqlxStorage {
                 reason TEXT NOT NULL DEFAULT '',
                 reason_uri TEXT NOT NULL DEFAULT '',
                 act TEXT,
+                acr_values TEXT NOT NULL DEFAULT '',
+                max_age INTEGER,
                 created_at TEXT NOT NULL,
                 expires_at TEXT NOT NULL,
                 interval_seconds INTEGER NOT NULL DEFAULT 5,
@@ -562,6 +564,15 @@ impl SqlxStorage {
         )
         .execute(pool)
         .await?;
+        // Upgrade databases created before RFC 9470 step-up fields existed.
+        let _ = sqlx::query(
+            "ALTER TABLE transaction_authorizations ADD COLUMN acr_values TEXT NOT NULL DEFAULT ''",
+        )
+        .execute(pool)
+        .await;
+        let _ = sqlx::query("ALTER TABLE transaction_authorizations ADD COLUMN max_age INTEGER")
+            .execute(pool)
+            .await;
 
         sqlx::query(
             r#"CREATE INDEX IF NOT EXISTS idx_transaction_authorizations_txn_auth_id ON transaction_authorizations(transaction_authorization_id);"#,
@@ -2588,8 +2599,8 @@ impl Storage for SqlxStorage {
             DatabasePool::Sqlite(pool) => {
                 sqlx::query(
                     r#"
-                    INSERT INTO transaction_authorizations (id, transaction_authorization_id, client_id, user_id, resource_uri, txn, authorization_details, reason, reason_uri, act, created_at, expires_at, interval_seconds, approved, denied, used)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO transaction_authorizations (id, transaction_authorization_id, client_id, user_id, resource_uri, txn, authorization_details, reason, reason_uri, act, acr_values, max_age, created_at, expires_at, interval_seconds, approved, denied, used)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     "#,
                 )
                 .bind(&txn_auth.id)
@@ -2602,6 +2613,8 @@ impl Storage for SqlxStorage {
                 .bind(&txn_auth.reason)
                 .bind(&txn_auth.reason_uri)
                 .bind(&txn_auth.act)
+                .bind(&txn_auth.acr_values)
+                .bind(txn_auth.max_age)
                 .bind(txn_auth.created_at)
                 .bind(txn_auth.expires_at)
                 .bind(txn_auth.interval_seconds)
@@ -2614,8 +2627,8 @@ impl Storage for SqlxStorage {
             DatabasePool::Postgres(pool) => {
                 sqlx::query(
                     r#"
-                    INSERT INTO transaction_authorizations (id, transaction_authorization_id, client_id, user_id, resource_uri, txn, authorization_details, reason, reason_uri, act, created_at, expires_at, interval_seconds, approved, denied, used)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+                    INSERT INTO transaction_authorizations (id, transaction_authorization_id, client_id, user_id, resource_uri, txn, authorization_details, reason, reason_uri, act, acr_values, max_age, created_at, expires_at, interval_seconds, approved, denied, used)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
                     "#,
                 )
                 .bind(&txn_auth.id)
@@ -2628,6 +2641,8 @@ impl Storage for SqlxStorage {
                 .bind(&txn_auth.reason)
                 .bind(&txn_auth.reason_uri)
                 .bind(&txn_auth.act)
+                .bind(&txn_auth.acr_values)
+                .bind(txn_auth.max_age)
                 .bind(txn_auth.created_at)
                 .bind(txn_auth.expires_at)
                 .bind(txn_auth.interval_seconds)
