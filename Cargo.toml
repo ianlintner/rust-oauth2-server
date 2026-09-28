@@ -45,7 +45,7 @@ oauth2-storage-factory = { path = "crates/oauth2-storage-factory", default-featu
 
 # Used by `src/bin/export_openapi.rs`.
 serde_json = "1.0"
-utoipa = "5.4"
+utoipa = "6.0"
 
 # Used by `src/bin/compliance_report.rs`.
 serde = { version = "1.0", features = ["derive"] }

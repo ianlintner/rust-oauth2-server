@@ -28,7 +28,7 @@ actix-files = "0.6.10"
 actix-session = { version = "0.11", features = ["cookie-session"] }
 
 # OpenAPI UI
-utoipa = "5.4"
+utoipa = "6.0"
 utoipa-swagger-ui = { version = "9.0.2", features = ["actix-web"] }
 
 # Observability
