@@ -35,7 +35,7 @@ version = "0.7.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.actix-files]]
-version = "0.6.10"
+version = "0.7.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.actix-http]]
@@ -1981,8 +1981,12 @@ criteria = "safe-to-deploy"
 version = "1.26.1"
 criteria = "safe-to-deploy"
 
+[[exemptions.v_escape-base]]
+version = "0.1.0"
+criteria = "safe-to-deploy"
+
 [[exemptions.v_htmlescape]]
-version = "0.15.8"
+version = "0.17.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.version_check]]
