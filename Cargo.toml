@@ -123,7 +123,7 @@ sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio-r
 # collector. These versions match `crates/oauth2-observability`.
 opentelemetry = { version = "0.32", features = ["trace"] }
 opentelemetry_sdk = { version = "0.32", features = ["rt-tokio", "testing"] }
-tracing-opentelemetry = "0.33"
+tracing-opentelemetry = "0.34"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [[test]]

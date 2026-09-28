@@ -39,7 +39,7 @@ opentelemetry_sdk = { version = "0.32", features = ["rt-tokio"], optional = true
 opentelemetry-otlp = { version = "0.32", default-features = false, features = ["grpc-tonic", "trace", "metrics"], optional = true }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
-tracing-opentelemetry = { version = "0.33", optional = true }
+tracing-opentelemetry = { version = "0.34", optional = true }
 tracing-log = "0.2"
 
 # Actix integration (optional)
