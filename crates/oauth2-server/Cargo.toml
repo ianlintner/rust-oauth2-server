@@ -29,7 +29,7 @@ actix-session = { version = "0.11", features = ["cookie-session"] }
 
 # OpenAPI UI
 utoipa = "5.4"
-utoipa-swagger-ui = { version = "9.0.2", features = ["actix-web"] }
+utoipa-swagger-ui = { version = "10.0.1", features = ["actix-web"] }
 
 # Observability
 tracing = "0.1"
