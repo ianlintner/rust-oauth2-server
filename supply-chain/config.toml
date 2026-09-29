@@ -380,6 +380,7 @@ criteria = "safe-to-deploy"
 [[exemptions.config]]
 version = "0.15.26"
 criteria = "safe-to-deploy"
+suggest = false
 
 [[exemptions.console]]
 version = "0.16.3"
