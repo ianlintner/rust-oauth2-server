@@ -1007,6 +1007,10 @@ criteria = "safe-to-deploy"
 version = "10.4.0"
 criteria = "safe-to-deploy"
 
+[[exemptions.jsonwebtoken]]
+version = "11.1.0"
+criteria = "safe-to-deploy"
+
 [[exemptions.language-tags]]
 version = "0.3.2"
 criteria = "safe-to-deploy"
