@@ -24,7 +24,7 @@ oauth2-storage-factory = { path = "../oauth2-storage-factory", default-features 
 actix-web = "4.4"
 actix = "0.13"
 actix-cors = "0.7"
-actix-files = "0.6.10"
+actix-files = "0.7.0"
 actix-session = { version = "0.11", features = ["cookie-session"] }
 
 # OpenAPI UI
