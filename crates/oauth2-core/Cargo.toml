@@ -31,5 +31,5 @@ url = "2"
 
 # Optional: DB and web framework integrations used only for derives / error mapping
 sqlx = { version = "0.8", default-features = false, optional = true }
-utoipa = { version = "5.4", optional = true }
+utoipa = { version = "6.0", optional = true }
 actix-web = { version = "4.4", optional = true }
