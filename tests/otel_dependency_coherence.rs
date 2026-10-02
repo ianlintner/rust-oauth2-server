@@ -443,6 +443,38 @@ fn prefix_and_wrong_tokens_do_not_satisfy_the_selection() {
     }
 }
 
+/// Regression: a fixture that selects both the matching `opentelemetry_0_32`
+/// feature AND the incompatible `opentelemetry_0_33`-style one must be rejected
+/// by the 0_33 branch specifically — not merely by the missing-selection branch
+/// (0_32 is present here, so that branch cannot fire).
+///
+/// Before this regression existed, deleting the `opentelemetry_0_33` rejection
+/// in `check_social_login_selection` left every in-repo test green: this is the
+/// only fixture that exercises that branch with a satisfied 0_32 selection.
+#[test]
+fn mixed_0_32_and_0_33_selection_is_rejected_for_the_0_33_feature() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let root = write_social_login_fixture(
+        dir.path(),
+        &["opentelemetry_0_32", "opentelemetry_0_33"],
+        true,
+    );
+
+    let err = check_social_login_selection(&root).expect_err(
+        "a selection combining the compatible 0_32 feature with the unpublishable 0_33 \
+         feature must be rejected; the 0_33 branch must run even though 0_32 is selected",
+    );
+    assert!(
+        err.contains("opentelemetry_0_33"),
+        "failure must name the rejected 0_33-style feature, got: {err}"
+    );
+    assert!(
+        !err.starts_with("missing selection"),
+        "the rejection must come from the 0_33 branch, not the missing-selection branch \
+         (0_32 IS selected here); got: {err}"
+    );
+}
+
 /// Positive control: the exact production selection passes the same guard.
 #[test]
 fn exact_production_selection_passes_the_guard() {
