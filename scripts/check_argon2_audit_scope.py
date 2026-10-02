@@ -107,13 +107,17 @@ def main():
         matched = [
             package
             for package in packages
-            if package["name"] == name and package["version"] == version
+            if package["name"] == name
         ]
         if len(matched) != 1:
             return fail(
                 f"expected exactly one resolved {name} {version}, found {len(matched)}"
             )
         package = matched[0]
+        if package.get("version") != version:
+            return fail(
+                f"expected reviewed {name} {version}, found {package.get('version')!r}"
+            )
         if package.get("source") != SOURCE:
             return fail(
                 f"{name} {version} source not reviewable: {package.get('source')!r}"

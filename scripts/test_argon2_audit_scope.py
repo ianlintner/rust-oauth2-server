@@ -195,6 +195,38 @@ class ScopeTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("exactly one", result.stderr)
 
+    def test_mixed_resolved_versions_are_rejected(self):
+        older_versions = {
+            "argon2": "0.5.3",
+            "blake2": "0.10.6",
+            "password-hash": "0.5.0",
+            "phc": "0.6.0",
+        }
+        for name, older_version in older_versions.items():
+            with self.subTest(crate=name):
+                metadata, lock = build_fixture()
+                additional = dict(next(
+                    package for package in metadata["packages"]
+                    if package["name"] == name
+                ))
+                additional["version"] = older_version
+                additional["id"] = f"{SOURCE}#{name}@{older_version}"
+                metadata["packages"].append(additional)
+                metadata["resolve"]["nodes"].append(
+                    {"id": additional["id"], "features": []}
+                )
+                lock += (
+                    '\n[[package]]\n'
+                    f'name = "{name}"\n'
+                    f'version = "{older_version}"\n'
+                    f'source = "{SOURCE}"\n'
+                    f'checksum = "{"0" * 64}"\n'
+                )
+                result = self.run_gate(metadata, lock)
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertIn("exactly one", result.stderr)
+                self.assertIn(name, result.stderr)
+
     def test_malformed_metadata_json_is_rejected(self):
         result = self.run_gate("{not json", "")
         self.assertNotEqual(result.returncode, 0)
