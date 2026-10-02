@@ -47,6 +47,96 @@ REPO_ROOT = SCRIPT.parent.parent
 # Real approved vendored source tree, copied verbatim into each fixture.
 VENDOR_SRC = REPO_ROOT / "vendor" / "utoipa-swagger-ui-10.0.1"
 
+WORKFLOW = REPO_ROOT / ".github" / "workflows" / "ci.yml"
+
+# The gate step is gated on the dorny `code` paths-filter output. Every
+# non-Rust file in the reviewed 14-file vendored tree must therefore be an
+# ACTIVE `code` entry, or a change to it yields code == false and the
+# whole-tree hash check is skipped. See Copilot review 5397373028.
+VENDOR_WILDCARD = "vendor/utoipa-swagger-ui-10.0.1/**"
+
+# Pinned non-Rust filenames in the vendored tree (mirror of the guard's
+# 14-file inventory); each must be selected by the active `code` filter.
+VENDOR_NONRUST_RELPATHS = (
+    "vendor/utoipa-swagger-ui-10.0.1/Cargo.toml",
+    "vendor/utoipa-swagger-ui-10.0.1/Cargo.toml.orig",
+    "vendor/utoipa-swagger-ui-10.0.1/Cargo.lock",
+    "vendor/utoipa-swagger-ui-10.0.1/.cargo_vcs_info.json",
+    "vendor/utoipa-swagger-ui-10.0.1/LICENSE-APACHE",
+    "vendor/utoipa-swagger-ui-10.0.1/LICENSE-MIT",
+    "vendor/utoipa-swagger-ui-10.0.1/README.md",
+    "vendor/utoipa-swagger-ui-10.0.1/CHANGELOG.md",
+    "vendor/utoipa-swagger-ui-10.0.1/build.rs",
+    # arbitrary non-Rust file added anywhere under the reviewed tree
+    "vendor/utoipa-swagger-ui-10.0.1/arbitrary-added.txt",
+)
+
+
+def parse_active_filter_entries(workflow_text, filter_name):
+    """Extract the ACTIVE entries of one embedded dorny ``filters: |`` filter.
+
+    Intentionally narrow, indentation-aware parser for this single controlled
+    workflow (not a general YAML reader, and deliberately NOT broad substring
+    matching — a token that only appears in a ``#`` comment or under a
+    different filter block must NOT be reported as an active entry).
+
+    The block shape in ``.github/workflows/ci.yml`` is::
+
+        with:
+          filters: |
+            code:
+              - '**/*.rs'
+            docs:
+              - 'docs/**'
+
+    so: locate ``filters: |``; then entries whose indentation is exactly one
+    level deeper than a ``<name>:`` header line belong to that header's filter.
+    A line is an entry only when the stripped text starts with ``- ``; trailing
+    `` # comment`` is stripped before unquoting. Returns the list of unquoted
+    glob strings for ``filter_name`` (empty if the filter is absent).
+    """
+    lines = workflow_text.splitlines()
+    # 1. Find the embedded `filters: |` block.
+    start = None
+    for idx, line in enumerate(lines):
+        if line.strip() == "filters: |":
+            start = idx + 1
+            break
+    if start is None:
+        return []
+
+    filters_indent = len(lines[start - 1]) - len(lines[start - 1].lstrip(" "))
+
+    current = None
+    header_indent = None
+    entries = []
+    for raw in lines[start:]:
+        if raw.strip() == "":
+            continue
+        indent = len(raw) - len(raw.lstrip(" "))
+        if indent <= filters_indent:
+            break  # dedented out of the embedded block
+        stripped = raw.strip()
+        if stripped.startswith("#"):
+            continue  # comment line is never an active entry
+        # Strip an inline trailing comment before interpreting the token.
+        code_part = stripped.split(" #", 1)[0].rstrip()
+        if code_part.endswith(":") and not code_part.startswith("-"):
+            # A filter header such as `code:` or `docs:`.
+            current = code_part[:-1].strip()
+            header_indent = indent
+            continue
+        if not code_part.startswith("-"):
+            continue
+        if current is None or indent <= (header_indent or 0):
+            continue  # entry not under a header at the right depth
+        token = code_part[1:].strip()
+        if len(token) >= 2 and token[0] in "'\"" and token[-1] == token[0]:
+            token = token[1:-1]
+        if current == filter_name:
+            entries.append(token)
+    return entries
+
 REGISTRY_SOURCE = "registry+https://github.com/rust-lang/crates.io-index"
 
 # Exact reviewed stack (mirrors the guard's pinning table).
@@ -624,6 +714,121 @@ class ScopeTests(unittest.TestCase):
         result = self.run_gate({"packages": []}, lock, manifest)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("utoipa", result.stderr)
+
+
+class WorkflowWiringTests(unittest.TestCase):
+    """The exact-stack gate must actually RUN for every vendored-tree change.
+
+    Copilot review 5397373028: the gate step in ``.github/workflows/ci.yml``
+    is ``if: needs.changes.outputs.code == 'true'``, but the dorny ``code``
+    paths-filter did not list ``vendor/**``. A change confined to a non-Rust
+    file in the reviewed vendored tree (``Cargo.toml.orig``, ``LICENSE-*``,
+    ``.cargo_vcs_info.json``, the nested ``Cargo.lock``, or an arbitrary added
+    file) therefore produced ``code == false`` and silently skipped the
+    whole-tree hash check.
+
+    These tests parse the *actual* workflow file with an indentation-aware
+    parser (not broad substring matching, which a ``#`` comment or a token in
+    an unrelated filter would falsely satisfy) and assert the vendor wildcard
+    is an ACTIVE ``code`` entry. Mutation fixtures prove the parser would
+    catch comment-only / wrong-filter / wrong-depth regressions.
+    """
+
+    def setUp(self):
+        self.assertTrue(WORKFLOW.is_file(), f"missing workflow: {WORKFLOW}")
+        self.text = WORKFLOW.read_text()
+        self.entries = parse_active_filter_entries(self.text, "code")
+
+    # ----- parser sanity (so the assertions below cannot be vacuous) ------
+
+    def test_parser_reads_the_live_code_filter(self):
+        self.assertIn("**/*.rs", self.entries)
+        self.assertIn(".github/workflows/**", self.entries)
+        # A non-`code` filter must not leak into the `code` read.
+        inject = self.text.replace(
+            "            code:\n",
+            "            code:\n              - '**/*.rs'\n"
+            "            docs:\n              - 'docs/**'\n",
+            1,
+        )
+        entries = parse_active_filter_entries(inject, "code")
+        self.assertIn("**/*.rs", entries)
+        self.assertNotIn("docs/**", entries)
+
+    def test_parser_ignores_comment_only_and_wrong_indent_tokens(self):
+        # Self-contained controlled block (independent of the live entry) so
+        # these mutations prove the parser rejects non-active tokens.
+        def block(entry_line, indent):
+            return (
+                "      - uses: dorny/paths-filter@deadbeef\n"
+                "        with:\n"
+                "          filters: |\n"
+                "            code:\n"
+                "              - '**/*.rs'\n"
+                f"{' ' * indent}{entry_line}\n"
+                "            docs:\n"
+                "              - 'docs/**'\n"
+            )
+
+        # 1. A token that appears ONLY in a comment is not an active entry.
+        comment_only = block(f"# - '{VENDOR_WILDCARD}'", 14)
+        self.assertNotIn(
+            VENDOR_WILDCARD, parse_active_filter_entries(comment_only, "code")
+        )
+
+        # 2. A token under a DIFFERENT filter (`docs:`) is not a `code` entry.
+        other_filter = (
+            "      - uses: dorny/paths-filter@deadbeef\n"
+            "        with:\n"
+            "          filters: |\n"
+            "            code:\n"
+            "              - '**/*.rs'\n"
+            "            docs:\n"
+            f"              - '{VENDOR_WILDCARD}'\n"
+        )
+        self.assertNotIn(
+            VENDOR_WILDCARD, parse_active_filter_entries(other_filter, "code")
+        )
+        # ...and it IS an active `docs` entry, proving the scope is exact.
+        self.assertIn(
+            VENDOR_WILDCARD, parse_active_filter_entries(other_filter, "docs")
+        )
+
+        # 3. A token at the WRONG indent depth is not an active entry.
+        wrong_depth = block(f"- '{VENDOR_WILDCARD}'", 10)
+        self.assertNotIn(
+            VENDOR_WILDCARD, parse_active_filter_entries(wrong_depth, "code")
+        )
+
+    # ----- the actual regression (this is the RED assertion) --------------
+
+    def test_vendor_tree_is_active_code_trigger(self):
+        self.assertIn(
+            VENDOR_WILDCARD,
+            self.entries,
+            "the dorny `code` paths-filter must list the reviewed vendored tree "
+            "so the exact-stack gate is not skipped for non-Rust vendor edits",
+        )
+
+    def test_vendor_wildcard_covers_every_pinned_nonrust_file(self):
+        # The wildcard must sit in the SAME directory as the pinned files, so
+        # `<dir>/**` selects each of them (and any arbitrary added file).
+        for relpath in VENDOR_NONRUST_RELPATHS:
+            with self.subTest(path=relpath):
+                self.assertTrue(
+                    relpath.startswith(VENDOR_WILDCARD[:-3]),
+                    f"{relpath} is not under {VENDOR_WILDCARD}",
+                )
+
+    def test_gate_step_still_gated_on_code(self):
+        # The fix must not narrow the trigger or disable the step; the gate
+        # stays tied to `code`, the vendor wildcard just widens `code`.
+        self.assertRegex(
+            self.text,
+            r"Verify utoipa/Swagger exact stack scope\s*\n\s*if:\s*"
+            r"needs\.changes\.outputs\.code == 'true'",
+        )
+        self.assertIn("python3 scripts/check_utoipa_stack_scope.py", self.text)
 
 
 if __name__ == "__main__":

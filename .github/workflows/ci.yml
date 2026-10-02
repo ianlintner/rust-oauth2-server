@@ -66,6 +66,11 @@ jobs:
               - 'audit.toml'
               - '.cargo/**'
               - 'supply-chain/**'
+              # The exact-stack gate hashes a whole vendored tree, including
+              # its non-Rust files (Cargo.toml.orig, LICENSE-*, the nested
+              # Cargo.lock, .cargo_vcs_info.json). Without this entry such a
+              # change yields code == false and silently skips that gate.
+              - 'vendor/utoipa-swagger-ui-10.0.1/**'
               - '.github/workflows/**'
               - '.github/actions/**'
 
