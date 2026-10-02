@@ -1,0 +1,10 @@
+[package]
+name = "base64-scalar-review"
+version = "0.1.0"
+edition = "2021"
+[dependencies]
+old = { package = "base64", version = "=0.22.1", default-features = false, features = ["std"] }
+new = { package = "base64", version = "=0.23.1", default-features = false, features = ["std"] }
+
+# Standalone evidence harness; not a server workspace member.
+[workspace]

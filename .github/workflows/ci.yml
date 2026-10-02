@@ -250,7 +250,7 @@ jobs:
         if: needs.changes.outputs.code == 'true'
         uses: taiki-e/install-action@9983c65e42da123ff25d1f78505eb6de315aa172 # v2.87.20
         with:
-          tool: cargo-audit,cargo-vet
+          tool: cargo-audit,cargo-vet@0.10.2
 
       - name: Security Audit (cargo-audit)
         if: needs.changes.outputs.code == 'true'
@@ -261,6 +261,15 @@ jobs:
         uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2
         with:
           command: check
+
+      # This local audit covers std+alloc scalar code, never SIMD. Cargo-vet
+      # alone does not enforce feature scope, so fail before vet if it drifts.
+      - name: Verify base64 scalar attestation scope
+        if: needs.changes.outputs.code == 'true'
+        run: |
+          python3 scripts/test_base64_audit_scope.py
+          python3 scripts/check_base64_audit_scope.py
+          cargo run --release --locked --manifest-path tools/base64-scalar-review/Cargo.toml
 
       # Supply-chain trust gate: every dependency must be audited (by us or a
       # trusted import) or explicitly exempted. New/updated crates that are not
