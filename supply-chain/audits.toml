@@ -1,6 +1,22 @@
 
 # cargo-vet audits file
 
+[[audits.argon2]]
+who = "Ian Lintner (@ianlintner), owner approval of AI-assisted review"
+criteria = "safe-to-deploy"
+version = "0.6.0"
+importable = false
+notes = """
+Owner explicitly authorized this AI-assisted, repository-scoped attestation,
+accepting the documented limitations; this is not an independent human audit
+or merge approval. Evidence, crate checksums, source analysis, feature scope,
+tests and residual risks: docs/supply-chain/argon2-0.6.0-ai-assisted-review.md.
+Applies only with the exact crates.io artifacts and unified feature graph
+enforced by scripts/check_argon2_audit_scope.py in CI. Optional Argon2
+parallel/kdf/zeroize and all other feature expansions are outside scope.
+Not importable: other repositories may not enforce these restrictions.
+"""
+
 [[audits.base64]]
 who = "Ian Lintner (@ianlintner), owner approval of AI-assisted review"
 criteria = "safe-to-deploy"
@@ -13,4 +29,52 @@ features and no-std are excluded. Scope is enforced before vet in CI by
 scripts/check_base64_audit_scope.py. This is not an independent third-party
 or all-features audit. See docs/security/base64-0.23.1-attestation.md for
 owner approval, artifact checksums, findings, tests and residual limits.
+"""
+
+[[audits.blake2]]
+who = "Ian Lintner (@ianlintner), owner approval of AI-assisted review"
+criteria = "safe-to-deploy"
+version = "0.11.0"
+importable = false
+notes = """
+Owner explicitly authorized this AI-assisted, repository-scoped attestation,
+accepting the documented limitations; this is not an independent human audit
+or merge approval. Evidence, crate checksums, source analysis, feature scope,
+tests and residual risks: docs/supply-chain/argon2-0.6.0-ai-assisted-review.md.
+Applies only with the exact crates.io artifacts and unified feature graph
+enforced by scripts/check_argon2_audit_scope.py in CI. Optional Argon2
+parallel/kdf/zeroize and all other feature expansions are outside scope.
+Not importable: other repositories may not enforce these restrictions.
+"""
+
+[[audits.password-hash]]
+who = "Ian Lintner (@ianlintner), owner approval of AI-assisted review"
+criteria = "safe-to-deploy"
+version = "0.6.1"
+importable = false
+notes = """
+Owner explicitly authorized this AI-assisted, repository-scoped attestation,
+accepting the documented limitations; this is not an independent human audit
+or merge approval. Evidence, crate checksums, source analysis, feature scope,
+tests and residual risks: docs/supply-chain/argon2-0.6.0-ai-assisted-review.md.
+Applies only with the exact crates.io artifacts and unified feature graph
+enforced by scripts/check_argon2_audit_scope.py in CI. Optional Argon2
+parallel/kdf/zeroize and all other feature expansions are outside scope.
+Not importable: other repositories may not enforce these restrictions.
+"""
+
+[[audits.phc]]
+who = "Ian Lintner (@ianlintner), owner approval of AI-assisted review"
+criteria = "safe-to-deploy"
+version = "0.6.1"
+importable = false
+notes = """
+Owner explicitly authorized this AI-assisted, repository-scoped attestation,
+accepting the documented limitations; this is not an independent human audit
+or merge approval. Evidence, crate checksums, source analysis, feature scope,
+tests and residual risks: docs/supply-chain/argon2-0.6.0-ai-assisted-review.md.
+Applies only with the exact crates.io artifacts and unified feature graph
+enforced by scripts/check_argon2_audit_scope.py in CI. Optional Argon2
+parallel/kdf/zeroize and all other feature expansions are outside scope.
+Not importable: other repositories may not enforce these restrictions.
 """

@@ -271,6 +271,16 @@ jobs:
           python3 scripts/check_base64_audit_scope.py
           cargo run --release --locked --manifest-path tools/base64-scalar-review/Cargo.toml
 
+      # Exact-scope gate for the owner-authorized Argon2 stack attestation
+      # (see docs/supply-chain/argon2-0.6.0-ai-assisted-review.md). Enforces
+      # reviewed feature sets, versions, registry source and Cargo.lock
+      # checksums before vet, fail-closed on any drift.
+      - name: Verify Argon2 stack attestation scope
+        if: needs.changes.outputs.code == 'true'
+        run: |
+          python3 scripts/test_argon2_audit_scope.py
+          python3 scripts/check_argon2_audit_scope.py
+
       # Supply-chain trust gate: every dependency must be audited (by us or a
       # trusted import) or explicitly exempted. New/updated crates that are not
       # vouched for fail the build. --locked pins the imported audit sets.

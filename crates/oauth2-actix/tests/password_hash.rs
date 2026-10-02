@@ -3,9 +3,10 @@ use oauth2_actix::handlers::login::hash_password;
 
 #[test]
 fn generated_password_hash_verifies_with_fresh_random_salt() {
-    let password = "correct-horse-battery-staple";
-    let first = hash_password(password).expect("hash first password");
-    let second = hash_password(password).expect("hash second password");
+    // Generate test-only input at runtime; no credential is embedded in this test.
+    let password = uuid::Uuid::new_v4().to_string();
+    let first = hash_password(&password).expect("hash first password");
+    let second = hash_password(&password).expect("hash second password");
     let first = PasswordHash::new(&first).expect("parse first PHC hash");
     let second = PasswordHash::new(&second).expect("parse second PHC hash");
     assert_ne!(

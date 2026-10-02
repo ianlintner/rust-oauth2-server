@@ -2,8 +2,10 @@ use oauth2_actix::handlers::login::hash_password;
 
 #[test]
 fn password_hash_uses_argon2id_with_fresh_random_salts() {
-    let first = hash_password("correct-horse-battery-staple").expect("first password hash");
-    let second = hash_password("correct-horse-battery-staple").expect("second password hash");
+    // Use the same runtime-generated input twice so only the random salt differs.
+    let password = uuid::Uuid::new_v4().to_string();
+    let first = hash_password(&password).expect("first password hash");
+    let second = hash_password(&password).expect("second password hash");
     let first: Vec<_> = first.split('$').collect();
     let second: Vec<_> = second.split('$').collect();
     assert_eq!(first.len(), 6);
