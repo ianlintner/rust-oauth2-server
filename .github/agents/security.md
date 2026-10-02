@@ -19,12 +19,11 @@ You are a specialized security agent for the Rust OAuth2 Server. Your role is to
 ```rust
 // GOOD: Hash client secrets
 use argon2::{Argon2, PasswordHasher};
-use password_hash::SaltString;
 
-let salt = SaltString::generate(&mut OsRng);
+// Argon2 0.6 generates a fresh salt using the OS RNG; propagate RNG errors.
 let argon2 = Argon2::default();
 let password_hash = argon2
-    .hash_password(client_secret.as_bytes(), &salt)?
+    .hash_password(client_secret.as_bytes())?
     .to_string();
 ```
 
@@ -143,17 +142,17 @@ let client = sqlx::query_as!(
 
 ```rust
 use argon2::{
-    password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
+    password_hash::{phc::PasswordHash, PasswordHasher, PasswordVerifier},
     Argon2
 };
 
 // Hash password
 pub async fn hash_password(password: &str) -> Result<String, Error> {
-    let salt = SaltString::generate(&mut OsRng);
     let argon2 = Argon2::default();
 
+    // The one-argument API generates a fresh OS-RNG salt for each hash.
     Ok(argon2
-        .hash_password(password.as_bytes(), &salt)
+        .hash_password(password.as_bytes())
         .map_err(|e| Error::HashError(e.to_string()))?
         .to_string())
 }

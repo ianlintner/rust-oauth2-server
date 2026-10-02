@@ -27,11 +27,11 @@ use oauth2_observability::Metrics;
 
 /// Shared fixture: storage + client + user, ready for `CreateToken`.
 async fn setup(client_id: &str) -> (oauth2_ports::DynStorage, String) {
-    let db_path = format!(
-        "/tmp/oauth2_agent_token_persistence_{}.db",
+    let db_path = std::env::temp_dir().join(format!(
+        "oauth2_agent_token_persistence_{}.db",
         uuid::Uuid::new_v4()
-    );
-    let storage = oauth2_storage_factory::create_storage(&format!("sqlite:{db_path}"))
+    ));
+    let storage = oauth2_storage_factory::create_storage(&format!("sqlite:{}", db_path.display()))
         .await
         .expect("create storage");
     storage.init().await.expect("init storage");
