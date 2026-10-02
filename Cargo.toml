@@ -97,7 +97,7 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 uuid = { version = "1.6", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
-base64 = "0.22"
+base64 = { version = "0.23", default-features = false, features = ["std"] }
 percent-encoding = "2.3"
 sha2 = "0.11"
 tempfile = "3"
@@ -129,3 +129,23 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 [[test]]
 name = "bdd"
 harness = false
+
+# Local override of utoipa-swagger-ui 10.0.1 (owner-authorized, PR #415).
+#
+# The published 10.0.1 manifest declares `base64 = "0.23.1"` with default
+# features, so workspace feature unification activates base64's default
+# `simd-unsafe` feature — the only feature that introduces `unsafe` in base64
+# 0.23.1 — invalidating main's non-importable std+alloc scalar audit and
+# failing the base64 scope guard (scripts/check_base64_audit_scope.py).
+#
+# The vendored copy under vendor/utoipa-swagger-ui-10.0.1/ is byte-for-byte the
+# published crate archive (sha256 3f5ec9d7816e4ce8ccb7e0bd7276e090cad0fcb1def4f3540e5b0f7485d7583e)
+# except for a single dependency-declaration delta in Cargo.toml that pins
+# base64 to the audited scalar configuration:
+#   base64 = { version = "0.23.1", default-features = false, features = ["std"] }
+# No source code change, no new crate, and the `vendored` swagger asset feature
+# is NOT enabled (the build-time asset download risk is disclosed and accepted).
+# See docs/security/utoipa-swagger-ui-10.0.1-attestation.md and
+# scripts/check_utoipa_stack_scope.py.
+[patch.crates-io]
+utoipa-swagger-ui = { path = "vendor/utoipa-swagger-ui-10.0.1" }

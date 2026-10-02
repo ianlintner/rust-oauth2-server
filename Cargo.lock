@@ -3779,7 +3779,7 @@ dependencies = [
  "actix-session",
  "actix-web",
  "argon2",
- "base64 0.22.1",
+ "base64 0.23.1",
  "chrono",
  "futures",
  "hmac 0.13.0",
@@ -3824,7 +3824,7 @@ version = "0.6.2"
 dependencies = [
  "actix-web",
  "aes-gcm 0.11.1",
- "base64 0.22.1",
+ "base64 0.23.1",
  "chrono",
  "jsonwebtoken",
  "rand 0.9.4",
@@ -5062,7 +5062,7 @@ dependencies = [
  "actix-session",
  "actix-web",
  "async-trait",
- "base64 0.22.1",
+ "base64 0.23.1",
  "chrono",
  "cucumber",
  "futures",
@@ -6812,8 +6812,6 @@ dependencies = [
 [[package]]
 name = "utoipa-swagger-ui"
 version = "10.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3f5ec9d7816e4ce8ccb7e0bd7276e090cad0fcb1def4f3540e5b0f7485d7583e"
 dependencies = [
  "actix-web",
  "base64 0.23.1",
