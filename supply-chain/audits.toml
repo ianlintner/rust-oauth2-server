@@ -1,4 +1,16 @@
 
 # cargo-vet audits file
 
-[audits]
+[[audits.base64]]
+who = "Ian Lintner (@ianlintner), owner approval of AI-assisted review"
+criteria = "safe-to-deploy"
+delta = "0.22.1 -> 0.23.1"
+importable = false
+notes = """
+Owner-authorized human attestation of AI-assisted review evidence, 2026-10-02.
+Repository-local std+alloc scalar configuration only; simd-unsafe, default
+features and no-std are excluded. Scope is enforced before vet in CI by
+scripts/check_base64_audit_scope.py. This is not an independent third-party
+or all-features audit. See docs/security/base64-0.23.1-attestation.md for
+owner approval, artifact checksums, findings, tests and residual limits.
+"""
