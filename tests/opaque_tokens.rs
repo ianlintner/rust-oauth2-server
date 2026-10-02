@@ -19,8 +19,9 @@ async fn setup_context(
     Metrics,
     OidcConfig,
 ) {
-    let db_path = format!("/tmp/oauth2_opaque_tokens_{}.db", uuid::Uuid::new_v4());
-    let storage = oauth2_storage_factory::create_storage(&format!("sqlite:{db_path}"))
+    let db_path =
+        std::env::temp_dir().join(format!("oauth2_opaque_tokens_{}.db", uuid::Uuid::new_v4()));
+    let storage = oauth2_storage_factory::create_storage(&format!("sqlite:{}", db_path.display()))
         .await
         .expect("create storage");
     storage.init().await.expect("init storage");

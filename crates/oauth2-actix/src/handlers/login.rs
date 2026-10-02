@@ -323,11 +323,10 @@ pub async fn login_submit(
 ///
 /// This is exposed so the server crate can seed users at startup.
 pub fn hash_password(password: &str) -> Result<String, argon2::password_hash::Error> {
-    use argon2::password_hash::{rand_core::OsRng, SaltString};
     use argon2::PasswordHasher;
 
-    let salt = SaltString::generate(&mut OsRng);
-    let hash = Argon2::default().hash_password(password.as_bytes(), &salt)?;
+    // Argon2 0.6 generates a fresh salt with the OS RNG and propagates RNG errors.
+    let hash = Argon2::default().hash_password(password.as_bytes())?;
     Ok(hash.to_string())
 }
 

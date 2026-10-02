@@ -103,7 +103,7 @@ async fn setup_rfc9700_context(
     let user = User {
         id: "user_rfc".to_string(),
         username: "user_rfc".to_string(),
-        password_hash: "$argon2id$v=19$m=19456,t=2,p=1$VE0rWbJBKKaUUC4g7kAChQ$ut8jRoii8yfgSu9IGptwMKxcbH3T1Ra+OAOuXhts0xE".to_string(), // password: "test"
+        password_hash: "$argon2id$v=19$m=19456,t=2,p=1$b2F1dGgyLXRlc3Qtc2FsdA$vGORQdc35SoxGDfl6xVl34r9plDoUMBPxC+P20Ri+Ho".to_string(), // password: "test"
         email: "user_rfc@example.test".to_string(),
         enabled: true,
         role: "user".to_string(),
@@ -995,7 +995,7 @@ async fn test_vector_h_login_redirect_303() {
         id: "user_rfc".to_string(),
         username: "user_rfc".to_string(),
         password_hash:
-            "$argon2id$v=19$m=19456,t=2,p=1$VE0rWbJBKKaUUC4g7kAChQ$ut8jRoii8yfgSu9IGptwMKxcbH3T1Ra+OAOuXhts0xE"
+            "$argon2id$v=19$m=19456,t=2,p=1$b2F1dGgyLXRlc3Qtc2FsdA$vGORQdc35SoxGDfl6xVl34r9plDoUMBPxC+P20Ri+Ho"
                 .to_string(),
         email: "user_rfc@example.test".to_string(),
         enabled: true,
@@ -1037,6 +1037,11 @@ async fn test_vector_h_login_redirect_303() {
         303,
         "RFC 9700 §4.11: successful login POST must redirect with 303 See Other, got {}",
         resp.status()
+    );
+    assert_eq!(
+        resp.headers().get("Location").expect("login redirect"),
+        "/profile",
+        "valid credentials must reach the successful-login target, not an error redirect"
     );
 }
 
