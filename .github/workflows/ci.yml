@@ -139,6 +139,22 @@ jobs:
         if: needs.changes.outputs.code == 'true'
         run: cargo nextest run --all-features --locked -E 'not binary(bdd)'
 
+      # The root `nextest`/`clippy` steps above cover only the
+      # `rust_oauth2_server` package (this is a non-virtual workspace: the root
+      # manifest is itself a package, so bare `cargo nextest`/`clippy` do not
+      # descend into member crates). `oauth2-social-login` carries the outbound
+      # reqwest-tracing propagation guard, which must execute alongside its
+      # root-package counterpart. Scoped deliberately to that
+      # one member (lint + test) so the coverage gap is closed without widening
+      # the whole suite here.
+      - name: Lint member OTel propagation guard (oauth2-social-login)
+        if: needs.changes.outputs.code == 'true'
+        run: cargo clippy -p oauth2-social-login --all-targets --all-features -- -D warnings
+
+      - name: Run member OTel propagation guard (oauth2-social-login)
+        if: needs.changes.outputs.code == 'true'
+        run: cargo nextest run -p oauth2-social-login --all-features --locked -E 'binary(otel_middleware_seam)'
+
       - name: Run BDD suite (cucumber)
         if: needs.changes.outputs.code == 'true'
         run: cargo test --test bdd --all-features --locked
