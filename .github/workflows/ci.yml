@@ -66,6 +66,11 @@ jobs:
               - 'audit.toml'
               - '.cargo/**'
               - 'supply-chain/**'
+              # The exact-stack gate hashes a whole vendored tree, including
+              # its non-Rust files (Cargo.toml.orig, LICENSE-*, the nested
+              # Cargo.lock, .cargo_vcs_info.json). Without this entry such a
+              # change yields code == false and silently skips that gate.
+              - 'vendor/utoipa-swagger-ui-10.0.1/**'
               - '.github/workflows/**'
               - '.github/actions/**'
 
@@ -286,6 +291,19 @@ jobs:
           python3 scripts/test_base64_audit_scope.py
           python3 scripts/check_base64_audit_scope.py
           cargo run --release --locked --manifest-path tools/base64-scalar-review/Cargo.toml
+
+      # Exact-stack gate for the owner-authorized utoipa/Swagger upgrade
+      # (utoipa 6.0.0, utoipa-gen 6.0.1, utoipa-swagger-ui 10.0.1, zip 8.6.0,
+      # typed-path 0.12.3). cargo-vet cannot enforce feature scope, source/
+      # checksum pinning, or the exact bytes of the vendored + locally patched
+      # utoipa-swagger-ui path override, so fail closed here *before* vet if any
+      # of the five drifts. Run guard regressions before checking the live graph.
+      # See docs/security/utoipa-swagger-ui-10.0.1-attestation.md.
+      - name: Verify utoipa/Swagger exact stack scope
+        if: needs.changes.outputs.code == 'true'
+        run: |
+          python3 scripts/test_utoipa_stack_scope.py
+          python3 scripts/check_utoipa_stack_scope.py
 
       # Supply-chain trust gate: every dependency must be audited (by us or a
       # trusted import) or explicitly exempted. New/updated crates that are not
