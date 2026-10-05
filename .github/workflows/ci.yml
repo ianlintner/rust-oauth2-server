@@ -66,6 +66,11 @@ jobs:
               - 'audit.toml'
               - '.cargo/**'
               - 'supply-chain/**'
+              # The exact-stack gate hashes a whole vendored tree, including
+              # its non-Rust files (Cargo.toml.orig, LICENSE-*, the nested
+              # Cargo.lock, .cargo_vcs_info.json). Without this entry such a
+              # change yields code == false and silently skips that gate.
+              - 'vendor/utoipa-swagger-ui-10.0.1/**'
               - '.github/workflows/**'
               - '.github/actions/**'
 
@@ -133,6 +138,22 @@ jobs:
       - name: Run tests (nextest)
         if: needs.changes.outputs.code == 'true'
         run: cargo nextest run --all-features --locked -E 'not binary(bdd)'
+
+      # The root `nextest`/`clippy` steps above cover only the
+      # `rust_oauth2_server` package (this is a non-virtual workspace: the root
+      # manifest is itself a package, so bare `cargo nextest`/`clippy` do not
+      # descend into member crates). `oauth2-social-login` carries the outbound
+      # reqwest-tracing propagation guard, which must execute alongside its
+      # root-package counterpart. Scoped deliberately to that
+      # one member (lint + test) so the coverage gap is closed without widening
+      # the whole suite here.
+      - name: Lint member OTel propagation guard (oauth2-social-login)
+        if: needs.changes.outputs.code == 'true'
+        run: cargo clippy -p oauth2-social-login --all-targets --all-features -- -D warnings
+
+      - name: Run member OTel propagation guard (oauth2-social-login)
+        if: needs.changes.outputs.code == 'true'
+        run: cargo nextest run -p oauth2-social-login --all-features --locked -E 'binary(otel_middleware_seam)'
 
       - name: Run BDD suite (cucumber)
         if: needs.changes.outputs.code == 'true'
@@ -280,6 +301,19 @@ jobs:
         run: |
           python3 scripts/test_argon2_audit_scope.py
           python3 scripts/check_argon2_audit_scope.py
+
+      # Exact-stack gate for the owner-authorized utoipa/Swagger upgrade
+      # (utoipa 6.0.0, utoipa-gen 6.0.1, utoipa-swagger-ui 10.0.1, zip 8.6.0,
+      # typed-path 0.12.3). cargo-vet cannot enforce feature scope, source/
+      # checksum pinning, or the exact bytes of the vendored + locally patched
+      # utoipa-swagger-ui path override, so fail closed here *before* vet if any
+      # of the five drifts. Run guard regressions before checking the live graph.
+      # See docs/security/utoipa-swagger-ui-10.0.1-attestation.md.
+      - name: Verify utoipa/Swagger exact stack scope
+        if: needs.changes.outputs.code == 'true'
+        run: |
+          python3 scripts/test_utoipa_stack_scope.py
+          python3 scripts/check_utoipa_stack_scope.py
 
       # Supply-chain trust gate: every dependency must be audited (by us or a
       # trusted import) or explicitly exempted. New/updated crates that are not

@@ -53,3 +53,18 @@ otel = [
     "dep:opentelemetry",
     "dep:opentelemetry_sdk",
 ]
+
+[dev-dependencies]
+# Regression guard for the outbound middleware seam: this drives the SAME
+# `reqwest-tracing` middleware the crate installs and asserts a live
+# `traceparent` is injected, so a split OpenTelemetry family is caught from
+# inside the member crate (root-only CI does not automatically execute every
+# member's tests). Versions match the pinned `Cargo.lock`.
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-opentelemetry = "0.33"
+opentelemetry = { version = "0.32", features = ["trace"] }
+opentelemetry_sdk = { version = "0.32", features = ["rt-tokio", "testing"] }
+async-trait = "0.1"
+http = "1"
+tokio = { version = "1", features = ["rt", "macros"] }

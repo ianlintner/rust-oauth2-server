@@ -1,0 +1,20 @@
+{
+  "recorded_at_utc": "2026-10-02T21:38:55Z",
+  "repository": "ianlintner/rust-oauth2-server",
+  "approval_surface": "Owner responses to clarify in this session",
+  "owner_response": "Authorize the scalar-only patch and five limited human-owned AI-assisted attestations",
+  "exact_versions": {
+    "utoipa": "6.0.0",
+    "utoipa-gen": "6.0.1",
+    "utoipa-swagger-ui": "10.0.1",
+    "zip": "8.6.0",
+    "typed-path": "0.12.3"
+  },
+  "scope": "Scalar-only third-party Swagger patch; repository-local non-importable human-owned AI-assisted attestations; preserve existing base64 SIMD exclusion.",
+  "disclosed_limits": [
+    "Not an independent security audit",
+    "Large zip source delta",
+    "Swagger unverified build-time asset download"
+  ],
+  "merge_authorized": false
+}

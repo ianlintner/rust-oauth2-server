@@ -78,3 +78,103 @@ enforced by scripts/check_argon2_audit_scope.py in CI. Optional Argon2
 parallel/kdf/zeroize and all other feature expansions are outside scope.
 Not importable: other repositories may not enforce these restrictions.
 """
+
+[[audits.typed-path]]
+who = "Ian Lintner (@ianlintner), owner approval of AI-assisted review"
+criteria = "safe-to-deploy"
+version = "0.12.3"
+importable = false
+notes = """
+Owner-authorized human attestation of AI-assisted review evidence, 2026-10-02.
+Scope is typed-path 0.12.3 resolved with features {default, std} on the
+crates.io registry only (checksum
+8e28f89b80c87b8fb0cf04ab448d5dd0dd0ade2f8891bae878de66a75a28600e). Feature,
+version, source and checksum drift are rejected before vet in CI by
+scripts/check_utoipa_stack_scope.py. This is not an independent third-party
+audit and does not cover other versions or feature sets.
+Bounded source evidence and limitations:
+docs/security/utoipa-swagger-ui-source-review.md.
+"""
+
+[[audits.utoipa]]
+who = "Ian Lintner (@ianlintner), owner approval of AI-assisted review"
+criteria = "safe-to-deploy"
+version = "6.0.0"
+importable = false
+notes = """
+Owner-authorized human attestation of AI-assisted review evidence, 2026-10-02.
+Scope is utoipa 6.0.0 resolved with features {chrono, default, macros, uuid} on
+the crates.io registry only (checksum
+8765fe27aeff71012a3f90fa474cf1df863a7d0dd81ed25de4e63fff2544994f). Feature,
+version, source and checksum drift are rejected before vet in CI by
+scripts/check_utoipa_stack_scope.py. This is not an independent third-party
+audit and does not cover other versions or feature sets.
+Bounded source evidence and limitations:
+docs/security/utoipa-swagger-ui-source-review.md.
+"""
+
+[[audits.utoipa-gen]]
+who = "Ian Lintner (@ianlintner), owner approval of AI-assisted review"
+criteria = "safe-to-deploy"
+version = "6.0.1"
+importable = false
+notes = """
+Owner-authorized human attestation of AI-assisted review evidence, 2026-10-02.
+Scope is utoipa-gen 6.0.1 resolved with features {chrono, uuid} on the crates.io
+registry only (checksum
+d935f1c83fdf8b88f09bbe050d0cea78ea4afee6d7b0317403228c1200b2c8ab). Feature,
+version, source and checksum drift are rejected before vet in CI by
+scripts/check_utoipa_stack_scope.py. This is not an independent third-party
+audit and does not cover other versions or feature sets.
+Bounded source evidence and limitations:
+docs/security/utoipa-swagger-ui-source-review.md.
+"""
+
+[[audits.utoipa-swagger-ui]]
+who = "Ian Lintner (@ianlintner), owner approval of AI-assisted review"
+criteria = "safe-to-deploy"
+version = "10.0.1"
+importable = false
+notes = """
+Owner-authorized human attestation of AI-assisted review evidence, 2026-10-02.
+Scope is the PUBLISHED utoipa-swagger-ui 10.0.1 crate
+(checksum 3f5ec9d7816e4ce8ccb7e0bd7276e090cad0fcb1def4f3540e5b0f7485d7583e),
+vendored locally under vendor/utoipa-swagger-ui-10.0.1 and consumed through a
+[patch.crates-io] path override, resolved with features {actix-web, default,
+url}. IMPORTANT cargo-vet MECHANICS: because this package is a local path
+override, config.toml sets [policy."utoipa-swagger-ui:10.0.1"]
+audit-as-crates-io = true, which requires an audit for the published 10.0.1
+version ONLY. cargo-vet has no hash of the local, patched tree and does not
+vouch for it; a local path audit is NOT equal to auditing the modified source.
+The only authorized delta from the published crate is a base64 dependency
+declaration change (default-features = false, features = ["std"]) that keeps
+base64 0.23.1 in its scalar std+alloc configuration and excludes simd-unsafe.
+Integrity of the vendored tree and of that single delta is enforced separately
+and fail-closed by scripts/check_utoipa_stack_scope.py (whole-tree SHA-256 of
+all 14 files, exact version/path/features) which runs before `cargo vet` in CI.
+This is not an independent third-party audit, not an all-features audit, and
+not merge approval.
+Bounded source evidence and limitations:
+docs/security/utoipa-swagger-ui-source-review.md.
+"""
+
+[[audits.zip]]
+who = "Ian Lintner (@ianlintner), owner approval of AI-assisted review"
+criteria = "safe-to-deploy"
+version = "8.6.0"
+importable = false
+notes = """
+Owner-authorized human attestation of AI-assisted review evidence, 2026-10-02.
+Scope is zip 8.6.0 resolved with features {_deflate-any, deflate,
+deflate-flate2, deflate-flate2-zlib-rs, deflate-zopfli} on the crates.io
+registry only (checksum
+2d04a6b5381502aa6087c94c669499eb1602eb9c5e8198e534de571f7154809b). ACCEPTED
+AND DISCLOSED RISK: this attestation covers a large version delta from the
+previously reviewed 3.0.0, and build-time Swagger UI asset integrity was not
+independently verified during this review. Feature, version, source and
+checksum drift are rejected before vet in CI by
+scripts/check_utoipa_stack_scope.py. This is not an independent third-party
+audit and does not cover other versions or feature sets.
+Bounded source evidence and limitations:
+docs/security/utoipa-swagger-ui-source-review.md.
+"""
