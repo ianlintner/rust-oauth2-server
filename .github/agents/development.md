@@ -20,7 +20,7 @@ This is a production-ready OAuth2 authorization server built with:
 - `actix` (0.13) - Actor system
 - `sqlx` (0.8) - Database access
 - `jsonwebtoken` (9.2) - JWT handling
-- `argon2` (0.5) - Password hashing
+- `argon2` (0.6) - Password hashing with fresh OS-RNG salts via the one-argument `hash_password` API
 - `utoipa` (5.4) - OpenAPI generation
 - `opentelemetry` (0.21) - Distributed tracing
 

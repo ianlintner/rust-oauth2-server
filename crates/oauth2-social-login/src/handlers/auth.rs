@@ -287,11 +287,9 @@ async fn find_or_create_social_user(
     // Create a new local user for this social identity.
     // The password hash is a random value — social users don't use passwords.
     let placeholder_hash = {
-        use argon2::password_hash::{rand_core::OsRng, SaltString};
         use argon2::{Argon2, PasswordHasher};
-        let salt = SaltString::generate(&mut OsRng);
         Argon2::default()
-            .hash_password(uuid::Uuid::new_v4().to_string().as_bytes(), &salt)
+            .hash_password(uuid::Uuid::new_v4().to_string().as_bytes())
             .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))?
             .to_string()
     };

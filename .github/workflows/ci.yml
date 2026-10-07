@@ -292,6 +292,16 @@ jobs:
           python3 scripts/check_base64_audit_scope.py
           cargo run --release --locked --manifest-path tools/base64-scalar-review/Cargo.toml
 
+      # Exact-scope gate for the owner-authorized Argon2 stack attestation
+      # (see docs/supply-chain/argon2-0.6.0-ai-assisted-review.md). Enforces
+      # reviewed feature sets, versions, registry source and Cargo.lock
+      # checksums before vet, fail-closed on any drift.
+      - name: Verify Argon2 stack attestation scope
+        if: needs.changes.outputs.code == 'true'
+        run: |
+          python3 scripts/test_argon2_audit_scope.py
+          python3 scripts/check_argon2_audit_scope.py
+
       # Exact-stack gate for the owner-authorized utoipa/Swagger upgrade
       # (utoipa 6.0.0, utoipa-gen 6.0.1, utoipa-swagger-ui 10.0.1, zip 8.6.0,
       # typed-path 0.12.3). cargo-vet cannot enforce feature scope, source/
