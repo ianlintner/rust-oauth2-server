@@ -3943,12 +3943,16 @@ dependencies = [
  "oauth2-social-login",
  "oauth2-storage-factory",
  "redis",
+ "rsa",
+ "serde",
  "serde_json",
  "tokio",
  "tracing",
  "tracing-actix-web",
+ "url",
  "utoipa",
  "utoipa-swagger-ui",
+ "yaml-rust2",
 ]
 
 [[package]]
