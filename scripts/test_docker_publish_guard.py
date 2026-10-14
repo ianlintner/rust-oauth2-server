@@ -75,10 +75,16 @@ class DockerBuildJobTests(unittest.TestCase):
 
     def test_no_registry_access(self):
         self.assertNotRegex(self.body, r"push:\s*true")
+        self.assertNotRegex(self.body, r"push:\s*\$?\{\{?\s*true")
         self.assertNotIn("docker/login-action", self.body)
-        self.assertNotIn("packages: write", self.body)
+        self.assertNotRegex(self.body, r"packages:\s*write")
+        self.assertNotRegex(self.body, r"\bpermissions:\s*write-all\b")
         self.assertNotIn("DOCKER_TOKEN", self.body)
         self.assertNotIn("ghcr.io", self.body)
+        self.assertNotIn("docker.io", self.body)
+        self.assertNotRegex(self.body, r"docker\s+push\b")
+        for value in re.findall(r"^\s*push:\s*(.*)$", self.body, re.M):
+            self.assertEqual(value.strip(), "false")
 
     def test_builds_locally_without_push(self):
         self.assertIn("push: false", self.body)
@@ -114,13 +120,35 @@ class DockerPublishJobTests(unittest.TestCase):
 
 class OtherWorkflowTests(unittest.TestCase):
     def test_other_workflows_only_publish_from_release_flow(self):
-        for wf in WORKFLOWS.glob("*.yml"):
-            if wf.name == "ci.yml":
+        for wf in list(WORKFLOWS.glob("*.yml")) + list(WORKFLOWS.glob("*.yaml")):
+            if wf.name in ("ci.yml", "release.yml"):
                 continue
             text = wf.read_text()
-            if re.search(r"push:\s*true", text):
-                self.assertEqual(wf.name, "release.yml", f"{wf.name} publishes images")
-                self.assertRegex(text, r"on:\s*\n\s*workflow_dispatch:")
+            for pat in (
+                r"push:\s*true",
+                r"push:\s*\$?\{\{?\s*true",
+                r"docker\s+push\b",
+                r"docker/login-action",
+                r"packages:\s*write",
+                r"\bpermissions:\s*write-all\b",
+            ):
+                self.assertNotRegex(
+                    text,
+                    pat,
+                    f"{wf.name} unexpectedly publishes: {pat}",
+                )
+
+    def test_release_flow_is_workflow_dispatch_only(self):
+        text = (WORKFLOWS / "release.yml").read_text()
+        self.assertRegex(text, r"on:\s*\n\s*workflow_dispatch:")
+
+    def test_ci_has_no_workflow_level_publish_permissions(self):
+        top = CI.read_text()
+        # workflow-level `permissions: write-all` or `packages: write` would grant
+        # every job registry write even without a per-job grant.
+        head = top.split("\n\njobs:", 1)[0]
+        self.assertNotRegex(head, r"write-all")
+        self.assertNotRegex(head, r"packages:\s*write")
 
     def test_gate_does_not_depend_on_publish_jobs(self):
         text = CI.read_text()
