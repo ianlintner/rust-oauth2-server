@@ -340,6 +340,7 @@ impl Seed {
                 return Err(format!("signing key {:?}: use must be \"sig\"", key.kid));
             }
             let well_formed = key.alg.len() == 5
+                && key.alg.is_ascii()
                 && matches!(&key.alg[..2], "RS" | "ES" | "PS" | "HS")
                 && key.alg[2..].bytes().all(|b| b.is_ascii_digit());
             if !well_formed {
@@ -711,6 +712,13 @@ users:
             &VALID.replace("http://localhost:8080", "not a url"),
             "valid URL",
         );
+    }
+
+    #[test]
+    fn non_ascii_signing_alg_is_rejected_without_panicking() {
+        // "RéS2" is 5 bytes with a char boundary-straddling byte 2.
+        let text = format!("{VALID}signingKeys:\n  - kid: k1\n    alg: \"RéS2\"\n");
+        rejects(&text, "is not RS/ES/PS/HS + 3 digits");
     }
 
     #[test]
