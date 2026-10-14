@@ -2173,7 +2173,7 @@ version = "0.18.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.xxhash-rust]]
-version = "0.8.15"
+version = "0.8.19"
 criteria = "safe-to-deploy"
 
 [[exemptions.yaml-rust2]]
