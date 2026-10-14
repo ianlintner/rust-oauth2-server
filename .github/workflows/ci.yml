@@ -427,9 +427,12 @@ jobs:
       - name: Assert publishing is disabled for this ref
         id: mode
         shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          GIT_REF: ${{ github.ref }}
         run: |
           set -euo pipefail
-          out=$(bash .github/scripts/docker_publish_mode.sh "${{ github.event_name }}" "${{ github.ref }}")
+          out=$(bash .github/scripts/docker_publish_mode.sh "$EVENT_NAME" "$GIT_REF")
           echo "$out"
           if [[ "$out" != "publish=false" ]]; then
             echo "::error::build-only docker job must never publish"
@@ -496,9 +499,12 @@ jobs:
       - name: Assert publishing is allowed for this ref (tags only)
         id: mode
         shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          GIT_REF: ${{ github.ref }}
         run: |
           set -euo pipefail
-          out=$(bash .github/scripts/docker_publish_mode.sh "${{ github.event_name }}" "${{ github.ref }}")
+          out=$(bash .github/scripts/docker_publish_mode.sh "$EVENT_NAME" "$GIT_REF")
           echo "$out"
           if [[ "$out" != "publish=true" ]]; then
             echo "::error::registry publication is restricted to tag pushes"
