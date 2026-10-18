@@ -31,7 +31,7 @@ use utoipa::OpenApi;
         ("state" = Option<String>, Query, description = "Opaque value used to maintain state between request and callback"),
         ("nonce" = Option<String>, Query, description = "OIDC nonce – bound into the id_token"),
         ("code_challenge" = Option<String>, Query, description = "PKCE code challenge (RFC 7636)"),
-        ("code_challenge_method" = Option<String>, Query, description = "PKCE method: `S256` or `plain`"),
+        ("code_challenge_method" = Option<String>, Query, description = "PKCE method: `S256` (only; `plain` is rejected)"),
     ),
     responses(
         (status = 302, description = "Redirect to redirect_uri with `code` parameter"),
