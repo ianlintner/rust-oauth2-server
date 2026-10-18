@@ -72,6 +72,13 @@ async fn authenticate_client(
         .as_ref()
         .map(|(_, client_secret)| client_secret.as_str());
 
+    // RFC 6749 §2.3: one authentication method per request.
+    crate::handlers::oauth::reject_multiple_client_auth_methods(
+        basic.is_some(),
+        form_client_secret.is_some(),
+        false,
+    )?;
+
     if let (Some(body_id), Some(basic_id)) = (form_client_id, basic_client_id) {
         if body_id != basic_id {
             return Err(OAuth2Error::invalid_request(

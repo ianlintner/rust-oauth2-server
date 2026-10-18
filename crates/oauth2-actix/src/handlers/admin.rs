@@ -454,14 +454,33 @@ pub async fn health() -> Result<HttpResponse> {
     })))
 }
 
+/// Conformance test-mode readiness detail. Registered as `app_data` only when
+/// conformance mode is on (and only after the seed was applied); `/ready`
+/// reports it so a harness can wait for the seed. Counts and key IDs only,
+/// never credentials or key material.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ConformanceReadiness {
+    pub seed_applied: bool,
+    pub clients: usize,
+    pub users: usize,
+    pub signing_key_ids: Vec<String>,
+}
+
 /// Readiness check endpoint.
-pub async fn readiness(db: web::Data<DynStorage>) -> Result<HttpResponse> {
+pub async fn readiness(
+    db: web::Data<DynStorage>,
+    conformance: Option<web::Data<ConformanceReadiness>>,
+) -> Result<HttpResponse> {
     db.healthcheck()
         .await
         .map_err(actix_web::error::ErrorServiceUnavailable)?;
 
-    Ok(HttpResponse::Ok().json(serde_json::json!({
+    let mut body = serde_json::json!({
         "status": "ready",
         "checks": { "database": "ok" }
-    })))
+    });
+    if let Some(conformance) = conformance {
+        body["conformance"] = serde_json::json!(conformance.get_ref());
+    }
+    Ok(HttpResponse::Ok().json(body))
 }

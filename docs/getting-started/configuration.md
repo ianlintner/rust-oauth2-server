@@ -193,6 +193,52 @@ For the bundled clustered profile, build with:
 cargo build --release --features distributed
 ```
 
+## Conformance test mode
+
+Test-only mode that lets the external
+[`oauth2-conformance`](https://github.com/ianlintner/oauth2-conformance) runner
+drive this server as a black-box SUT (its `contract/sut-interface.md`). It is
+**off by default** and must never be enabled outside an ephemeral test process.
+
+| Variable                    | Purpose                                                             |
+| --------------------------- | ------------------------------------------------------------------- |
+| `OAUTH2_CONFORMANCE_MODE`   | `1`/`true` enables; unset/`0`/`false` disables; anything else aborts. |
+| `OAUTH2_CONFORMANCE_SEED`   | Path to the seed file (YAML or JSON, `schemas/seed.schema.json`). Required when the mode is on; ignored (with a warning) when it is off. |
+
+What it does when on:
+
+- Loads the seed's `issuer`, `clients`, `users` and `signingKeys` into the
+  process-local store **before the server binds a port**. The seeded issuer is
+  used for `iss`, discovery and JWKS; each `signingKeys` entry (`RS256`,
+  `HS256`) gets freshly generated key material under the seeded `kid`, which
+  becomes the current key. Key material is never read from or written to the seed.
+- Replaces the default `admin` account: only seeded users exist. Passwords are
+  Argon2-hashed at seed time, so the normal `POST /auth/login` form is the test
+  login and `/oauth/authorize` is the unmodified production path. There is no
+  consent screen in this server, so seeded clients are consented implicitly.
+- `GET /ready` adds a `conformance` object (`seed_applied`, counts, signing key
+  ids; never credentials) once the seed is applied. `/health` is unchanged.
+
+It fails closed. Startup aborts, before any storage is opened, when:
+
+- `OAUTH2_ENV`, `OAUTH2_ENVIRONMENT`, `OAUTH2_PROFILE`, `APP_ENV`,
+  `ENVIRONMENT` or `RUST_ENV` is set to anything other than `test`, `testing`,
+  `conformance`, `dev`, `development`, `local` or `ci` (an unknown name is
+  refused, not assumed safe);
+- the database is not process-local in-memory SQLite
+  (`OAUTH2_DATABASE_URL=sqlite::memory:`) or a read replica is configured;
+- the seed is missing, unreadable, not valid against the schema (unknown keys,
+  duplicates, a confidential client without a secret, an unsupported signing
+  algorithm such as `ES256`, a trailing `/` on the issuer, ...).
+
+Example:
+
+```bash
+OAUTH2_CONFORMANCE_MODE=1 OAUTH2_CONFORMANCE_SEED=./conformance-seed.yaml \
+OAUTH2_ENV=test OAUTH2_DATABASE_URL=sqlite::memory: \
+OAUTH2_JWT_SECRET=$(openssl rand -hex 32) cargo run
+```
+
 ## HOCON vs env files
 
 Use environment variables when:
