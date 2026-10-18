@@ -1692,10 +1692,28 @@ pub async fn token(
         }
     }
 
+    // Read grant_type first: RFC 6749 §5.2 treats a token request with no
+    // client authentication as `invalid_client` (401). For the grants that
+    // require a confidential client (client_credentials, refresh_token), a
+    // missing `client_id` must therefore surface as `invalid_client`, not the
+    // generic `invalid_request` (400). Allow the identifier to be absent so the
+    // per-grant handlers produce the correct error from `resolve_client` /
+    // `authenticate_confidential_client`; every other grant still requires one.
+    let grant_type = form_map
+        .get("grant_type")
+        .cloned()
+        .ok_or_else(|| OAuth2Error::invalid_request("Missing grant_type"))?;
+    let auth_error_is_invalid_client =
+        grant_type == "client_credentials" || grant_type == "refresh_token";
+
     let client_id = body_client_id
         .or(basic_client_id)
-        .or_else(|| form_map.get("client_id").cloned())
-        .ok_or_else(|| OAuth2Error::invalid_request("Missing client_id"))?;
+        .or_else(|| form_map.get("client_id").cloned());
+    let client_id = match client_id {
+        Some(id) => id,
+        None if auth_error_is_invalid_client => String::new(),
+        None => return Err(OAuth2Error::invalid_request("Missing client_id")),
+    };
     // Collapse the spellings of a metadata-document URL to one identifier, so
     // client authentication, rate limiting and the rows written below all key
     // on the same string the authorization code was issued against.
@@ -1707,10 +1725,7 @@ pub async fn token(
     let client_assertion = form_map.get("client_assertion").cloned();
 
     let form = TokenRequest {
-        grant_type: form_map
-            .get("grant_type")
-            .cloned()
-            .ok_or_else(|| OAuth2Error::invalid_request("Missing grant_type"))?,
+        grant_type,
         code: form_map.get("code").cloned(),
         redirect_uri: form_map.get("redirect_uri").cloned(),
         client_id,

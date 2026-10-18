@@ -633,7 +633,12 @@ pub(crate) fn verify_jwt<T: serde::de::DeserializeOwned>(
         for key in keys {
             let decoding = match key.algorithm {
                 KeyAlgorithm::HS256 => Ok(DecodingKey::from_secret(&key.key_material)),
-                KeyAlgorithm::RS256 => DecodingKey::from_rsa_pem(&key.key_material),
+                KeyAlgorithm::RS256 => match key.rsa_public_components() {
+                    Ok((n, e)) => DecodingKey::from_rsa_components(&n, &e),
+                    Err(_) => Err(jsonwebtoken::errors::Error::from(
+                        jsonwebtoken::errors::ErrorKind::InvalidKeyFormat,
+                    )),
+                },
             };
             if let Ok(decoding) = decoding {
                 let alg = match key.algorithm {

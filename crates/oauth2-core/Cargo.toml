@@ -18,6 +18,7 @@ actix = ["dep:actix-web"]
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1.6", features = ["v4", "serde"] }
 jsonwebtoken = { version = "11.1", features = ["rust_crypto"] }
+rsa = { version = "0.9", features = ["pem"] }
 
 # Crypto / helpers used by PKCE and OIDC at_hash
 sha2 = "0.11"

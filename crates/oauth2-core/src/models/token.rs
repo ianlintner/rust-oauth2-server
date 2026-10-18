@@ -468,7 +468,14 @@ impl Claims {
             if let Some(key) = keyset.find(kid) {
                 let decoding_key = match key.algorithm {
                     KeyAlgorithm::HS256 => DecodingKey::from_secret(&key.key_material),
-                    KeyAlgorithm::RS256 => DecodingKey::from_rsa_pem(&key.key_material)?,
+                    KeyAlgorithm::RS256 => {
+                        let (n, e) = key.rsa_public_components().map_err(|msg| {
+                            jsonwebtoken::errors::Error::from(
+                                jsonwebtoken::errors::ErrorKind::InvalidRsaKey(msg),
+                            )
+                        })?;
+                        DecodingKey::from_rsa_components(&n, &e)?
+                    }
                 };
                 let validation = match key.algorithm {
                     KeyAlgorithm::HS256 => Validation::default(),

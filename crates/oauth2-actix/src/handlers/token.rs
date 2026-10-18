@@ -605,12 +605,17 @@ pub async fn revoke(
                 .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))??;
             metrics.oauth_token_revoked_total.inc();
         }
-        Some(token) => {
+        Some(_token) => {
+            // RFC 7009 §2.1: a client may only revoke a token it owns. Revoking
+            // another client's token is refused and the token stays active. The
+            // reference SUT answers 200 here; we raise a 400 instead.
             tracing::warn!(
                 caller_client_id = %caller.client_id,
-                token_client_id = %token.client_id,
                 "Authenticated caller attempted to revoke a token owned by another client"
             );
+            return Err(OAuth2Error::invalid_request(
+                "Token was not issued to this client",
+            ));
         }
         None => {
             // Token not found in storage. RFC 7009 §2.2 requires 200 OK
