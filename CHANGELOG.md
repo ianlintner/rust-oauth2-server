@@ -1,3 +1,14 @@
+## [Unreleased]
+
+### Added
+
+- Conformance test mode for the `oauth2-conformance` SUT interface:
+  `OAUTH2_CONFORMANCE_MODE=1` + `OAUTH2_CONFORMANCE_SEED=<file>` seeds issuer,
+  clients, users and signing key ids before bind, and `/ready` reports the
+  applied seed. Off by default; startup aborts if combined with a
+  production-looking `OAUTH2_ENV`/`APP_ENV`, a non-in-memory database, or an
+  invalid seed. See `docs/getting-started/configuration.md`.
+
 ## [1.1.0] — 2026-09-21
 
 **Phase 7 — Agent & A2A Authorization.** AI agents (and agents calling
