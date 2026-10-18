@@ -153,7 +153,7 @@ jobs:
           kind version
 
       - name: Install kubectl
-        uses: azure/setup-kubectl@v5.1.0 # v5
+        uses: azure/setup-kubectl@v5.2.0 # v5
         with:
           version: v1.29.0
 
@@ -180,7 +180,7 @@ jobs:
 
       - name: Upload scan report
         if: always()
-        uses: actions/upload-artifact@v7.0.1 # v7
+        uses: actions/upload-artifact@v7.0.2 # v7
         with:
           name: security-scan-report-${{ github.run_id }}
           path: reports/security-scan/
@@ -197,7 +197,7 @@ jobs:
 
       - name: Upload cluster logs
         if: failure()
-        uses: actions/upload-artifact@v7.0.1 # v7
+        uses: actions/upload-artifact@v7.0.2 # v7
         with:
           name: security-scan-cluster-logs-${{ github.run_id }}
           path: kind-logs/
