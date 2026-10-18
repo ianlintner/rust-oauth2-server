@@ -64,6 +64,32 @@ fn extract_query_param(url: &str, key: &str) -> Option<String> {
     None
 }
 
+/// Assert an authorization error delivered via 302 redirect on the registered
+/// redirect URI, carrying `error=` and the RFC 9207 `iss=`.
+#[allow(dead_code)]
+fn assert_redirect_error(
+    resp: &actix_web::dev::ServiceResponse<impl actix_web::body::MessageBody>,
+    redirect_prefix: &str,
+    expected_error: &str,
+) {
+    assert_eq!(resp.status(), 302, "error must be delivered via redirect");
+    let location = resp
+        .headers()
+        .get(actix_web::http::header::LOCATION)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_string();
+    assert!(
+        location.starts_with(redirect_prefix),
+        "unexpected redirect target: {location}"
+    );
+    assert_eq!(
+        extract_query_param(&location, "error"),
+        Some(expected_error.to_string()),
+        "wrong error in redirect: {location}"
+    );
+}
+
 async fn test_set_session(session: Session) -> HttpResponse {
     session.insert("user_id", "user_123").unwrap();
     session.insert("authenticated", true).unwrap();
@@ -314,9 +340,9 @@ async fn rfc6749_s4_1_1_authorize_requires_response_type() {
         .uri("/oauth/authorize?client_id=client_rt&redirect_uri=https%3A%2F%2Fgood.example%2Fcb&scope=read")
         .to_request();
     let resp = test::call_service(&app, req).await;
-    // actix-web query extractor rejects missing required fields with 400 before
-    // the handler runs; the body is not OAuth2Error JSON in that path.
-    assert_eq!(resp.status(), 400);
+    // RFC 6749 §4.1.2.1: once client_id and redirect_uri validate, request
+    // errors are returned on the redirect URI (not as a direct 400).
+    assert_redirect_error(&resp, "https://good.example/cb", "invalid_request");
 }
 
 /// RFC 6749 §4.1.1: Unsupported `response_type` values must be rejected.
@@ -356,9 +382,11 @@ async fn rfc6749_s4_1_1_authorize_rejects_unknown_response_type() {
         ))
         .to_request();
     let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 400);
-    let body: OAuth2Error = test::read_body_json(resp).await;
-    assert_eq!(body.error, "invalid_request");
+    assert_redirect_error(
+        &resp,
+        "https://good.example/cb",
+        "unsupported_response_type",
+    );
 }
 
 /// RFC 6749 §4.1.1: `client_id` is a required parameter.

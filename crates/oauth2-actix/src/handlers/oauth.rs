@@ -85,17 +85,36 @@ pub(crate) fn parse_client_basic_auth(
 
     // RFC 6749 §2.3.1: credentials are application/x-www-form-urlencoded before
     // being combined and base64-encoded.  Decode percent-encoded chars so the
-    // values match what is stored in the database.
-    let client_id = percent_decode_str(client_id)
-        .decode_utf8()
-        .map_err(|_| OAuth2Error::invalid_request("Invalid client_id encoding"))?
-        .into_owned();
-    let client_secret = percent_decode_str(client_secret)
-        .decode_utf8()
-        .map_err(|_| OAuth2Error::invalid_request("Invalid client_secret encoding"))?
-        .into_owned();
+    // values match what is stored in the database.  In that encoding a space is
+    // `+` (a literal `+` is `%2B`), so `+` must become a space before the
+    // percent-decode.
+    let form_decode = |value: &str, what: &str| -> Result<String, OAuth2Error> {
+        percent_decode_str(&value.replace('+', " "))
+            .decode_utf8()
+            .map(|v| v.into_owned())
+            .map_err(|_| OAuth2Error::invalid_request(&format!("Invalid {what} encoding")))
+    };
+    let client_id = form_decode(client_id, "client_id")?;
+    let client_secret = form_decode(client_secret, "client_secret")?;
 
     Ok(Some((client_id, client_secret)))
+}
+
+/// RFC 6749 §2.3: a client MUST NOT use more than one authentication method in
+/// each request. A Basic `Authorization` header together with a body
+/// `client_secret` or `client_assertion` is two methods; §5.2 reports it as
+/// `invalid_request`.
+pub(crate) fn reject_multiple_client_auth_methods(
+    basic_present: bool,
+    body_client_secret: bool,
+    body_client_assertion: bool,
+) -> Result<(), OAuth2Error> {
+    if basic_present && (body_client_secret || body_client_assertion) {
+        return Err(OAuth2Error::invalid_request(
+            "Multiple client authentication methods in one request (RFC 6749 §2.3)",
+        ));
+    }
+    Ok(())
 }
 
 pub(crate) fn validate_scope_subset(requested: &str, allowed: &str) -> Result<(), OAuth2Error> {
@@ -444,7 +463,11 @@ fn parse_form_no_dupes(body: &web::Bytes) -> Result<ParsedForm, OAuth2Error> {
 
 #[derive(Debug, Deserialize)]
 pub struct AuthorizeQuery {
-    response_type: String,
+    /// Required (RFC 6749 §4.1.1) but parsed as optional so a missing value is
+    /// reported on the redirect URI once `client_id` and `redirect_uri` have
+    /// validated (RFC 6749 §4.1.2.1), not as a pre-validation 400 from the
+    /// query extractor.
+    response_type: Option<String>,
     client_id: String,
     /// Required unless `request_uri` (PAR, RFC 9126) supplies it.
     redirect_uri: Option<String>,
@@ -807,13 +830,6 @@ pub async fn authorize(
     // flows are supported.  When a JAR `request` parameter is present the response_type
     // may be overridden by the JWT payload; the effective value is re-validated after
     // JAR processing below.
-    let rt = query.response_type.as_str();
-    if query.request.is_none() && rt != "code" && rt != "code id_token" {
-        return Err(OAuth2Error::invalid_request(
-            "Unsupported response_type; supported values: code, code id_token",
-        ));
-    }
-
     // Validate client and redirect_uri to prevent open redirect / code exfiltration.
     let agent: oauth2_config::AgentConfig = agent_config
         .map(|c| c.get_ref().clone())
@@ -881,7 +897,8 @@ pub async fn authorize(
         let jar_rt = jar_claims
             .get("response_type")
             .and_then(|v| v.as_str())
-            .unwrap_or(query.response_type.as_str());
+            .or(query.response_type.as_deref())
+            .unwrap_or("");
         let hybrid = jar_rt == "code id_token";
         if jar_rt != "code" && !hybrid {
             return Err(OAuth2Error::invalid_request(
@@ -911,7 +928,7 @@ pub async fn authorize(
                 .map(str::to_owned),
         )
     } else {
-        let hybrid = query.response_type == "code id_token";
+        let hybrid = query.response_type.as_deref() == Some("code id_token");
         (
             redirect_uri,
             eff_scope,
@@ -948,20 +965,51 @@ pub async fn authorize(
         ));
     }
 
-    // Require PKCE (S256 only). This follows OAuth 2.0 Security BCP guidance.
-    let code_challenge =
-        eff_code_challenge.ok_or_else(|| OAuth2Error::invalid_request("Missing code_challenge"))?;
-    let code_challenge_method = eff_code_challenge_method
-        .ok_or_else(|| OAuth2Error::invalid_request("Missing code_challenge_method"))?;
-    if code_challenge_method != "S256" {
-        return Err(OAuth2Error::invalid_request(
-            "Only S256 code_challenge_method is supported",
-        ));
+    // RFC 6749 §4.1.2.1: once `client_id` and `redirect_uri` have validated,
+    // request errors are returned on the redirect URI (with `iss`, RFC 9207 §2)
+    // rather than as a direct 400. With a JAR `request` the effective
+    // response_type was already validated above.
+    let redirect_error = |code: &str, description: &str| {
+        build_authorize_error_redirect(
+            code,
+            description,
+            &redirect_uri,
+            eff_state.as_deref(),
+            &oidc_config.issuer,
+            response_mode,
+        )
+    };
+
+    if query.request.is_none() {
+        match query.response_type.as_deref() {
+            None | Some("") => return redirect_error("invalid_request", "Missing response_type"),
+            Some("code") | Some("code id_token") => {}
+            Some(_) => {
+                return redirect_error(
+                    "unsupported_response_type",
+                    "Unsupported response_type; supported values: code, code id_token",
+                )
+            }
+        }
     }
-    if code_challenge.trim().is_empty() {
-        return Err(OAuth2Error::invalid_request(
-            "code_challenge must not be empty",
-        ));
+
+    // Require PKCE (S256 only). This follows OAuth 2.0 Security BCP guidance;
+    // RFC 7636 §4.4.1 reports a missing or unsupported challenge as
+    // `invalid_request` on the redirect URI.
+    let code_challenge = match eff_code_challenge {
+        Some(c) if !c.trim().is_empty() => c,
+        Some(_) => return redirect_error("invalid_request", "code_challenge must not be empty"),
+        None => return redirect_error("invalid_request", "Missing code_challenge"),
+    };
+    let code_challenge_method = match eff_code_challenge_method {
+        Some(m) => m,
+        None => return redirect_error("invalid_request", "Missing code_challenge_method"),
+    };
+    if code_challenge_method != "S256" {
+        return redirect_error(
+            "invalid_request",
+            "Only S256 code_challenge_method is supported",
+        );
     }
 
     // --- draft-oauth-ai-agents-on-behalf-of-user: named-agent consent ---
@@ -1618,6 +1666,12 @@ pub async fn token(
 
     let body_client_id = form_map.get("client_id").cloned();
     let body_client_secret = form_map.get("client_secret").cloned();
+
+    reject_multiple_client_auth_methods(
+        basic.is_some(),
+        body_client_secret.is_some(),
+        form_map.get("client_assertion").is_some(),
+    )?;
 
     // If both are present, require they match to avoid ambiguous credentials.
     if let (Some(ref body_id), Some(ref basic_id)) = (&body_client_id, &basic_client_id) {
@@ -2974,4 +3028,57 @@ pub async fn par(
         "request_uri": request_uri,
         "expires_in": 60
     })))
+}
+
+#[cfg(test)]
+mod client_auth_tests {
+    use super::*;
+    use actix_web::test::TestRequest;
+
+    fn basic_header(userinfo: &str) -> String {
+        format!("Basic {}", general_purpose::STANDARD.encode(userinfo))
+    }
+
+    /// RFC 6749 §2.3.1: id and secret are form-urlencoded before Basic encoding,
+    /// so `+` is a space and `%2B` is a literal plus.
+    #[test]
+    fn basic_auth_decodes_form_urlencoding() {
+        // Secret `p@ss:w+rd %` (contract fixture client-enc).
+        let req = TestRequest::default()
+            .insert_header((
+                "Authorization",
+                basic_header("client-enc:p%40ss%3Aw%2Brd+%25"),
+            ))
+            .to_http_request();
+        let (id, secret) = parse_client_basic_auth(&req).unwrap().unwrap();
+        assert_eq!(id, "client-enc");
+        assert_eq!(secret, "p@ss:w+rd %");
+    }
+
+    #[test]
+    fn basic_auth_plus_in_secret_is_a_space() {
+        let req = TestRequest::default()
+            .insert_header(("Authorization", basic_header("c:a+b")))
+            .to_http_request();
+        let (_, secret) = parse_client_basic_auth(&req).unwrap().unwrap();
+        assert_eq!(secret, "a b");
+    }
+
+    /// RFC 6749 §2.3: more than one client authentication method is rejected
+    /// as `invalid_request` (§5.2).
+    #[test]
+    fn multiple_client_auth_methods_are_rejected() {
+        let err = reject_multiple_client_auth_methods(true, true, false).unwrap_err();
+        assert_eq!(err.error, "invalid_request");
+        let err = reject_multiple_client_auth_methods(true, false, true).unwrap_err();
+        assert_eq!(err.error, "invalid_request");
+    }
+
+    #[test]
+    fn single_client_auth_method_is_accepted() {
+        assert!(reject_multiple_client_auth_methods(true, false, false).is_ok());
+        assert!(reject_multiple_client_auth_methods(false, true, false).is_ok());
+        assert!(reject_multiple_client_auth_methods(false, false, true).is_ok());
+        assert!(reject_multiple_client_auth_methods(false, false, false).is_ok());
+    }
 }

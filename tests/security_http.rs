@@ -42,6 +42,30 @@ fn extract_query_param(url: &str, key: &str) -> Option<String> {
     None
 }
 
+#[allow(dead_code)]
+fn assert_redirect_error(
+    resp: &actix_web::dev::ServiceResponse<impl actix_web::body::MessageBody>,
+    redirect_prefix: &str,
+    expected_error: &str,
+) {
+    assert_eq!(resp.status(), 302, "error must be delivered via redirect");
+    let location = resp
+        .headers()
+        .get(actix_web::http::header::LOCATION)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_string();
+    assert!(
+        location.starts_with(redirect_prefix),
+        "unexpected redirect target: {location}"
+    );
+    assert_eq!(
+        extract_query_param(&location, "error"),
+        Some(expected_error.to_string()),
+        "wrong error in redirect: {location}"
+    );
+}
+
 /// Test-only handler that establishes a session for the mock user_123.
 async fn test_set_session(session: Session) -> HttpResponse {
     session.insert("user_id", "user_123").unwrap();
@@ -404,9 +428,12 @@ async fn authorize_rejects_implicit_response_type() {
     let req = test::TestRequest::get().uri(&format!("/oauth/authorize?response_type=token&client_id=client_a&redirect_uri=https%3A%2F%2Fgood.example%2Fcb&scope=read&code_challenge={challenge}&code_challenge_method=S256")).to_request();
     let resp = test::call_service(&app, req).await;
 
-    assert_eq!(resp.status(), 400);
-    let body: OAuth2Error = test::read_body_json(resp).await;
-    assert_eq!(body.error, "invalid_request");
+    // RFC 6749 §4.1.2.1: unsupported response_type is returned on the redirect URI.
+    assert_redirect_error(
+        &resp,
+        "https://good.example/cb",
+        "unsupported_response_type",
+    );
 }
 
 #[actix_web::test]
@@ -751,13 +778,10 @@ async fn authorize_requires_pkce_s256() {
     )
     .await;
 
-    // Missing PKCE parameters should be rejected.
+    // RFC 7636 §4.4.1: a missing code_challenge is invalid_request on the redirect URI.
     let req = test::TestRequest::get().uri("/oauth/authorize?response_type=code&client_id=client_ac&redirect_uri=https%3A%2F%2Fgood.example%2Fcb&scope=read").to_request();
     let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 400);
-
-    let body: OAuth2Error = test::read_body_json(resp).await;
-    assert_eq!(body.error, "invalid_request");
+    assert_redirect_error(&resp, "https://good.example/cb", "invalid_request");
 }
 
 #[actix_web::test]

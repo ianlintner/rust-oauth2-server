@@ -8,6 +8,28 @@
   applied seed. Off by default; startup aborts if combined with a
   production-looking `OAUTH2_ENV`/`APP_ENV`, a non-in-memory database, or an
   invalid seed. See `docs/getting-started/configuration.md`.
+- `conformance.yaml` claiming the `core` profile of the `oauth2-conformance`
+  contract (pinned commit `62e3e93`), and a `conformance` CI job (part of the
+  Quality Gate) that starts the server in conformance mode and runs the
+  contract runner for every claimed profile.
+
+### Changed
+
+- **Behavior change (RFC-aligned, owner review):** `GET /oauth/authorize`
+  now reports a missing or unsupported `response_type`, a missing/empty
+  `code_challenge`, a missing `code_challenge_method` and a non-`S256`
+  method as `302` redirects to the registered `redirect_uri` carrying
+  `error`, `state` and `iss` (RFC 6749 §4.1.2.1, RFC 7636 §4.4.1, RFC 9207),
+  instead of a direct `400` JSON. An unsupported `response_type` is now
+  `unsupported_response_type` (was `invalid_request`). Unknown client or
+  invalid `redirect_uri` still return `400` and never redirect.
+- **Behavior change (RFC-aligned, owner review):** HTTP Basic client
+  credentials are decoded as `application/x-www-form-urlencoded`, so `+` is a
+  space (a literal `+` must be `%2B`) (RFC 6749 §2.3.1).
+- **Behavior change (RFC-aligned, owner review):** a token request that
+  authenticates with both an `Authorization: Basic` header and a body
+  `client_secret`/`client_assertion` is rejected with `invalid_request`
+  (RFC 6749 §2.3, §5.2) instead of being accepted when they match.
 
 ## [1.1.0] — 2026-09-21
 
