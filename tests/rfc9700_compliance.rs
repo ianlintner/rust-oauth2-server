@@ -55,6 +55,34 @@ fn extract_query_param(url: &str, key: &str) -> Option<String> {
     None
 }
 
+#[allow(dead_code)]
+fn assert_redirect_error(
+    resp: &actix_web::dev::ServiceResponse<impl actix_web::body::MessageBody>,
+    redirect_prefix: &str,
+    expected_error: &str,
+) {
+    assert_eq!(resp.status(), 302, "error must be delivered via redirect");
+    let location = resp
+        .headers()
+        .get(actix_web::http::header::LOCATION)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_string();
+    assert!(
+        location.starts_with(redirect_prefix),
+        "unexpected redirect target: {location}"
+    );
+    assert_eq!(
+        extract_query_param(&location, "error").as_deref(),
+        Some(expected_error),
+        "wrong error in redirect: {location}"
+    );
+    assert!(
+        extract_query_param(&location, "iss").is_some(),
+        "missing iss in redirect: {location}"
+    );
+}
+
 async fn test_set_session(session: Session) -> HttpResponse {
     session.insert("user_id", "user_rfc").unwrap();
     session.insert("authenticated", true).unwrap();
@@ -209,13 +237,11 @@ async fn test_vector_a_plain_pkce_rejected() {
         .to_request();
     let resp = test::call_service(&app, req).await;
 
-    assert_eq!(resp.status(), 400, "plain PKCE must be rejected");
-    let body: OAuth2Error = test::read_body_json(resp).await;
-    assert_eq!(body.error, "invalid_request");
+    assert_redirect_error(&resp, "https://app.example/cb", "invalid_request");
 }
 
 // ---------------------------------------------------------------------------
-// Vector (b): Public client missing code_challenge → 400
+// Vector (b): Public client missing code_challenge → error on redirect
 // ---------------------------------------------------------------------------
 
 /// RFC 9700 §2.1.1: Public clients MUST supply PKCE.
@@ -281,13 +307,7 @@ async fn test_vector_b_public_client_missing_pkce() {
         .to_request();
     let resp = test::call_service(&app, req).await;
 
-    assert_eq!(
-        resp.status(),
-        400,
-        "public client without PKCE must be rejected"
-    );
-    let body: OAuth2Error = test::read_body_json(resp).await;
-    assert_eq!(body.error, "invalid_request");
+    assert_redirect_error(&resp, "https://app.example/cb", "invalid_request");
 }
 
 // ---------------------------------------------------------------------------

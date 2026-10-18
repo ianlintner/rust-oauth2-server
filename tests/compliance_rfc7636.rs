@@ -54,6 +54,34 @@ fn extract_query_param(url: &str, key: &str) -> Option<String> {
     None
 }
 
+/// Assert an authorization error delivered via 302 redirect on the registered
+/// redirect URI, carrying `error=`, `state=` and the RFC 9207 `iss=`.
+fn assert_redirect_error(
+    resp: &actix_web::dev::ServiceResponse<impl actix_web::body::MessageBody>,
+    expected_error: &str,
+) {
+    assert_eq!(resp.status(), 302, "error must be delivered via redirect");
+    let location = resp
+        .headers()
+        .get(actix_web::http::header::LOCATION)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_string();
+    assert!(
+        location.starts_with("https://good.example/cb"),
+        "unexpected redirect target: {location}"
+    );
+    assert_eq!(
+        extract_query_param(&location, "error"),
+        Some(expected_error.to_string()),
+        "wrong error in redirect: {location}"
+    );
+    assert!(
+        extract_query_param(&location, "iss").is_some(),
+        "missing iss in redirect: {location}"
+    );
+}
+
 async fn setup_context(
     client: Client,
 ) -> (
@@ -215,13 +243,9 @@ async fn rfc7636_s4_1_pkce_required_for_authorization_code() {
         )
         .to_request();
     let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 400, "missing PKCE challenge must return 400");
-    let body: OAuth2Error = test::read_body_json(resp).await;
-    assert!(
-        body.error == "invalid_request" || body.error == "pkce_required",
-        "expected invalid_request or pkce_required, got '{}'",
-        body.error
-    );
+    // RFC 7636 §4.4.1 / RFC 6749 §4.1.2.1: with a valid client and redirect_uri the
+    // error is returned on the redirect URI, with the RFC 9207 `iss`.
+    assert_redirect_error(&resp, "invalid_request");
 }
 
 /// RFC 7636 §4.1: `code_verifier` minimum length is 43 characters (ASCII
@@ -432,17 +456,9 @@ async fn rfc7636_s4_2_plain_method_is_rejected() {
         .insert_header(("Cookie", session_cookie.as_str()))
         .to_request();
     let resp = test::call_service(&app, req).await;
-    assert_eq!(
-        resp.status(),
-        400,
-        "`plain` method must be rejected with 400"
-    );
-    let body: OAuth2Error = test::read_body_json(resp).await;
-    assert!(
-        body.error == "invalid_request" || body.error == "invalid_code_challenge_method",
-        "expected invalid_request or invalid_code_challenge_method, got '{}'",
-        body.error
-    );
+    // RFC 7636 §4.4.1: an unsupported challenge method is invalid_request on the
+    // redirect URI (S256-only policy rejects `plain`).
+    assert_redirect_error(&resp, "invalid_request");
 }
 
 /// RFC 7636 §4.2: Providing a `code_challenge_method` without a
@@ -482,9 +498,7 @@ async fn rfc7636_s4_2_method_without_challenge_rejected() {
         )
         .to_request();
     let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 400);
-    let body: OAuth2Error = test::read_body_json(resp).await;
-    assert_eq!(body.error, "invalid_request");
+    assert_redirect_error(&resp, "invalid_request");
 }
 
 // ---------------------------------------------------------------------------

@@ -660,7 +660,13 @@ async fn a_request_without_pkce_writes_no_client_row() {
     )
     .await;
 
-    assert_eq!(resp.status(), 400, "missing code_challenge");
+    // RFC 7636 §4.4.1: a missing code_challenge is invalid_request on the redirect URI.
+    assert_eq!(resp.status(), 302, "missing code_challenge");
+    assert!(
+        location(&resp).contains("error=invalid_request"),
+        "missing code_challenge must be reported on the redirect: {}",
+        location(&resp)
+    );
     assert_eq!(
         cimd_rows(&storage).await,
         0,

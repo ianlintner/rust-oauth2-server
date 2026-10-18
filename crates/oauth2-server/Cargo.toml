@@ -37,6 +37,12 @@ tracing-actix-web = "0.7"
 
 async-trait = "0.1"
 
+# Conformance mode (seed parsing and signing-key provisioning)
+serde = { version = "1.0", features = ["derive"] }
+yaml-rust2 = "0.11"
+url = "2.5"
+rsa = { version = "0.9", features = ["pem"] }
+
 # Misc
 serde_json = "1.0"
 env_logger = "0.11"

@@ -18,6 +18,8 @@ use tracing_actix_web::{DefaultRootSpanBuilder, RootSpanBuilder, TracingLogger};
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
+pub mod conformance;
+
 /// The known-insecure default seed password shipped with the server.
 pub const INSECURE_DEFAULT_SEED_PASSWORD: &str = "changeme";
 
@@ -251,10 +253,34 @@ fn attach_client_cache(
     actor
 }
 
+/// Read the conformance-mode switch from the process environment. Returns the
+/// parsed seed when the mode is on; `Ok(None)` when it is off (the default).
+/// Refuses (fail closed) on a bad switch value, a production-looking
+/// environment or database, or an unreadable/invalid seed.
+fn conformance_seed_from_env(
+    config: &oauth2_config::Config,
+) -> std::io::Result<Option<conformance::Seed>> {
+    let get = |k: &str| std::env::var(k).ok();
+    let invalid = |e: String| {
+        tracing::error!("FATAL: {e}");
+        std::io::Error::new(std::io::ErrorKind::InvalidInput, e)
+    };
+    let Some(path) = conformance::mode_from_env(get).map_err(invalid)? else {
+        return Ok(None);
+    };
+    conformance::check_not_production(
+        get,
+        &config.database.url,
+        config.database.read_url.as_deref(),
+    )
+    .map_err(invalid)?;
+    conformance::Seed::load(&path).map(Some).map_err(invalid)
+}
+
 pub async fn run() -> std::io::Result<()> {
     // Load configuration first so telemetry can honor the configured service
     // name / endpoint. Falls back to env vars and legacy HOCON when unset.
-    let config = oauth2_config::Config::default();
+    let mut config = oauth2_config::Config::default();
 
     // Initialize telemetry and tracing. `TelemetryConfig.service_name` wins
     // when set, otherwise fall back to the historical literal. Sampler + batch
@@ -304,6 +330,17 @@ pub async fn run() -> std::io::Result<()> {
     }
 
     tracing::info!("Configuration loaded");
+
+    // Conformance test mode (off by default). Every failure here aborts
+    // startup: the guard and the seed parse run before any storage is opened.
+    let conformance_seed = conformance_seed_from_env(&config)?;
+    if let Some(seed) = &conformance_seed {
+        // The seeded issuer is authoritative for `iss` and discovery.
+        config.server.public_url = Some(seed.issuer.clone());
+        tracing::warn!(
+            "CONFORMANCE MODE ENABLED: seeded test credentials are active; never run this in production"
+        );
+    }
 
     // Load social login configuration from HOCON config or environment
     let social_config = if let Some(ref social) = config.social {
@@ -355,9 +392,27 @@ pub async fn run() -> std::io::Result<()> {
         .expect("Failed to initialize storage backend");
     tracing::info!("Storage backend initialized");
 
+    // In conformance mode the seed replaces the default admin: only seeded
+    // identities exist, and the seed must be fully applied before binding.
+    let conformance_applied = match &conformance_seed {
+        Some(seed) => {
+            let applied = conformance::apply(seed, &storage).await.map_err(|e| {
+                tracing::error!("FATAL: conformance seed failed: {e}");
+                std::io::Error::new(std::io::ErrorKind::InvalidInput, e)
+            })?;
+            tracing::info!(
+                clients = applied.clients,
+                users = applied.users,
+                "Conformance seed applied"
+            );
+            Some(applied)
+        }
+        None => None,
+    };
+
     // Seed a default admin user if none exists yet.
     // In production, change the password immediately or use OAUTH2_SEED_PASSWORD env var.
-    {
+    if conformance_applied.is_none() {
         use oauth2_core::User;
 
         let seed_username =
@@ -950,6 +1005,10 @@ pub async fn run() -> std::io::Result<()> {
             });
         }
 
+        if let Some(applied) = &conformance_applied {
+            conformance::install_signing_keys(&mut ks, &applied.signing_keys);
+        }
+
         Arc::new(RwLock::new(ks))
     };
 
@@ -1056,6 +1115,7 @@ pub async fn run() -> std::io::Result<()> {
     tracing::info!("Admin dashboard at http://{}/admin", bind_addr);
     tracing::info!("Metrics endpoint at http://{}/metrics", bind_addr);
 
+    let conformance_readiness = conformance_applied.as_ref().map(|a| a.readiness());
     let server_config = config.server.clone();
     let app_config = config.clone();
     let key_rotation_grace_hours = oauth2_actix::handlers::admin_keys::KeyRotationGraceHours(
@@ -1229,6 +1289,11 @@ pub async fn run() -> std::io::Result<()> {
         app = app.app_data(web::Data::new(
             oauth2_actix::handlers::login::LoginRateLimiter::default(),
         ));
+
+        // Conformance readiness detail: present only in conformance mode.
+        if let Some(readiness) = &conformance_readiness {
+            app = app.app_data(web::Data::new(readiness.clone()));
+        }
 
         // Trust proxy headers flag — shared with rate limit middleware and login handler.
         app = app.app_data(web::Data::new(server_config.trust_proxy_headers));

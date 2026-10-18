@@ -161,7 +161,7 @@ version = "0.2"
 optional = true
 
 [build-dependencies.zip]
-version = "8.6"
+version = "9.0.5"
 features = ["deflate"]
 default-features = false
 
