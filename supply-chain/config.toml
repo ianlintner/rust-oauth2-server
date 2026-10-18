@@ -1145,6 +1145,10 @@ criteria = "safe-to-deploy"
 version = "0.1.0"
 criteria = "safe-to-deploy"
 
+[[exemptions.nix]]
+version = "0.31.3"
+criteria = "safe-to-deploy"
+
 [[exemptions.nom]]
 version = "4.2.3"
 criteria = "safe-to-deploy"
@@ -2230,6 +2234,10 @@ criteria = "safe-to-deploy"
 
 [[exemptions.zip]]
 version = "3.0.0"
+criteria = "safe-to-deploy"
+
+[[exemptions.zip]]
+version = "9.0.5"
 criteria = "safe-to-deploy"
 
 [[exemptions.zopfli]]
