@@ -345,6 +345,67 @@ async fn rfc6749_s4_1_1_authorize_requires_response_type() {
     assert_redirect_error(&resp, "https://good.example/cb", "invalid_request");
 }
 
+/// The redirect-on-error behavior must never kick in before `client_id` and
+/// `redirect_uri` have validated: an unknown client, or a `redirect_uri` not
+/// registered for the client, must get a 400 (open-redirect guard), even when
+/// `response_type` or PKCE is also missing.
+#[actix_web::test]
+async fn rfc6749_s4_1_2_1_no_redirect_before_client_and_redirect_validation() {
+    // Unknown client + missing response_type -> 400, no redirect.
+    let (token_actor, client_actor, auth_actor, jwt_secret, metrics, oidc_config) =
+        setup_context(Client::new(
+            "client_rt2".to_string(),
+            "secret_rt2".to_string(),
+            vec!["https://good.example/cb".to_string()],
+            vec!["authorization_code".to_string()],
+            "read".to_string(),
+            "test".to_string(),
+        ))
+        .await;
+    let app = plain_app!(
+        token_actor,
+        client_actor,
+        auth_actor,
+        jwt_secret,
+        metrics,
+        oidc_config
+    );
+    let req = test::TestRequest::get()
+        .uri(
+            "/oauth/authorize?client_id=client_absent&redirect_uri=https%3A%2F%2Fgood.example%2Fcb",
+        )
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert!(
+        resp.status().is_client_error(),
+        "unknown client must be a 4xx error, got {}",
+        resp.status()
+    );
+    assert!(
+        resp.headers()
+            .get(actix_web::http::header::LOCATION)
+            .is_none(),
+        "unknown client must not carry a Location header"
+    );
+
+    // Unregistered redirect_uri + missing response_type -> 400, no redirect.
+    let req = test::TestRequest::get()
+        .uri("/oauth/authorize?client_id=client_rt2&redirect_uri=https%3A%2F%2Fevil.example%2Fcb")
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert!(
+        resp.status().is_client_error(),
+        "unregistered redirect_uri must be a 4xx error, got {}",
+        resp.status()
+    );
+    assert!(
+        resp.headers()
+            .get(actix_web::http::header::LOCATION)
+            .is_none(),
+        "unregistered redirect_uri must not carry a Location header"
+    );
+}
+
 /// RFC 6749 §4.1.1: Unsupported `response_type` values must be rejected.
 ///
 /// @rfc 6749

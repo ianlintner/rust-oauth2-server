@@ -771,6 +771,8 @@ jobs:
       OAUTH2_SERVER_PORT: "8080"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Rust toolchain + cache
         uses: ./.github/actions/rust-setup
@@ -785,6 +787,7 @@ jobs:
           repository: ianlintner/oauth2-conformance
           ref: 62e3e9343480c990833fc4a60192f222d2251c18 # contract v0.1 core (keep in sync with conformance.yaml)
           path: .conformance-contract
+          persist-credentials: false
 
       - name: Setup pnpm
         uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
@@ -804,7 +807,7 @@ jobs:
       - name: Start server in conformance mode
         run: |
           OAUTH2_CONFORMANCE_SEED="$PWD/.conformance-contract/examples/seed.yaml" \
-            target/debug/rust_oauth2_server &
+            target/debug/rust_oauth2_server > "$RUNNER_TEMP/server.log" 2>&1 &
           echo $! > server.pid
           # Wait for readiness (/health is 200 only after the seed is applied).
           for _ in $(seq 1 60); do
@@ -815,6 +818,7 @@ jobs:
             sleep 1
           done
           echo "server never became ready" >&2
+          cat "$RUNNER_TEMP/server.log" >&2
           exit 1
 
       - name: Run conformance scenarios (every claimed profile)
@@ -831,15 +835,29 @@ jobs:
           fail=0
           for profile in $profiles; do
             echo "::group::profile ${profile}"
+            report="$RUNNER_TEMP/conformance-${profile}.json"
             pnpm conformance run \
               --base-url http://localhost:8080 \
               --scenarios ../scenarios \
               --profile "$profile" \
               --implementation rust-oauth2-server \
-              --report "$RUNNER_TEMP/conformance-${profile}.json" || fail=1
+              --report "$report" || fail=1
+            # The runner records a failing `reference-deviation` scenario as
+            # deferred, not failed. conformance.yaml accepts no deviations, so
+            # any such scenario that does not pass is a regression here.
+            bad="$(jq -r '.results[] | select(.status == "reference-deviation" and .outcome != "pass") | .id' "$report")"
+            if [ -n "$bad" ]; then
+              echo "::error::unaccepted reference-deviation scenarios not passing in profile ${profile}:"
+              echo "$bad"
+              fail=1
+            fi
             echo "::endgroup::"
           done
           exit "$fail"
+
+      - name: Server log (on failure)
+        if: failure()
+        run: cat "$RUNNER_TEMP/server.log"
 
       - name: Upload conformance reports
         if: always()
