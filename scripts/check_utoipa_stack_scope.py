@@ -3,7 +3,7 @@
 Owner authorization (2026-10-02): a scalar-only local patch of utoipa-swagger-ui
 10.0.1 plus five human-owned, AI-assisted, non-importable ``safe-to-deploy``
 attestations for utoipa 6.0.0, utoipa-gen 6.0.1, utoipa-swagger-ui 10.0.1,
-zip 8.6.0 and typed-path 0.12.3. See
+zip 9.0.5 and typed-path 0.12.3. See
 ``docs/security/utoipa-swagger-ui-owner-authorization.json`` and
 ``docs/security/utoipa-swagger-ui-10.0.1-attestation.md``.
 
@@ -45,7 +45,7 @@ REVIEWED_REGISTRY = {
         "d935f1c83fdf8b88f09bbe050d0cea78ea4afee6d7b0317403228c1200b2c8ab",
     ),
     "zip": (
-        "8.6.0",
+        "9.0.5",
         {
             "_deflate-any",
             "deflate",
@@ -53,7 +53,7 @@ REVIEWED_REGISTRY = {
             "deflate-flate2-zlib-rs",
             "deflate-zopfli",
         },
-        "2d04a6b5381502aa6087c94c669499eb1602eb9c5e8198e534de571f7154809b",
+        "6e04976da629d3b04204ba8105b396a193af8ad2583b2c79bfb3ab8af580a11e",
     ),
     "typed-path": (
         "0.12.3",
@@ -81,12 +81,12 @@ REVIEWED_VENDOR_FILES = {
     ".cargo_vcs_info.json": "cd24436439dc3a2d80c52f3ee1937a355d12d17b9b9d729687a1f04b49fac16c",
     "CHANGELOG.md": "407a2d06576b574bb8bfd6b2853ae51ccbb16aee3f835d8d053d4ab672283e49",
     "Cargo.lock": "a2c980d56bcfb6ca72c76f180c669dfa534f1efa65afc5a28e143c1813f77683",
-    "Cargo.toml": "0d776b0efad38f890c342e14a1230310ac12c6ddfc15f3d54150b4c19b3268d1",
+    "Cargo.toml": "3e4b64f438b7ab861e79316e575fd2a80204e63b341f369f8bd5d330dd4a6d72",
     "Cargo.toml.orig": "3bf06e4ed5bdf5e485fb87a8f50874b6b71fb8bf2873126ba3ce11cca643e294",
     "LICENSE-APACHE": "43070e2d4e532684de521b885f385d0841030efa2b1a20bafb76133a5e1379c1",
     "LICENSE-MIT": "82b13fb25622b1950fecb9efa76d8b3cfd956ecc136893e4fe47fbaf74fba097",
     "README.md": "12f52b9aee64dafd83e74ce7ecdcf47bf305fcc56409798c3edf09c24b754a4f",
-    "build.rs": "263bbd27b5d734cffdd6cfdffcc36eca81c0de86f355fc983205b1c6b059a97d",
+    "build.rs": "0dc054a318ee27dc5c5b07ceae816890455030c90c12fa11ce2008fada32e154",
     "src/actix.rs": "f3e2d24924f875c0142a192a2a710d530427a36b36bd7e350f2c38a2b3c7f8a2",
     "src/axum.rs": "55e915b1efd142008a1b2df1c033a2e0441896f3120a44f5b87846ee8e7f4ef2",
     "src/lib.rs": "878fb16de644da96d5da27d945176b3aa9f653cac6d173a8694fc673ec033ab4",

@@ -2,7 +2,7 @@
 
 Owner-authorized (2026-10-02) scalar-only patch plus five human-owned
 AI-assisted, non-importable attestations for utoipa 6.0.0, utoipa-gen 6.0.1,
-utoipa-swagger-ui 10.0.1, zip 8.6.0 and typed-path 0.12.3. See
+utoipa-swagger-ui 10.0.1, zip 9.0.5 and typed-path 0.12.3. See
 docs/security/utoipa-swagger-ui-10.0.1-attestation.md and
 docs/security/utoipa-swagger-ui-owner-authorization.json.
 
@@ -152,7 +152,7 @@ REGISTRY = {
         "d935f1c83fdf8b88f09bbe050d0cea78ea4afee6d7b0317403228c1200b2c8ab",
     ),
     "zip": (
-        "8.6.0",
+        "9.0.5",
         {
             "_deflate-any",
             "deflate",
@@ -160,7 +160,7 @@ REGISTRY = {
             "deflate-flate2-zlib-rs",
             "deflate-zopfli",
         },
-        "2d04a6b5381502aa6087c94c669499eb1602eb9c5e8198e534de571f7154809b",
+        "6e04976da629d3b04204ba8105b396a193af8ad2583b2c79bfb3ab8af580a11e",
     ),
     "typed-path": (
         "0.12.3",
@@ -417,7 +417,7 @@ class ScopeTests(unittest.TestCase):
         drift = {
             "utoipa": "6.0.1",
             "utoipa-gen": "6.0.2",
-            "zip": "8.6.1",
+            "zip": "9.0.6",
             "typed-path": "0.12.4",
             PATCHED_NAME: "10.0.2",
         }
@@ -431,6 +431,19 @@ class ScopeTests(unittest.TestCase):
                 result = self.run_gate(metadata, lock, manifest)
                 self.assertNotEqual(result.returncode, 0, result.stdout)
                 self.assertIn(name, result.stderr)
+
+    def test_vulnerable_zip_rejected(self):
+        # RUSTSEC-2026-0367/0368/0369: zip < 9.0.0 must never resolve again.
+        for bad in ("8.6.0", "8.6.1", "3.0.0"):
+            with self.subTest(zip=bad):
+                vendor = copy_approved_vendor(self.fixture)
+                manifest = vendor / "Cargo.toml"
+                metadata, lock = build_metadata(
+                    manifest, overrides={"zip": {"version": bad}}
+                )
+                result = self.run_gate(metadata, lock, manifest)
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertIn("zip", result.stderr)
 
     # ----- source / checksum ---------------------------------------------
 
