@@ -43,6 +43,42 @@ pub fn redact_db_url(url: &str) -> String {
     format!("{}://***@{}", &url[..scheme_end], &rest[at_pos + 1..])
 }
 
+/// Which of the two anti-abuse rate limiters should be active, given the
+/// configured `rate_limit` block and whether conformance mode is on.
+///
+/// Rate limiting is an anti-abuse heuristic, not RFC protocol semantics. In
+/// conformance mode the SUT must exercise deterministic negative scenarios
+/// (`wrong-client-secret`, `wrong-secret`, …) exactly as the reference does,
+/// without its own heuristics tripping. Every request originates from one
+/// client and the seed data is process-local, so the per-IP and per-client
+/// buckets would otherwise accumulate across the `core` and `token-lifecycle`
+/// profiles run back-to-back in one server process and turn the expected
+/// 401 (invalid_client) / 302 (authorize redirect) into a mis-specified 429.
+/// Production rate limiting is untouched: this only suppresses the limiters
+/// while the conformance seed is applied.
+pub(crate) fn rate_limit_enablement(
+    conformance_active: bool,
+    rl: &oauth2_config::RateLimitConfig,
+) -> RateLimitEnablement {
+    if conformance_active {
+        return RateLimitEnablement {
+            ip: false,
+            invalid_client: false,
+        };
+    }
+    RateLimitEnablement {
+        ip: rl.enabled,
+        invalid_client: rl.invalid_client_max_requests > 0,
+    }
+}
+
+/// Whether the IP and `invalid_client` rate limiters are switched on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct RateLimitEnablement {
+    pub(crate) ip: bool,
+    pub(crate) invalid_client: bool,
+}
+
 #[cfg(test)]
 mod redact_db_url_tests {
     use super::redact_db_url;
@@ -80,6 +116,55 @@ mod redact_db_url_tests {
             redact_db_url("sqlite:///tmp/foo@bar.db"),
             "sqlite:///tmp/foo@bar.db"
         );
+    }
+}
+
+#[cfg(test)]
+mod rate_limit_enablement_tests {
+    use super::rate_limit_enablement;
+    use oauth2_config::RateLimitConfig;
+
+    fn rl(enabled: bool, invalid_client_max_requests: u32) -> RateLimitConfig {
+        RateLimitConfig {
+            enabled,
+            max_requests: 100,
+            window_secs: 60,
+            backend: "in_memory".to_string(),
+            redis_url: None,
+            invalid_client_max_requests,
+        }
+    }
+
+    #[test]
+    fn conformance_mode_suppresses_both_rate_limiters() {
+        // In conformance mode the per-IP and per-client buckets are disabled so
+        // the deterministic negative scenarios (`wrong-client-secret`,
+        // `wrong-secret`, …) run back-to-back across the `core` and
+        // `token-lifecycle` profiles return the expected 401/302 instead of an
+        // accumulated 429.
+        let e = rate_limit_enablement(true, &rl(true, 5));
+        assert!(!e.ip, "IP rate limiting must be off in conformance mode");
+        assert!(
+            !e.invalid_client,
+            "invalid_client penalty bucket must be off in conformance mode"
+        );
+    }
+
+    #[test]
+    fn production_rate_limiting_is_unchanged() {
+        let e = rate_limit_enablement(false, &rl(true, 5));
+        assert!(
+            e.ip,
+            "IP rate limiting follows config when not in conformance"
+        );
+        assert!(
+            e.invalid_client,
+            "invalid_client penalty bucket follows config when not in conformance"
+        );
+
+        let e = rate_limit_enablement(false, &rl(false, 0));
+        assert!(!e.ip);
+        assert!(!e.invalid_client);
     }
 }
 
@@ -710,9 +795,12 @@ pub async fn run() -> std::io::Result<()> {
             .with_max_entries(100_000);
 
     // --- Rate limiting ---
+    // Suppressed in conformance mode: anti-abuse heuristics must not turn
+    // deterministic negative scenarios into 429s across the back-to-back
+    // `core` + `token-lifecycle` profiles (see `rate_limit_enablement`).
     let rate_limiter: Option<Arc<dyn oauth2_ratelimit::RateLimiter>> = {
         let rl_config = config.rate_limit.clone().unwrap_or_default();
-        if rl_config.enabled {
+        if rate_limit_enablement(conformance_applied.is_some(), &rl_config).ip {
             tracing::info!(
                 max_requests = rl_config.max_requests,
                 window_secs = rl_config.window_secs,
@@ -806,7 +894,7 @@ pub async fn run() -> std::io::Result<()> {
     // `invalid_client_max_requests > 0`, regardless of IP rate limit config.
     let invalid_client_limiter: Option<Arc<dyn oauth2_ratelimit::RateLimiter>> = {
         let rl_config = config.rate_limit.clone().unwrap_or_default();
-        if rl_config.invalid_client_max_requests > 0 {
+        if rate_limit_enablement(conformance_applied.is_some(), &rl_config).invalid_client {
             let limiter: Arc<dyn oauth2_ratelimit::RateLimiter> = match rl_config.backend.as_str() {
                 "redis" if rl_config.enabled => {
                     #[cfg(feature = "redis-rate-limit")]
