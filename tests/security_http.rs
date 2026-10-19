@@ -2061,7 +2061,9 @@ async fn revoke_requires_authenticated_client_and_preserves_other_clients_tokens
     )
     .await;
 
-    assert_eq!(wrong_client.status(), 200);
+    // RFC 7009 §2.1: a client revoking another client's token is refused with
+    // 400; the token it does not own stays active.
+    assert_eq!(wrong_client.status(), 400);
     let still_valid = token_pool_for_assert
         .route(&access_token.access_token)
         .send(oauth2_actix::actors::ValidateToken {

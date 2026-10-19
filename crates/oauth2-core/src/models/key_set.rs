@@ -63,6 +63,32 @@ impl SigningKey {
             None => true,
         }
     }
+
+    /// Derive the base64url-encoded RSA public components (`n`, `e`) from the
+    /// stored private PEM, for construction of a jsonwebtoken `DecodingKey`.
+    ///
+    /// `key_material` holds the *private* PKCS#1/PKCS#8 PEM (used to sign), but
+    /// `DecodingKey::from_rsa_pem` requires a *public* key. jsonwebtoken v11's
+    /// rust_crypto backend verifies via `RsaPublicKey::from_pkcs1_der`, which
+    /// fails outright on private-key DER. Extracting `n`/`e` here and using
+    /// `DecodingKey::from_rsa_components` sidesteps that without needing a
+    /// second copy of the public key.
+    pub fn rsa_public_components(&self) -> Result<(String, String), String> {
+        use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+        use base64::Engine;
+        use rsa::traits::PublicKeyParts;
+
+        let pem = std::str::from_utf8(&self.key_material)
+            .map_err(|e| format!("RSA key material is not UTF-8 PEM: {e}"))?;
+        // `key_material` is a private PEM (PKCS#1 "BEGIN RSA PRIVATE KEY" or
+        // PKCS#8 "BEGIN PRIVATE KEY"). Try PKCS#1 first, then PKCS#8.
+        let private: rsa::RsaPrivateKey = rsa::pkcs1::DecodeRsaPrivateKey::from_pkcs1_pem(pem)
+            .or_else(|_| rsa::pkcs8::DecodePrivateKey::from_pkcs8_pem(pem))
+            .map_err(|e| format!("failed to parse RSA private PEM: {e}"))?;
+        let n = URL_SAFE_NO_PAD.encode(private.n().to_bytes_be());
+        let e = URL_SAFE_NO_PAD.encode(private.e().to_bytes_be());
+        Ok((n, e))
+    }
 }
 
 /// A set of signing keys supporting rotation.

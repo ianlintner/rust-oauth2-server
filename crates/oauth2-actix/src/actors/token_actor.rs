@@ -853,7 +853,8 @@ impl Handler<ValidateRefreshToken> for TokenActor {
                                             DecodingKey::from_secret(&key.key_material)
                                         }
                                         KeyAlgorithm::RS256 => {
-                                            DecodingKey::from_rsa_pem(&key.key_material).ok()?
+                                            let (n, e) = key.rsa_public_components().ok()?;
+                                            DecodingKey::from_rsa_components(&n, &e).ok()?
                                         }
                                     };
                                     if key.algorithm == KeyAlgorithm::RS256 {

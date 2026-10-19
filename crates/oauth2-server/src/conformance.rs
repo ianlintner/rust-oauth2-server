@@ -467,11 +467,15 @@ fn generate_signing_key(key: &SeedSigningKey) -> Result<SigningKey, String> {
             secret
         }
         KeyAlgorithm::RS256 => {
-            use rsa::pkcs8::EncodePrivateKey;
+            use rsa::pkcs1::EncodeRsaPrivateKey;
             let private = rsa::RsaPrivateKey::new(&mut rsa::rand_core::OsRng, 2048)
                 .map_err(|e| format!("RSA key generation failed for {:?}: {e}", key.kid))?;
+            // `oauth2-core` decodes/signs RS256 keys with jsonwebtoken's
+            // `(En|De)codingKey::from_rsa_pem`, which expects PKCS#1 ("BEGIN
+            // RSA PRIVATE KEY") — not PKCS#8. Emit PKCS#1 so the same key
+            // material round-trips through both the signer and every verifier.
             private
-                .to_pkcs8_pem(rsa::pkcs8::LineEnding::LF)
+                .to_pkcs1_pem(rsa::pkcs8::LineEnding::LF)
                 .map_err(|e| format!("PEM encoding failed for {:?}: {e}", key.kid))?
                 .as_bytes()
                 .to_vec()
@@ -499,16 +503,37 @@ pub fn install_signing_keys(
     }
 }
 
+/// Kid of the implicitly generated RS256 key. RFC 9068 §2.1 makes RS256 a MUST
+/// for JWT access tokens; the v0.2 contract seed carries no `signingKeys`, so
+/// the SUT generates its own and publishes the public side (RFC 7517 §5 wants
+/// a non-empty `keys` array). Without this the SUT falls back to HS256 and
+/// serves `{"keys":[]}`, which the token-lifecycle JWT scenarios flag.
+const DEFAULT_RS256_KID: &str = "seed-rs256";
+
 /// Apply the seed to `storage`: clients, users, and generated signing keys.
 ///
 /// The first failure aborts (the caller must not start serving). Key material
 /// is generated here and never read from or written back to the seed.
 pub async fn apply(seed: &Seed, storage: &DynStorage) -> Result<Applied, String> {
-    let signing_keys = seed
+    let mut signing_keys = seed
         .signing_keys
         .iter()
         .map(generate_signing_key)
         .collect::<Result<Vec<_>, _>>()?;
+
+    // The seed carries no private key material (see sut-interface.md); the SUT
+    // generates its own. Ensure an RS256 key always exists so JWT access tokens
+    // are signed with an asymmetric key and the JWKS endpoint is non-empty.
+    if !signing_keys
+        .iter()
+        .any(|k| k.algorithm == KeyAlgorithm::RS256)
+    {
+        signing_keys.push(generate_signing_key(&SeedSigningKey {
+            kid: DEFAULT_RS256_KID.to_string(),
+            alg: "RS256".to_string(),
+            key_use: Some("sig".to_string()),
+        })?);
+    }
 
     for seeded in &seed.clients {
         let public = seeded.is_public();
