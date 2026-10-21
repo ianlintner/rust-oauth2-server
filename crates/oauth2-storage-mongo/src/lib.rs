@@ -472,6 +472,17 @@ impl Storage for MongoStorage {
             .map_err(Self::mongo_err_to_oauth)
     }
 
+    async fn revoke_token_by_id(&self, id: &str) -> Result<u64, OAuth2Error> {
+        self.tokens
+            .update_one(
+                doc! { "id": id, "revoked": false },
+                doc! { "$set": { "revoked": true } },
+            )
+            .await
+            .map(|result| result.modified_count)
+            .map_err(Self::mongo_err_to_oauth)
+    }
+
     async fn set_token_family(&self, access_token: &str, family: &str) -> Result<(), OAuth2Error> {
         self.tokens
             .update_one(
