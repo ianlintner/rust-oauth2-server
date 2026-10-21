@@ -785,7 +785,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ianlintner/oauth2-conformance
-          ref: 1ad9330a2954314cda9e2b462e36adaadfcd5061 # contract v0.3 oidc (keep in sync with conformance.yaml)
+          ref: 604c62d6c98d8685ef2a1296d12014615dc38390 # contract v0.4 extended-grants (keep in sync with conformance.yaml)
           path: .conformance-contract
           persist-credentials: false
 
