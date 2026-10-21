@@ -295,9 +295,15 @@ pub async fn admin_revoke_token(
     db: web::Data<DynStorage>,
     metrics: web::Data<Metrics>,
 ) -> Result<HttpResponse> {
-    db.revoke_token(&token_id)
+    let revoked = db
+        .revoke_token_by_id(&token_id)
         .await
         .map_err(actix_web::error::ErrorInternalServerError)?;
+
+    if revoked == 0 {
+        return Ok(HttpResponse::NotFound()
+            .json(serde_json::json!({ "error": "token not found or already revoked" })));
+    }
 
     metrics.oauth_token_revoked_total.inc();
 
