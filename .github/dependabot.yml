@@ -18,6 +18,15 @@ updates:
       interval: weekly
       day: monday
     open-pull-requests-limit: 10
+    # Defer the OpenTelemetry 0.33 family: reqwest-tracing 0.7.1 has no
+    # opentelemetry_0_33 feature, so outbound traceparent propagation breaks
+    # (tests/otel_outbound_propagation.rs). Remove once reqwest-middleware#288
+    # ships in a reqwest-tracing release.
+    ignore:
+      - dependency-name: "opentelemetry*"
+        versions: ["0.33.x"]
+      - dependency-name: "tracing-opentelemetry"
+        versions: ["0.34.x"]
     # Pull patch/minor bumps together to reduce churn; majors stay individual
     # so breaking changes get a focused review.
     groups:

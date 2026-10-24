@@ -2161,9 +2161,12 @@ async fn handle_device_code_grant(
         ));
     }
     if device_auth.denied {
-        return Err(OAuth2Error::access_denied(
+        // RFC 8628 §3.5 / RFC 6749 §5.2: token-endpoint errors, including
+        // access_denied, are HTTP 400 (the shared OAuth2Error mapping uses 403
+        // for access_denied, which is right for non-token-endpoint callers).
+        return Ok(HttpResponse::BadRequest().json(OAuth2Error::access_denied(
             "End-user denied device authorization",
-        ));
+        )));
     }
     if !device_auth.approved {
         return Err(OAuth2Error::new(
