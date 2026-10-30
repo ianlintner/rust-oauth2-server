@@ -138,6 +138,15 @@ impl MongoStorage {
             .await
             .map_err(Self::mongo_err_to_oauth)?;
 
+        // tokens.id index: single-token admin revocation looks tokens up by
+        // the storage id (not Mongo's `_id`), so without this a revoke of an
+        // unknown/already-revoked id scans the whole collection. Kept
+        // non-unique so index creation cannot fail at startup on existing data.
+        self.tokens
+            .create_index(IndexModel::builder().keys(doc! { "id": 1 }).build())
+            .await
+            .map_err(Self::mongo_err_to_oauth)?;
+
         // created_at indexes — CosmosDB for MongoDB rejects sorts on un-indexed
         // fields with BadValue (error code 2); all list_all_* queries sort by this.
         self.clients
