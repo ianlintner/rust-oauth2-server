@@ -67,6 +67,14 @@ pub trait Storage: Send + Sync {
     ) -> Result<Option<Token>, OAuth2Error>;
     async fn revoke_token(&self, token: &str) -> Result<(), OAuth2Error>;
 
+    /// Revoke a token by its storage ID (as shown in the admin token list).
+    /// Returns the number of newly revoked rows, or zero if missing/already revoked.
+    /// Default impl is a no-op so existing backends are not broken.
+    async fn revoke_token_by_id(&self, id: &str) -> Result<u64, OAuth2Error> {
+        let _ = id;
+        Ok(0)
+    }
+
     /// Assign (or update) the token-family UUID on an existing token row.
     /// Used during refresh-token rotation when a legacy token has no family yet,
     /// so that replay detection can revoke the entire grant lineage.
