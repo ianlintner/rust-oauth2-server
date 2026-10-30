@@ -832,9 +832,10 @@ async fn rfc8414_oauth_authorization_server_well_known_returns_metadata() {
         "/.well-known/oauth-authorization-server must return 200"
     );
     let body: serde_json::Value = test::read_body_json(resp).await;
-    assert!(
-        body.get("issuer").is_some(),
-        "metadata must contain 'issuer'"
+    assert_eq!(
+        body.get("issuer").and_then(|v| v.as_str()),
+        Some("https://auth.example.com"),
+        "metadata must contain 'issuer' equal to the configured issuer"
     );
     assert!(
         body.get("token_endpoint").is_some(),
@@ -1574,9 +1575,11 @@ async fn prompt_none_without_session_returns_login_required() {
         state, "keep_me",
         "state must be preserved in error redirect"
     );
-    assert!(
-        extract_query_param(location, "iss").is_some(),
-        "iss must be present in error redirect (RFC 9207)"
+    // RFC 9207 §2: error redirects must carry the correct `iss` value
+    assert_eq!(
+        extract_query_param(location, "iss"),
+        Some("https://auth.example.com".to_string()),
+        "iss must equal the configured issuer in error redirect (RFC 9207)"
     );
 }
 

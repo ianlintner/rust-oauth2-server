@@ -28,6 +28,10 @@ use tokio::sync::RwLock;
 use oauth2_actix::actors::TokenActorPool;
 use oauth2_actix::handlers::wellknown::OidcConfig;
 use oauth2_core::{Client, IntrospectionResponse, OAuth2Error, TokenResponse, User};
+
+/// Test issuer used by fixtures in this file.
+const TEST_ISSUER: &str = "https://auth.example.com";
+
 use oauth2_observability::Metrics;
 
 // ---------------------------------------------------------------------------
@@ -60,6 +64,7 @@ fn assert_redirect_error(
     resp: &actix_web::dev::ServiceResponse<impl actix_web::body::MessageBody>,
     redirect_prefix: &str,
     expected_error: &str,
+    expected_issuer: &str,
 ) {
     assert_eq!(resp.status(), 302, "error must be delivered via redirect");
     let location = resp
@@ -77,9 +82,10 @@ fn assert_redirect_error(
         Some(expected_error),
         "wrong error in redirect: {location}"
     );
-    assert!(
-        extract_query_param(&location, "iss").is_some(),
-        "missing iss in redirect: {location}"
+    assert_eq!(
+        extract_query_param(&location, "iss"),
+        Some(expected_issuer.to_string()),
+        "missing or incorrect iss in redirect: {location}"
     );
 }
 
@@ -237,7 +243,12 @@ async fn test_vector_a_plain_pkce_rejected() {
         .to_request();
     let resp = test::call_service(&app, req).await;
 
-    assert_redirect_error(&resp, "https://app.example/cb", "invalid_request");
+    assert_redirect_error(
+        &resp,
+        "https://app.example/cb",
+        "invalid_request",
+        TEST_ISSUER,
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -307,7 +318,12 @@ async fn test_vector_b_public_client_missing_pkce() {
         .to_request();
     let resp = test::call_service(&app, req).await;
 
-    assert_redirect_error(&resp, "https://app.example/cb", "invalid_request");
+    assert_redirect_error(
+        &resp,
+        "https://app.example/cb",
+        "invalid_request",
+        TEST_ISSUER,
+    );
 }
 
 // ---------------------------------------------------------------------------
