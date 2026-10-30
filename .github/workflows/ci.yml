@@ -121,7 +121,7 @@ jobs:
 
       - name: Install cargo-nextest
         if: needs.changes.outputs.code == 'true'
-        uses: taiki-e/install-action@ab6895351a88b908e96a4697860d4ffea5e57dbe # v2.87.27
+        uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
         with:
           tool: cargo-nextest
 
@@ -275,7 +275,7 @@ jobs:
 
       - name: Install cargo-audit + cargo-vet
         if: needs.changes.outputs.code == 'true'
-        uses: taiki-e/install-action@ab6895351a88b908e96a4697860d4ffea5e57dbe # v2.87.27
+        uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
         with:
           tool: cargo-audit,cargo-vet@0.10.2
 
@@ -785,12 +785,12 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ianlintner/oauth2-conformance
-          ref: 604c62d6c98d8685ef2a1296d12014615dc38390 # contract v0.4 extended-grants (keep in sync with conformance.yaml)
+          ref: 985fef7aca4835a7ab4fb92c94e8f979f7308189 # contract v0.5 sender-constrained (keep in sync with conformance.yaml)
           path: .conformance-contract
           persist-credentials: false
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
         with:
           version: 10.29.3
 
