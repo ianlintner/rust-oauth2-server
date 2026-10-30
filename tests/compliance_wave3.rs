@@ -705,9 +705,11 @@ async fn rfc9701_jwt_payload_contains_token_introspection_claim() {
         Some("jwt_payload_client"),
         "token_introspection.client_id must match"
     );
-    assert!(
-        claims.get("iss").is_some(),
-        "JWT must have iss claim (RFC 9701 §4)"
+    // RFC 9701 §4 / RFC 9207 §2: JWT must have iss claim equal to the configured issuer
+    assert_eq!(
+        claims.get("iss").and_then(|v| v.as_str()),
+        Some("https://auth.example.test"),
+        "JWT must have iss claim equal to the configured issuer (RFC 9701 §4, RFC 9207 §2)"
     );
     assert!(
         claims.get("iat").is_some(),

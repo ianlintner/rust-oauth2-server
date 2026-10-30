@@ -30,6 +30,9 @@ fn basic_auth_header(client_id: &str, client_secret: &str) -> String {
     )
 }
 
+/// Test issuer used by fixtures in this file.
+const TEST_ISSUER: &str = "http%3A%2F%2Flocalhost";
+
 fn extract_query_param(url: &str, key: &str) -> Option<String> {
     // Very small helper for test-only parsing.
     let (_base, query) = url.split_once('?')?;
@@ -47,6 +50,7 @@ fn assert_redirect_error(
     resp: &actix_web::dev::ServiceResponse<impl actix_web::body::MessageBody>,
     redirect_prefix: &str,
     expected_error: &str,
+    expected_issuer: &str,
 ) {
     assert_eq!(resp.status(), 302, "error must be delivered via redirect");
     let location = resp
@@ -63,6 +67,11 @@ fn assert_redirect_error(
         extract_query_param(&location, "error"),
         Some(expected_error.to_string()),
         "wrong error in redirect: {location}"
+    );
+    assert_eq!(
+        extract_query_param(&location, "iss"),
+        Some(expected_issuer.to_string()),
+        "missing or incorrect iss in redirect: {location}"
     );
 }
 
@@ -433,6 +442,7 @@ async fn authorize_rejects_implicit_response_type() {
         &resp,
         "https://good.example/cb",
         "unsupported_response_type",
+        TEST_ISSUER,
     );
 }
 
@@ -781,7 +791,12 @@ async fn authorize_requires_pkce_s256() {
     // RFC 7636 §4.4.1: a missing code_challenge is invalid_request on the redirect URI.
     let req = test::TestRequest::get().uri("/oauth/authorize?response_type=code&client_id=client_ac&redirect_uri=https%3A%2F%2Fgood.example%2Fcb&scope=read").to_request();
     let resp = test::call_service(&app, req).await;
-    assert_redirect_error(&resp, "https://good.example/cb", "invalid_request");
+    assert_redirect_error(
+        &resp,
+        "https://good.example/cb",
+        "invalid_request",
+        TEST_ISSUER,
+    );
 }
 
 #[actix_web::test]
@@ -863,6 +878,12 @@ async fn pkce_allows_public_exchange_and_prevents_downgrade() {
         .and_then(|h| h.to_str().ok())
         .unwrap();
     let code = extract_query_param(loc, "code").expect("code");
+    // RFC 9207 §2: successful authorization responses must also carry `iss`
+    assert_eq!(
+        extract_query_param(loc, "iss"),
+        Some(TEST_ISSUER.to_string()),
+        "redirect must contain correct iss parameter"
+    );
 
     // Missing verifier: should be rejected.
     let req = test::TestRequest::post()
@@ -995,6 +1016,12 @@ async fn token_authorization_code_exchange_allows_missing_redirect_uri() {
         .and_then(|h| h.to_str().ok())
         .unwrap();
     let code = extract_query_param(loc, "code").expect("code");
+    // RFC 9207 §2: successful authorization responses must also carry `iss`
+    assert_eq!(
+        extract_query_param(loc, "iss"),
+        Some(TEST_ISSUER.to_string()),
+        "redirect must contain correct iss parameter"
+    );
 
     // OAuth 2.1 token request style: omit redirect_uri.
     let req = test::TestRequest::post()
@@ -1092,6 +1119,12 @@ async fn token_authorization_code_exchange_rejects_wrong_redirect_uri_when_provi
         .and_then(|h| h.to_str().ok())
         .unwrap();
     let code = extract_query_param(loc, "code").expect("code");
+    // RFC 9207 §2: successful authorization responses must also carry `iss`
+    assert_eq!(
+        extract_query_param(loc, "iss"),
+        Some(TEST_ISSUER.to_string()),
+        "redirect must contain correct iss parameter"
+    );
 
     // OAuth 2.0 backward-compat style: include redirect_uri, but wrong => invalid_grant.
     let req = test::TestRequest::post()
@@ -1190,6 +1223,12 @@ async fn authorization_code_cannot_be_reused() {
         .and_then(|h| h.to_str().ok())
         .unwrap();
     let code = extract_query_param(loc, "code").expect("code");
+    // RFC 9207 §2: successful authorization responses must also carry `iss`
+    assert_eq!(
+        extract_query_param(loc, "iss"),
+        Some(TEST_ISSUER.to_string()),
+        "redirect must contain correct iss parameter"
+    );
 
     // First exchange succeeds.
     let req = test::TestRequest::post()
@@ -1463,6 +1502,12 @@ async fn pkce_rejects_short_verifier() {
         .and_then(|h| h.to_str().ok())
         .unwrap();
     let code = extract_query_param(loc, "code").expect("code");
+    // RFC 9207 §2: successful authorization responses must also carry `iss`
+    assert_eq!(
+        extract_query_param(loc, "iss"),
+        Some(TEST_ISSUER.to_string()),
+        "redirect must contain correct iss parameter"
+    );
 
     // Exchange with a too-short verifier should fail.
     let req = test::TestRequest::post()
@@ -2558,6 +2603,12 @@ async fn refresh_token_grant_issues_new_access_token() {
         .and_then(|h| h.to_str().ok())
         .unwrap();
     let code = extract_query_param(loc, "code").expect("code param missing from redirect");
+    // RFC 9207 §2: successful authorization responses must also carry `iss`
+    assert_eq!(
+        extract_query_param(loc, "iss"),
+        Some(TEST_ISSUER.to_string()),
+        "redirect must contain correct iss parameter"
+    );
 
     // 3. Exchange authorization code for tokens (expect a refresh_token)
     let token_resp = test::call_service(
@@ -2711,6 +2762,12 @@ async fn refresh_token_grant_rejects_wrong_client_secret() {
         .and_then(|h| h.to_str().ok())
         .unwrap();
     let code = extract_query_param(loc, "code").expect("code param missing from redirect");
+    // RFC 9207 §2: successful authorization responses must also carry `iss`
+    assert_eq!(
+        extract_query_param(loc, "iss"),
+        Some(TEST_ISSUER.to_string()),
+        "redirect must contain correct iss parameter"
+    );
 
     // 3. Exchange authorization code for tokens (get a valid refresh_token)
     let token_resp = test::call_service(
@@ -2852,6 +2909,12 @@ async fn id_token_echoes_nonce_from_authorize_request() {
         .and_then(|h| h.to_str().ok())
         .unwrap();
     let code = extract_query_param(loc, "code").expect("code param missing from redirect");
+    // RFC 9207 §2: successful authorization responses must also carry `iss`
+    assert_eq!(
+        extract_query_param(loc, "iss"),
+        Some(TEST_ISSUER.to_string()),
+        "redirect must contain correct iss parameter"
+    );
 
     // 3. Exchange authorization code for tokens
     let token_resp = test::call_service(
@@ -2980,6 +3043,12 @@ async fn id_token_contains_correct_c_hash() {
         .and_then(|h| h.to_str().ok())
         .unwrap();
     let code = extract_query_param(loc, "code").expect("code param missing from redirect");
+    // RFC 9207 §2: successful authorization responses must also carry `iss`
+    assert_eq!(
+        extract_query_param(loc, "iss"),
+        Some(TEST_ISSUER.to_string()),
+        "redirect must contain correct iss parameter"
+    );
 
     // 3. Compute expected c_hash independently from the code we extracted
     let expected_c_hash = {
@@ -3125,6 +3194,12 @@ async fn refresh_token_replay_revokes_entire_token_family() {
         .and_then(|h| h.to_str().ok())
         .unwrap();
     let code = extract_query_param(loc, "code").expect("code param missing");
+    // RFC 9207 §2: successful authorization responses must also carry `iss`
+    assert_eq!(
+        extract_query_param(loc, "iss"),
+        Some(TEST_ISSUER.to_string()),
+        "redirect must contain correct iss parameter"
+    );
 
     // 3. Exchange auth code → RT1 (initial refresh token)
     let token_resp = test::call_service(
