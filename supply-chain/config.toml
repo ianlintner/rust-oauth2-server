@@ -41,6 +41,10 @@ criteria = "safe-to-deploy"
 version = "0.7.0"
 criteria = "safe-to-deploy"
 
+[[exemptions.actix-files]]
+version = "0.7.2"
+criteria = "safe-to-deploy"
+
 [[exemptions.actix-http]]
 version = "3.19.0"
 criteria = "safe-to-deploy"
@@ -77,8 +81,16 @@ criteria = "safe-to-deploy"
 version = "4.17.0"
 criteria = "safe-to-deploy"
 
+[[exemptions.actix-web]]
+version = "4.18.0"
+criteria = "safe-to-deploy"
+
 [[exemptions.actix-web-codegen]]
 version = "4.4.0"
+criteria = "safe-to-deploy"
+
+[[exemptions.actix-web-codegen]]
+version = "4.5.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.actix_derive]]
@@ -822,6 +834,10 @@ criteria = "safe-to-deploy"
 version = "0.11.1"
 criteria = "safe-to-deploy"
 
+[[exemptions.hashlink]]
+version = "0.12.2"
+criteria = "safe-to-deploy"
+
 [[exemptions.headers]]
 version = "0.4.1"
 criteria = "safe-to-run"
@@ -864,6 +880,10 @@ criteria = "safe-to-deploy"
 
 [[exemptions.httpmock]]
 version = "0.8.3"
+criteria = "safe-to-run"
+
+[[exemptions.httpmock]]
+version = "0.9.0"
 criteria = "safe-to-run"
 
 [[exemptions.humantime]]
@@ -1022,6 +1042,10 @@ criteria = "safe-to-deploy"
 version = "4.12.2"
 criteria = "safe-to-deploy"
 
+[[exemptions.lapin]]
+version = "4.12.3"
+criteria = "safe-to-deploy"
+
 [[exemptions.libc]]
 version = "0.2.186"
 criteria = "safe-to-deploy"
@@ -1068,6 +1092,10 @@ criteria = "safe-to-deploy"
 
 [[exemptions.lru]]
 version = "0.18.5"
+criteria = "safe-to-deploy"
+
+[[exemptions.lru]]
+version = "0.19.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.lru-slab]]
@@ -1431,6 +1459,10 @@ criteria = "safe-to-deploy"
 version = "1.7.1"
 criteria = "safe-to-deploy"
 
+[[exemptions.redis]]
+version = "1.8.0"
+criteria = "safe-to-deploy"
+
 [[exemptions.redox_syscall]]
 version = "0.5.18"
 criteria = "safe-to-deploy"
@@ -1667,6 +1699,10 @@ criteria = "safe-to-deploy"
 version = "1.1.1"
 criteria = "safe-to-deploy"
 
+[[exemptions.similar]]
+version = "3.2.1"
+criteria = "safe-to-run"
+
 [[exemptions.simple_asn1]]
 version = "0.6.4"
 criteria = "safe-to-deploy"
@@ -1813,6 +1849,10 @@ criteria = "safe-to-deploy"
 
 [[exemptions.tokio]]
 version = "1.53.3"
+criteria = "safe-to-deploy"
+
+[[exemptions.tokio]]
+version = "1.54.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.tokio-macros]]
@@ -1978,6 +2018,10 @@ criteria = "safe-to-deploy"
 
 [[exemptions.uuid]]
 version = "1.28.0"
+criteria = "safe-to-deploy"
+
+[[exemptions.uuid]]
+version = "1.29.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.v_escape-base]]
@@ -2190,6 +2234,14 @@ criteria = "safe-to-deploy"
 
 [[exemptions.yaml-rust2]]
 version = "0.11.0"
+criteria = "safe-to-deploy"
+
+[[exemptions.yaml-rust2]]
+version = "0.11.1"
+criteria = "safe-to-deploy"
+
+[[exemptions.yaml-rust2]]
+version = "0.13.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.yoke]]
