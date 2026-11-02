@@ -34,6 +34,9 @@ use oauth2_actix::handlers::wellknown::OidcConfig;
 use oauth2_core::{Client, OAuth2Error, TokenResponse, User};
 use oauth2_observability::Metrics;
 
+/// Test issuer used by fixtures in this file.
+const TEST_ISSUER: &str = "http%3A%2F%2Flocalhost";
+
 // ---------------------------------------------------------------------------
 // Test helpers (mirror of security_http.rs helpers, local to this file)
 // ---------------------------------------------------------------------------
@@ -71,6 +74,7 @@ fn assert_redirect_error(
     resp: &actix_web::dev::ServiceResponse<impl actix_web::body::MessageBody>,
     redirect_prefix: &str,
     expected_error: &str,
+    expected_issuer: &str,
 ) {
     assert_eq!(resp.status(), 302, "error must be delivered via redirect");
     let location = resp
@@ -89,9 +93,10 @@ fn assert_redirect_error(
         "wrong error in redirect: {location}"
     );
     // RFC 9207 §2: error responses carry `iss` too (mix-up defence).
-    assert!(
-        extract_query_param(&location, "iss").is_some(),
-        "missing iss in error redirect: {location}"
+    assert_eq!(
+        extract_query_param(&location, "iss"),
+        Some(expected_issuer.to_string()),
+        "missing or incorrect iss in error redirect: {location}"
     );
 }
 
@@ -347,7 +352,12 @@ async fn rfc6749_s4_1_1_authorize_requires_response_type() {
     let resp = test::call_service(&app, req).await;
     // RFC 6749 §4.1.2.1: once client_id and redirect_uri validate, request
     // errors are returned on the redirect URI (not as a direct 400).
-    assert_redirect_error(&resp, "https://good.example/cb", "invalid_request");
+    assert_redirect_error(
+        &resp,
+        "https://good.example/cb",
+        "invalid_request",
+        TEST_ISSUER,
+    );
 }
 
 /// The redirect-on-error behavior must never kick in before `client_id` and
@@ -452,6 +462,7 @@ async fn rfc6749_s4_1_1_authorize_rejects_unknown_response_type() {
         &resp,
         "https://good.example/cb",
         "unsupported_response_type",
+        TEST_ISSUER,
     );
 }
 

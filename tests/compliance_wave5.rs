@@ -304,9 +304,10 @@ async fn wave5_response_mode_fragment_delivers_code_in_fragment() {
         "code must not appear in the query string when response_mode=fragment; Location: {loc}"
     );
     // iss must be present in the fragment (RFC 9207 mix-up mitigation).
-    assert!(
-        extract_fragment_param(loc, "iss").is_some(),
-        "fragment must include 'iss'; Location: {loc}"
+    assert_eq!(
+        extract_fragment_param(loc, "iss"),
+        Some("http%3A%2F%2Flocalhost".to_string()),
+        "fragment must include correct 'iss'; Location: {loc}"
     );
 }
 
