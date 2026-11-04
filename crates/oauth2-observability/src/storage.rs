@@ -312,6 +312,13 @@ impl Storage for ObservedStorage {
             .await
     }
 
+    async fn revoke_token_by_id(&self, id: &str) -> Result<u64, OAuth2Error> {
+        let span = self.span("revoke_token_by_id");
+        async move { self.inner.revoke_token_by_id(id).await }
+            .instrument(span)
+            .await
+    }
+
     async fn set_token_family(&self, access_token: &str, family: &str) -> Result<(), OAuth2Error> {
         let token_prefix = Self::token_prefix(access_token);
         let span = tracing::info_span!(

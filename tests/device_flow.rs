@@ -228,6 +228,107 @@ async fn device_flow_pending_then_approved_returns_token() {
 }
 
 #[actix_web::test]
+async fn device_flow_denied_returns_400_access_denied() {
+    let client = Client::new(
+        "device_client".to_string(),
+        "device_secret".to_string(),
+        vec!["https://unused.example/cb".to_string()],
+        vec!["urn:ietf:params:oauth:grant-type:device_code".to_string()],
+        "openid read".to_string(),
+        "device client".to_string(),
+    );
+
+    let (token_actor, client_actor, auth_actor, storage, jwt_secret, metrics, oidc_config) =
+        setup_context(client).await;
+
+    let app = test::init_service(
+        App::new()
+            .wrap(SessionMiddleware::new(
+                CookieSessionStore::default(),
+                Key::generate(),
+            ))
+            .route("/test/login", web::get().to(test_set_session))
+            .app_data(web::Data::new(token_actor))
+            .app_data(web::Data::new(client_actor))
+            .app_data(web::Data::new(auth_actor))
+            .app_data(web::Data::new(storage))
+            .app_data(web::Data::new(jwt_secret))
+            .app_data(web::Data::new(metrics))
+            .app_data(web::Data::new(oidc_config))
+            .app_data(web::Data::new(false))
+            .service(
+                web::scope("/oauth")
+                    .route(
+                        "/device_authorization",
+                        web::post().to(oauth2_actix::handlers::device::device_authorization),
+                    )
+                    .route(
+                        "/device/verify",
+                        web::post().to(oauth2_actix::handlers::device::verify_submit),
+                    )
+                    .route(
+                        "/token",
+                        web::post().to(oauth2_actix::handlers::oauth::token),
+                    ),
+            ),
+    )
+    .await;
+
+    let init = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri("/oauth/device_authorization")
+            .set_form([
+                ("client_id", "device_client"),
+                ("client_secret", "device_secret"),
+                ("scope", "read"),
+            ])
+            .to_request(),
+    )
+    .await;
+    assert_eq!(init.status(), 200);
+    let init_body: serde_json::Value = test::read_body_json(init).await;
+    let device_code = init_body["device_code"].as_str().unwrap().to_string();
+    let user_code = init_body["user_code"].as_str().unwrap().to_string();
+
+    let login = test::call_service(
+        &app,
+        test::TestRequest::get().uri("/test/login").to_request(),
+    )
+    .await;
+    let cookie = extract_session_cookie(&login);
+
+    let deny = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri("/oauth/device/verify")
+            .insert_header(("Cookie", cookie.as_str()))
+            .set_form([("user_code", user_code.as_str()), ("action", "deny")])
+            .to_request(),
+    )
+    .await;
+    assert_eq!(deny.status(), 200);
+
+    let denied = test::call_service(
+        &app,
+        test::TestRequest::post()
+            .uri("/oauth/token")
+            .set_form([
+                ("grant_type", "urn:ietf:params:oauth:grant-type:device_code"),
+                ("client_id", "device_client"),
+                ("client_secret", "device_secret"),
+                ("device_code", device_code.as_str()),
+            ])
+            .to_request(),
+    )
+    .await;
+    // RFC 8628 §3.5 / RFC 6749 §5.2: access_denied is HTTP 400.
+    assert_eq!(denied.status(), 400);
+    let body: OAuth2Error = test::read_body_json(denied).await;
+    assert_eq!(body.error, "access_denied");
+}
+
+#[actix_web::test]
 async fn discovery_advertises_device_authorization_endpoint() {
     let client = Client::new(
         "client_meta".to_string(),

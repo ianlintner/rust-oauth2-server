@@ -152,7 +152,12 @@ async fn rfc9700_anonymous_introspection_strips_username_and_sub() {
     assert!(body.exp.is_some(), "exp must be returned to RS");
     assert!(body.iat.is_some(), "iat must be returned to RS");
     assert!(body.client_id.is_some(), "client_id may be returned");
-    assert!(body.iss.is_some(), "iss must be returned");
+    // RFC 9207 §2: introspection response iss must equal the configured issuer
+    assert_eq!(
+        body.iss,
+        Some("https://auth.example.com".to_string()),
+        "iss must equal the configured issuer in introspection response (RFC 9207 §2)"
+    );
 }
 
 /// Owner (authenticated as the token-issuing client) gets the full

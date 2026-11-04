@@ -16,6 +16,9 @@ use oauth2_observability::Metrics;
 // Helpers
 // ---------------------------------------------------------------------------
 
+/// Test issuer used by fixtures in this file.
+const TEST_ISSUER: &str = "http%3A%2F%2Flocalhost";
+
 fn s256_challenge(verifier: &str) -> String {
     use base64::{engine::general_purpose, Engine as _};
     use sha2::{Digest, Sha256};
@@ -59,6 +62,7 @@ fn extract_query_param(url: &str, key: &str) -> Option<String> {
 fn assert_redirect_error(
     resp: &actix_web::dev::ServiceResponse<impl actix_web::body::MessageBody>,
     expected_error: &str,
+    expected_issuer: &str,
 ) {
     assert_eq!(resp.status(), 302, "error must be delivered via redirect");
     let location = resp
@@ -76,9 +80,10 @@ fn assert_redirect_error(
         Some(expected_error.to_string()),
         "wrong error in redirect: {location}"
     );
-    assert!(
-        extract_query_param(&location, "iss").is_some(),
-        "missing iss in redirect: {location}"
+    assert_eq!(
+        extract_query_param(&location, "iss"),
+        Some(expected_issuer.to_string()),
+        "missing or incorrect iss in redirect: {location}"
     );
 }
 
@@ -165,6 +170,12 @@ macro_rules! get_code_with_pkce {
             .unwrap()
             .to_string();
         let code = extract_query_param(&loc, "code").expect("code in redirect");
+        // RFC 9207 §2: successful authorization responses must also carry `iss`
+        assert_eq!(
+            extract_query_param(&loc, "iss"),
+            Some(TEST_ISSUER.to_string()),
+            "redirect must contain correct iss parameter"
+        );
         (code, session_cookie)
     }};
 }
@@ -245,7 +256,7 @@ async fn rfc7636_s4_1_pkce_required_for_authorization_code() {
     let resp = test::call_service(&app, req).await;
     // RFC 7636 §4.4.1 / RFC 6749 §4.1.2.1: with a valid client and redirect_uri the
     // error is returned on the redirect URI, with the RFC 9207 `iss`.
-    assert_redirect_error(&resp, "invalid_request");
+    assert_redirect_error(&resp, "invalid_request", TEST_ISSUER);
 }
 
 /// RFC 7636 §4.1: `code_verifier` minimum length is 43 characters (ASCII
@@ -458,7 +469,7 @@ async fn rfc7636_s4_2_plain_method_is_rejected() {
     let resp = test::call_service(&app, req).await;
     // RFC 7636 §4.4.1: an unsupported challenge method is invalid_request on the
     // redirect URI (S256-only policy rejects `plain`).
-    assert_redirect_error(&resp, "invalid_request");
+    assert_redirect_error(&resp, "invalid_request", TEST_ISSUER);
 }
 
 /// RFC 7636 §4.2: Providing a `code_challenge_method` without a
@@ -498,7 +509,7 @@ async fn rfc7636_s4_2_method_without_challenge_rejected() {
         )
         .to_request();
     let resp = test::call_service(&app, req).await;
-    assert_redirect_error(&resp, "invalid_request");
+    assert_redirect_error(&resp, "invalid_request", TEST_ISSUER);
 }
 
 // ---------------------------------------------------------------------------

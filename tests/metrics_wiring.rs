@@ -200,7 +200,7 @@ async fn admin_revoke_token_increments_prometheus_counter() {
 
     let app = test::init_service(
         App::new()
-            .app_data(web::Data::new(storage))
+            .app_data(web::Data::new(storage.clone()))
             .app_data(web::Data::new(metrics))
             .route(
                 "/admin/api/tokens/{id}/revoke",
@@ -219,10 +219,30 @@ async fn admin_revoke_token_increments_prometheus_counter() {
     );
 
     let req = test::TestRequest::post()
-        .uri("/admin/api/tokens/access-metrics-wire/revoke")
+        .uri(&format!("/admin/api/tokens/{}/revoke", token.id))
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = test::read_body_json(resp).await;
+    assert_eq!(body["message"], "Token revoked");
+    assert!(
+        storage
+            .get_token_by_access_token(&token.access_token)
+            .await
+            .unwrap()
+            .unwrap()
+            .revoked
+    );
+
+    for id in [&token.id, "nonexistent-token-id", &token.access_token] {
+        let req = test::TestRequest::post()
+            .uri(&format!("/admin/api/tokens/{id}/revoke"))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 404);
+        let body: serde_json::Value = test::read_body_json(resp).await;
+        assert_eq!(body["error"], "token not found or already revoked");
+    }
 
     let after = test::TestRequest::get().uri("/metrics").to_request();
     let after_body = test::call_and_read_body(&app, after).await;
@@ -237,10 +257,7 @@ async fn admin_revoke_token_increments_prometheus_counter() {
         .nth(1)
         .and_then(|s| s.parse().ok())
         .expect("numeric counter value");
-    assert!(
-        value >= 1,
-        "oauth2_server_oauth_token_revoked_total should be >= 1 after revoke, got {value}"
-    );
+    assert_eq!(value, 1, "only a successful revocation should be counted");
 }
 
 // ---------------------------------------------------------------------------
