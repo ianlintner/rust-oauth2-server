@@ -34,6 +34,9 @@ use oauth2_actix::handlers::wellknown::OidcConfig;
 use oauth2_core::{Client, OAuth2Error, TokenResponse, User};
 use oauth2_observability::Metrics;
 
+/// Test issuer used by fixtures in this file.
+const TEST_ISSUER: &str = "http%3A%2F%2Flocalhost";
+
 // ---------------------------------------------------------------------------
 // Test helpers (mirror of security_http.rs helpers, local to this file)
 // ---------------------------------------------------------------------------
@@ -71,6 +74,7 @@ fn assert_redirect_error(
     resp: &actix_web::dev::ServiceResponse<impl actix_web::body::MessageBody>,
     redirect_prefix: &str,
     expected_error: &str,
+    expected_issuer: &str,
 ) {
     assert_eq!(resp.status(), 302, "error must be delivered via redirect");
     let location = resp
@@ -87,6 +91,12 @@ fn assert_redirect_error(
         extract_query_param(&location, "error"),
         Some(expected_error.to_string()),
         "wrong error in redirect: {location}"
+    );
+    // RFC 9207 §2: error responses carry `iss` too (mix-up defence).
+    assert_eq!(
+        extract_query_param(&location, "iss"),
+        Some(expected_issuer.to_string()),
+        "missing or incorrect iss in error redirect: {location}"
     );
 }
 
@@ -342,7 +352,12 @@ async fn rfc6749_s4_1_1_authorize_requires_response_type() {
     let resp = test::call_service(&app, req).await;
     // RFC 6749 §4.1.2.1: once client_id and redirect_uri validate, request
     // errors are returned on the redirect URI (not as a direct 400).
-    assert_redirect_error(&resp, "https://good.example/cb", "invalid_request");
+    assert_redirect_error(
+        &resp,
+        "https://good.example/cb",
+        "invalid_request",
+        TEST_ISSUER,
+    );
 }
 
 /// The redirect-on-error behavior must never kick in before `client_id` and
@@ -447,6 +462,7 @@ async fn rfc6749_s4_1_1_authorize_rejects_unknown_response_type() {
         &resp,
         "https://good.example/cb",
         "unsupported_response_type",
+        TEST_ISSUER,
     );
 }
 
@@ -1061,6 +1077,101 @@ async fn rfc6749_s2_3_client_auth_via_post_params() {
     assert_eq!(resp.status(), 200);
     let body: TokenResponse = test::read_body_json(resp).await;
     assert!(!body.access_token.is_empty());
+}
+
+/// RFC 6749 §2.3.1: The Basic userid and password are each encoded with the
+/// `application/x-www-form-urlencoded` algorithm before base64 (a secret with
+/// reserved characters must be percent-/plus-encoded in the header).
+///
+/// @rfc 6749
+/// @section 2.3.1
+/// @requirement HTTP Basic client credentials MUST be form-urlencoded before base64 encoding, and the server MUST decode them.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc6749#section-2.3.1
+#[actix_web::test]
+async fn rfc6749_s2_3_1_basic_auth_credentials_are_form_urlencoded() {
+    use base64::{engine::general_purpose, Engine as _};
+    // Literal secret `p@ss:w+rd %`; on the wire: `p%40ss%3Aw%2Brd+%25`.
+    let client = Client::new(
+        "client-enc".to_string(),
+        "p@ss:w+rd %".to_string(),
+        vec!["https://unused.example/cb".to_string()],
+        vec!["client_credentials".to_string()],
+        "read".to_string(),
+        "test".to_string(),
+    );
+    let (token_actor, client_actor, auth_actor, jwt_secret, metrics, oidc_config) =
+        setup_context(client).await;
+    let app = plain_app!(
+        token_actor,
+        client_actor,
+        auth_actor,
+        jwt_secret,
+        metrics,
+        oidc_config
+    );
+
+    let header = format!(
+        "Basic {}",
+        general_purpose::STANDARD.encode("client-enc:p%40ss%3Aw%2Brd+%25")
+    );
+    let req = test::TestRequest::post()
+        .uri("/oauth/token")
+        .insert_header(("Authorization", header))
+        .set_form([("grant_type", "client_credentials"), ("scope", "read")])
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: TokenResponse = test::read_body_json(resp).await;
+    assert!(!body.access_token.is_empty());
+}
+
+/// RFC 6749 §2.3 / §5.2: A client MUST NOT use more than one authentication
+/// method per request; credentials in both the Basic header and the body are
+/// rejected with `invalid_request`.
+///
+/// @rfc 6749
+/// @section 2.3
+/// @requirement The client MUST NOT use more than one authentication method in each request.
+/// @level MUST
+/// @url https://datatracker.ietf.org/doc/html/rfc6749#section-2.3
+#[actix_web::test]
+async fn rfc6749_s2_3_dual_client_auth_methods_rejected() {
+    let client = Client::new(
+        "client_dual".to_string(),
+        "secret_dual".to_string(),
+        vec!["https://unused.example/cb".to_string()],
+        vec!["client_credentials".to_string()],
+        "read".to_string(),
+        "test".to_string(),
+    );
+    let (token_actor, client_actor, auth_actor, jwt_secret, metrics, oidc_config) =
+        setup_context(client).await;
+    let app = plain_app!(
+        token_actor,
+        client_actor,
+        auth_actor,
+        jwt_secret,
+        metrics,
+        oidc_config
+    );
+
+    let req = test::TestRequest::post()
+        .uri("/oauth/token")
+        .insert_header((
+            "Authorization",
+            basic_auth_header("client_dual", "secret_dual"),
+        ))
+        .set_form([
+            ("grant_type", "client_credentials"),
+            ("client_id", "client_dual"),
+            ("client_secret", "secret_dual"),
+        ])
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 400);
+    let body: OAuth2Error = test::read_body_json(resp).await;
+    assert_eq!(body.error, "invalid_request");
 }
 
 // ---------------------------------------------------------------------------

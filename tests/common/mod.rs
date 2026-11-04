@@ -128,6 +128,38 @@ pub async fn run_storage_contract(storage: &dyn Storage) -> Result<(), Box<dyn s
         "saving the same access_token twice should fail"
     );
 
+    // Admin revocation uses the storage ID, never an access/refresh token value.
+    for id in [
+        "missing-token-id",
+        &token.access_token,
+        &no_refresh_1.access_token,
+    ] {
+        let count = storage
+            .revoke_token_by_id(id)
+            .await
+            .map_err(|e| std::io::Error::other(e.to_string()))?;
+        assert_eq!(count, 0);
+    }
+    let count = storage
+        .revoke_token_by_id(&no_refresh_1.id)
+        .await
+        .map_err(|e| std::io::Error::other(e.to_string()))?;
+    assert_eq!(count, 1);
+    let count = storage
+        .revoke_token_by_id(&no_refresh_1.id)
+        .await
+        .map_err(|e| std::io::Error::other(e.to_string()))?;
+    assert_eq!(count, 0, "already-revoked tokens are not counted again");
+
+    for (token, revoked) in [(&no_refresh_1, true), (&no_refresh_2, false)] {
+        let fetched = storage
+            .get_token_by_access_token(&token.access_token)
+            .await
+            .map_err(|e| std::io::Error::other(e.to_string()))?
+            .ok_or_else(|| std::io::Error::other("token should still exist"))?;
+        assert_eq!(fetched.revoked, revoked);
+    }
+
     // Authorization code roundtrip + mark used
     let code = AuthorizationCode::new(
         "code_1".to_string(),
