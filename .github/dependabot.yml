@@ -18,6 +18,10 @@ updates:
       interval: weekly
       day: monday
     open-pull-requests-limit: 10
+    # Wait a week after a release before proposing it, so freshly published
+    # (and occasionally yanked) versions settle before a bump PR opens.
+    cooldown:
+      default-days: 7
     # Defer the OpenTelemetry 0.33 family: reqwest-tracing 0.7.1 has no
     # opentelemetry_0_33 feature, so outbound traceparent propagation breaks
     # (tests/otel_outbound_propagation.rs). Remove once reqwest-middleware#288
@@ -45,6 +49,8 @@ updates:
       interval: weekly
       day: monday
     open-pull-requests-limit: 10
+    cooldown:
+      default-days: 7
     groups:
       github-actions:
         update-types:
@@ -62,5 +68,7 @@ updates:
       interval: weekly
       day: monday
     open-pull-requests-limit: 5
+    cooldown:
+      default-days: 7
     commit-message:
       prefix: "chore(docker)"
