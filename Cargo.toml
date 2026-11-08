@@ -157,5 +157,16 @@ harness = false
 # is NOT enabled (the build-time asset download risk is disclosed and accepted).
 # See docs/security/utoipa-swagger-ui-10.0.1-attestation.md and
 # scripts/check_utoipa_stack_scope.py.
+#
+# Local override of actix-http 3.20.5 (RUSTSEC-2026-0446/0448/0455 fixes). Every
+# actix-http release that fixes those advisories (>= 3.20.1) declares
+# `base64 = "0.23"` with default features, which would re-enable `simd-unsafe`
+# for the whole graph. The owner decided against `simd-unsafe` (PR #414), so the
+# vendored copy is byte-for-byte the published archive (sha256
+# 26d4b0133245a77674c3703c71b416c59cbee8b570368fc263d3154604c6841c) except for
+# one dependency-declaration delta in Cargo.toml:
+#   base64 = { version = "0.23", optional = true, default-features = false, features = ["std"] }
+# See docs/security/actix-http-3.20.5-vendor-note.md.
 [patch.crates-io]
 utoipa-swagger-ui = { path = "vendor/utoipa-swagger-ui-10.0.1" }
+actix-http = { path = "vendor/actix-http-3.20.5" }
