@@ -10,7 +10,7 @@
 # ── Stage 0: Tailwind CSS build ─────────────────────────────────────────────
 # Base images are pinned by digest for supply-chain integrity. Refresh digests
 # deliberately (e.g. via Dependabot) rather than letting a mutable tag drift.
-FROM debian:trixie-slim@sha256:f6b08b09a05725f9431502d3b5714f5c4576e82c1a84fa1debe0c24a7e0c3ec4 AS tailwind-build
+FROM debian:trixie-slim@sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2 AS tailwind-build
 
 ARG TAILWIND_VERSION=v3.4.17
 ARG TARGETARCH=amd64
@@ -117,7 +117,7 @@ RUN if [ -n "$CARGO_FEATURES" ]; then \
 # CI runners and upstream base images now commonly require GLIBC_2.38+, which
 # Debian bookworm does not provide. Debian trixie includes GLIBC_2.38.
 # Digest-pinned (see note on the tailwind-build stage above).
-FROM debian:trixie-slim@sha256:f6b08b09a05725f9431502d3b5714f5c4576e82c1a84fa1debe0c24a7e0c3ec4
+FROM debian:trixie-slim@sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2
 
 WORKDIR /app
 
