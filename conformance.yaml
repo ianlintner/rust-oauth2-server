@@ -2,7 +2,7 @@
 # `oauth2-conformance` runner contract
 # (https://github.com/ianlintner/oauth2-conformance).
 #
-# Pinned contract commit: 604c62d6c98d8685ef2a1296d12014615dc38390
+# Pinned contract commit: 985fef7aca4835a7ab4fb92c94e8f979f7308189
 # (also pinned in the `conformance` job of .github/workflows/ci.yml; the
 # manifest schema has no field for a commit, so the two are kept in sync by
 # hand).
@@ -11,5 +11,5 @@
 # which starts the server in conformance mode and runs the contract runner
 # against it. A failing scenario in a claimed profile fails CI.
 implementation: rust-oauth2-server
-contract: 604c62d6c98d8685ef2a1296d12014615dc38390
-profiles: [core, token-lifecycle, oidc-basic, extended-grants]
+contract: 985fef7aca4835a7ab4fb92c94e8f979f7308189
+profiles: [core, token-lifecycle, oidc-basic, extended-grants, sender-constrained]

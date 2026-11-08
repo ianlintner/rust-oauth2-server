@@ -35,12 +35,12 @@ chrono = { version = "0.4", features = ["serde"] }
 rand = { version = "0.9.4", default-features = false, features = ["std", "std_rng", "os_rng"] }
 uuid = { version = "1.6", features = ["v4", "serde"] }
 subtle = "2.5"
-lru = "0.18"
+lru = "0.19"
 
 sha2 = "0.11"
 hmac = "0.13"
 base64 = { version = "0.23", default-features = false, features = ["std"] }
-jsonwebtoken = { version = "11.1", features = ["rust_crypto"] }
+jsonwebtoken = { version = "11.1", features = ["aws_lc_rs"] }
 
 # JWKS (RS256 public key publishing)
 rsa = { version = "0.9", features = ["pem"] }

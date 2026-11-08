@@ -47,6 +47,21 @@ parallel/kdf/zeroize and all other feature expansions are outside scope.
 Not importable: other repositories may not enforce these restrictions.
 """
 
+[[audits.ctutils]]
+who = "Ian Lintner (@ianlintner), owner approval of AI-assisted review"
+criteria = "safe-to-deploy"
+delta = "0.4.2 -> 0.4.5"
+importable = false
+notes = """
+Owner-attributed, AI-assisted delta attestation; effective only when the owner
+approves the exact PR head on GitHub. Not an independent third-party audit and
+not merge approval. Scope: crates.io ctutils 0.4.2 -> 0.4.5 as locked by
+Cargo.lock (0.4.5 sha256
+38d28fb6aa7dd680b3ffd1a3e64e115c177bdba63c0ae7f9cd48129ff05c4fa0). Source,
+unsafe and feature inspection and residual limits:
+docs/supply-chain/pr452-rustsec-lockfile-delta-review.md.
+"""
+
 [[audits.password-hash]]
 who = "Ian Lintner (@ianlintner), owner approval of AI-assisted review"
 criteria = "safe-to-deploy"
@@ -156,6 +171,36 @@ This is not an independent third-party audit, not an all-features audit, and
 not merge approval.
 Bounded source evidence and limitations:
 docs/security/utoipa-swagger-ui-source-review.md.
+"""
+
+[[audits.webpki-root-certs]]
+who = "Ian Lintner (@ianlintner), owner approval of AI-assisted review"
+criteria = "safe-to-deploy"
+delta = "1.0.8 -> 1.0.11"
+importable = false
+notes = """
+Owner-attributed, AI-assisted delta attestation; effective only when the owner
+approves the exact PR head on GitHub. Not an independent third-party audit and
+not merge approval. Scope: crates.io webpki-root-certs 1.0.8 -> 1.0.11 as
+locked by Cargo.lock (1.0.11 sha256
+e49d0e65abc00c142e8f9428da991da9f1a250c39be97459901eb12b9b49f62a). The Rust
+code is unchanged; the delta is Mozilla root-store data. Evidence and limits:
+docs/supply-chain/pr452-rustsec-lockfile-delta-review.md.
+"""
+
+[[audits.webpki-roots]]
+who = "Ian Lintner (@ianlintner), owner approval of AI-assisted review"
+criteria = "safe-to-deploy"
+delta = "1.0.8 -> 1.0.11"
+importable = false
+notes = """
+Owner-attributed, AI-assisted delta attestation; effective only when the owner
+approves the exact PR head on GitHub. Not an independent third-party audit and
+not merge approval. Scope: crates.io webpki-roots 1.0.8 -> 1.0.11 as locked by
+Cargo.lock (1.0.11 sha256
+f5f280bbb2b287bc8e7de7e3852945a0ff50d1bbcb5ed42b6c7a568c546df171). The Rust
+code is unchanged; the delta is Mozilla root-store data. Evidence and limits:
+docs/supply-chain/pr452-rustsec-lockfile-delta-review.md.
 """
 
 [[audits.zip]]
