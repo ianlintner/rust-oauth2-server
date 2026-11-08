@@ -28,7 +28,7 @@ members = [
 ]
 
 [workspace.package]
-rust-version = "1.88"
+rust-version = "1.89"
 
 [dependencies]
 # Extracted reusable crates
