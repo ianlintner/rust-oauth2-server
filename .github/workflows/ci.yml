@@ -45,7 +45,7 @@ jobs:
       code: ${{ steps.filter.outputs.code == 'true' || startsWith(github.ref, 'refs/tags/') }}
       build_matrix: ${{ steps.build_matrix.outputs.matrix }}
     steps:
-      - uses: actions/checkout@v7.0.1 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
         id: filter
         with:
@@ -109,7 +109,7 @@ jobs:
     needs: [changes]
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v7.0.1 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Rust toolchain + cache
         if: needs.changes.outputs.code == 'true'
@@ -195,7 +195,7 @@ jobs:
 
       - name: Upload compliance artifacts
         if: needs.changes.outputs.code == 'true' && github.event_name == 'push'
-        uses: actions/upload-artifact@v7.0.2 # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: rfc-compliance-report
           path: |
@@ -222,7 +222,7 @@ jobs:
       matrix:
         include: ${{ fromJSON(needs.changes.outputs.build_matrix) }}
     steps:
-      - uses: actions/checkout@v7.0.1 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Rust toolchain + cache
         uses: ./.github/actions/rust-setup
@@ -247,7 +247,7 @@ jobs:
             "target/release/rust_oauth2_server${{ matrix.binary_suffix }}-${{ matrix.arch }}"
 
       - name: Upload server binary artifact
-        uses: actions/upload-artifact@v7.0.2 # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ matrix.artifact }}
           path: target/release/rust_oauth2_server${{ matrix.binary_suffix }}-${{ matrix.arch }}
@@ -259,7 +259,7 @@ jobs:
     needs: [changes]
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v7.0.1 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # Publishing-policy regression: main/PR pushes must never publish images.
       # Unconditional (cheap, no toolchain) so workflow-only edits are covered.
@@ -354,7 +354,7 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     steps:
-      - uses: actions/checkout@v7.0.1 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Rust toolchain + cache
         uses: ./.github/actions/rust-setup
@@ -424,7 +424,7 @@ jobs:
             artifact_prefix: rust_oauth2_server-mongo-only
             binary_suffix: -mongo-only
     steps:
-      - uses: actions/checkout@v7.0.1 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Assert publishing is disabled for this ref
         id: mode
@@ -442,7 +442,7 @@ jobs:
           fi
 
       - name: Download prebuilt server binary (amd64)
-        uses: actions/download-artifact@v8.0.2 # v7
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: ${{ matrix.artifact_prefix }}-linux-amd64
           path: target/release
@@ -451,10 +451,10 @@ jobs:
         run: chmod +x "target/release/rust_oauth2_server${{ matrix.binary_suffix }}-amd64"
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4.4.1 # v4
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       - name: Build image locally (no push)
-        uses: docker/build-push-action@v7.4.0 # v7
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           push: false
@@ -496,7 +496,7 @@ jobs:
             binary_suffix: -mongo-only
             tag_suffix: -mongo-only
     steps:
-      - uses: actions/checkout@v7.0.1 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Assert publishing is allowed for this ref (tags only)
         id: mode
@@ -514,13 +514,13 @@ jobs:
           fi
 
       - name: Download prebuilt server binary (amd64)
-        uses: actions/download-artifact@v8.0.2 # v7
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: ${{ matrix.artifact_prefix }}-linux-amd64
           path: target/release
 
       - name: Download prebuilt server binary (arm64)
-        uses: actions/download-artifact@v8.0.2 # v7
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: ${{ matrix.artifact_prefix }}-linux-arm64
           path: target/release
@@ -532,10 +532,10 @@ jobs:
             "target/release/rust_oauth2_server${{ matrix.binary_suffix }}-arm64"
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4.4.1 # v4
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v4
+        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4
 
       - name: Decide publishing targets
         id: publish
@@ -565,9 +565,11 @@ jobs:
       - name: Compute release version (tags only)
         if: startsWith(github.ref, 'refs/tags/')
         shell: bash
+        env:
+          REF_NAME: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          ref_name='${{ github.ref_name }}'
+          ref_name="$REF_NAME"
           version="${ref_name#v}"
 
           # Enforce numeric semver-ish tags for releases (e.g., 0.0.1 or v0.0.1, optionally with -rc.1).
@@ -594,7 +596,7 @@ jobs:
 
       - name: Extract metadata (GHCR)
         id: meta_ghcr
-        uses: docker/metadata-action@v6.2.0 # v6
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
           images: |
             ghcr.io/${{ github.repository_owner }}/oauth2-server
@@ -604,7 +606,7 @@ jobs:
       - name: Extract metadata (Docker Hub)
         if: steps.publish.outputs.dockerhub == 'true'
         id: meta_dockerhub
-        uses: docker/metadata-action@v6.2.0 # v6
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
           images: |
             docker.io/${{ secrets.DOCKER_USERNAME }}/oauth2-server
@@ -612,7 +614,7 @@ jobs:
             type=raw,value=${{ env.IMAGE_VERSION }}${{ matrix.tag_suffix }},enable=${{ startsWith(github.ref, 'refs/tags/') }}
 
       - name: Build and push image
-        uses: docker/build-push-action@v7.4.0 # v7
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           push: true
@@ -665,7 +667,7 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - uses: actions/checkout@v7.0.1 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Rust toolchain + cache
         uses: ./.github/actions/rust-setup
@@ -683,7 +685,7 @@ jobs:
         # output). Pull it down here so the published docs always reflect
         # current pass/fail status. Falls back to the committed file if the
         # artifact is unavailable for any reason.
-        uses: actions/download-artifact@v8.0.2 # v7
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         continue-on-error: true
         with:
           name: rfc-compliance-report
@@ -702,7 +704,7 @@ jobs:
           fi
 
       - name: Setup Python
-        uses: actions/setup-python@v7
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
           python-version: "3.11"
 
