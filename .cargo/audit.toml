@@ -55,4 +55,17 @@ ignore = [
   # Review date: 2026-05-04
   # Next review: Monitor lapin for updates or migration to rustls-pemfile successor
   "RUSTSEC-2025-0134",
+
+  # RUSTSEC-2026-0459 (CVE-2026-119375): libsqlite3-sys < 0.39.0 bundles SQLite < 3.54.0;
+  # a locally placed crafted db plus a sibling `-wal` with a differing page size can return
+  # uninitialized page-cache memory (local information disclosure, CVSS 6.8).
+  # Affected path: sqlx 0.8.6 → sqlx-sqlite 0.8.6 → libsqlite3-sys 0.30.1 (bundled feature active).
+  # Status: No reachable upstream fix. sqlx-sqlite 0.8.6 requires `libsqlite3-sys ^0.30.1`; the only
+  #         released successor, sqlx-sqlite 0.9.0 (2026-05-21), requires `>=0.30.1, <0.38.0`. Both
+  #         exclude the patched 0.39.0/0.39.1 (shipped with rusqlite 0.41). sqlx 0.9 also raises MSRV.
+  # Exposure: bundled SQLite IS compiled in, but exploitation requires local write access to the
+  #         operator-controlled SQLite storage file, not attacker-supplied input.
+  # Review date: 2026-11-09. Next review: 2027-02-01, or remove as soon as a released sqlx admits
+  #         libsqlite3-sys >= 0.39.0 (or the bundled amalgamation is vendored to SQLite >= 3.54.0).
+  "RUSTSEC-2026-0459",
 ]
