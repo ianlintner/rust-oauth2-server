@@ -30,6 +30,20 @@ ignore = [
     # Affected path: proc-macro-error2 2.0.1 → defmt-macros 1.1.0 → defmt 1.1.0 → jiff 0.2.29 → env_logger 0.11.10 → oauth2-server 0.6.2
     # Status: unmaintained advisory
     { id = "RUSTSEC-2026-0173", reason = "transitive-only unmaintained proc-macro-error2 through defmt/jiff; no known vulnerability and no clean replacement in the current graph" },
+    # RUSTSEC-2026-0459 (CVE-2026-119375): libsqlite3-sys < 0.39.0 bundles SQLite < 3.54.0;
+    # a locally placed crafted db plus a sibling `-wal` with a differing page size can return
+    # uninitialized page-cache memory (local information disclosure, CVSS 6.8).
+    # Affected path: sqlx 0.8.6 → sqlx-sqlite 0.8.6 → libsqlite3-sys 0.30.1 (bundled feature active).
+    # NO upstream fix is reachable: sqlx-sqlite 0.8.6 requires `libsqlite3-sys ^0.30.1` (0.30.x only),
+    # and the only released successor, sqlx-sqlite 0.9.0 (2026-05-21), requires
+    # `libsqlite3-sys >=0.30.1, <0.38.0` — both exclude the patched 0.39.0/0.39.1 (shipped with
+    # rusqlite 0.41). No released sqlx admits libsqlite3-sys >= 0.39.0. (sqlx 0.9 also raises MSRV to
+    # 1.94, above this workspace's 1.89, so the major bump buys no fix and a higher toolchain floor.)
+    # Exposure is real but bounded: the bundled SQLite is compiled in, yet the flaw requires local
+    # write access to the SQLite storage file (operator-controlled, not attacker-supplied input).
+    # Remove once a released sqlx/sqlx-sqlite admits libsqlite3-sys >= 0.39.0 (and the workspace is
+    # bumped) or the bundled amalgamation is vendored to SQLite >= 3.54.0. Re-review by 2027-02-01.
+    { id = "RUSTSEC-2026-0459", reason = "libsqlite3-sys 0.30.1 is pinned by sqlx-sqlite 0.8.6 (^0.30.1); no released sqlx admits the patched >=0.39.0; local-only info-disclosure, owner-approved disposition" },
 ]
 # Unsound advisories: only fail for workspace crates (transitive unsound is noisy).
 unsound = "workspace"
