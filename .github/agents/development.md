@@ -361,7 +361,7 @@ Feature: Client Registration
 
 - Update dependencies: `cargo update`
 - Clean build: `cargo clean && cargo build`
-- Check Rust version: `rustc --version` (need 1.88+)
+- Check Rust version: `rustc --version` (need 1.89+)
 
 ### Actor Message Errors
 
