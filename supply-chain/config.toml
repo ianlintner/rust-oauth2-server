@@ -22,6 +22,9 @@ url = "https://raw.githubusercontent.com/mozilla/supply-chain/main/audits.toml"
 [imports.zcash]
 url = "https://raw.githubusercontent.com/zcash/rust-ecosystem/main/supply-chain/audits.toml"
 
+[policy."actix-http:3.20.5"]
+audit-as-crates-io = true
+
 [policy."utoipa-swagger-ui:10.0.1"]
 audit-as-crates-io = true
 
@@ -45,8 +48,16 @@ criteria = "safe-to-deploy"
 version = "0.7.2"
 criteria = "safe-to-deploy"
 
+[[exemptions.actix-files]]
+version = "0.7.4"
+criteria = "safe-to-deploy"
+
 [[exemptions.actix-http]]
 version = "3.19.0"
+criteria = "safe-to-deploy"
+
+[[exemptions.actix-http]]
+version = "3.20.5"
 criteria = "safe-to-deploy"
 
 [[exemptions.actix-macros]]
@@ -77,12 +88,20 @@ criteria = "safe-to-deploy"
 version = "3.0.1"
 criteria = "safe-to-deploy"
 
+[[exemptions.actix-utils]]
+version = "3.0.2"
+criteria = "safe-to-deploy"
+
 [[exemptions.actix-web]]
 version = "4.17.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.actix-web]]
 version = "4.18.1"
+criteria = "safe-to-deploy"
+
+[[exemptions.actix-web]]
+version = "4.18.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.actix-web-codegen]]
@@ -311,8 +330,16 @@ criteria = "safe-to-run"
 version = "9.0.0"
 criteria = "safe-to-deploy"
 
+[[exemptions.brotli]]
+version = "9.1.1"
+criteria = "safe-to-deploy"
+
 [[exemptions.brotli-decompressor]]
 version = "6.0.1"
+criteria = "safe-to-deploy"
+
+[[exemptions.brotli-decompressor]]
+version = "6.3.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.bs58]]
@@ -872,6 +899,10 @@ criteria = "safe-to-deploy"
 
 [[exemptions.http-range]]
 version = "0.1.5"
+criteria = "safe-to-deploy"
+
+[[exemptions.http-range]]
+version = "0.1.6"
 criteria = "safe-to-deploy"
 
 [[exemptions.httparse]]
