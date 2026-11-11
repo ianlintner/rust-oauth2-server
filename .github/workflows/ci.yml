@@ -71,6 +71,7 @@ jobs:
               # Cargo.lock, .cargo_vcs_info.json). Without this entry such a
               # change yields code == false and silently skips that gate.
               - 'vendor/utoipa-swagger-ui-10.0.1/**'
+              - 'vendor/actix-http-3.20.5/**'
               - '.github/workflows/**'
               - '.github/actions/**'
               - 'conformance.yaml'

@@ -27,6 +27,12 @@ updates:
         versions: ["0.33.x"]
       - dependency-name: "tracing-opentelemetry"
         versions: ["0.34.x"]
+      # Defer httpmock 0.9 (dev-only): it pulls base64 0.23 with default features, which unifies `simd-unsafe`
+      # into the workspace and violates the owner's scalar-only base64 0.23.1 attestation
+      # (scripts/check_base64_audit_scope.py). Owner decision 2026-11-08: stay on httpmock 0.8.x. Remove once
+      # httpmock depends on base64 with default-features = false or the attestation scope is re-reviewed.
+      - dependency-name: "httpmock"
+        versions: [">= 0.9.0"]
     # Pull patch/minor bumps together to reduce churn; majors stay individual
     # so breaking changes get a focused review.
     groups:
