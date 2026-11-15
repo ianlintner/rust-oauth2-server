@@ -4,9 +4,9 @@ version = 4
 
 [[package]]
 name = "actix"
-version = "0.13.5"
+version = "0.13.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "de7fa236829ba0841304542f7614c42b80fca007455315c45c785ccfa873a85b"
+checksum = "84f70e6f7a43113182347c2fe429664c9741b8b880f67feb258cee1cf6cd375c"
 dependencies = [
  "actix-macros",
  "actix-rt",
@@ -6356,9 +6356,9 @@ dependencies = [
 
 [[package]]
 name = "tracing-actix-web"
-version = "0.7.25"
+version = "0.7.26"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3133a9a17a910bb708dcdcf1ff89d3dd98d412938b5e017c6e42de11b63ef164"
+checksum = "57452ae2b79737a7f0c32ec1d430aaf7ed068c53284f6a63adf0e0855ac17f79"
 dependencies = [
  "actix-web",
  "mutually_exclusive_features",
@@ -6704,9 +6704,9 @@ dependencies = [
 
 [[package]]
 name = "uuid"
-version = "1.29.0"
+version = "1.29.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4a0e2d11620c50695fe12bbbfde96b3477fe606e7284c22d505c12ce51214514"
+checksum = "4a06f08a856b009bc7bbaf7d3e79808595d032dd19074c0c2ef26e49e03e6bdc"
 dependencies = [
  "getrandom 0.4.3",
  "js-sys",
