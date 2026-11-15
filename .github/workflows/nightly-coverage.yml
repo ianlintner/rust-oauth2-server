@@ -28,7 +28,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
-      - uses: actions/checkout@v7.0.1 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Rust toolchain + cache
         uses: ./.github/actions/rust-setup
@@ -46,7 +46,7 @@ jobs:
         run: cargo tarpaulin --out Xml --output-dir ./coverage --all-features --locked
 
       - name: Upload Coverage to Codecov
-        uses: codecov/codecov-action@v7.1.1 # v7
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
         with:
           files: ./coverage/cobertura.xml
           fail_ci_if_error: false
