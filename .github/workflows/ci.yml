@@ -725,6 +725,7 @@ jobs:
       - name: Cache pip
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
+          lookup-only: ${{ github.event_name == 'pull_request' }}
           path: ~/.cache/pip
           key: ${{ runner.os }}-pip-${{ hashFiles('requirements-docs.txt', 'mkdocs.yml') }}
           restore-keys: |
