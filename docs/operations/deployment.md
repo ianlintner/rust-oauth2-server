@@ -140,6 +140,15 @@ Before you call a deployment production-ready, confirm:
 - `/health`, `/ready`, `/metrics`, and `/events/health` are monitored
 - OpenTelemetry export is wired if you care about traces
 
+## Client record cache
+
+Client records are cached in memory for up to 300 seconds (and in Redis, when
+the `redis-cache` feature is enabled). Admin changes to a client (edit,
+enable/disable, secret rotation, delete) invalidate the cache on the server
+process that handled the request and remove the Redis entry. Other replicas
+keep their own in-memory copy until it expires, so a client change can take up
+to 300 seconds to reach every replica.
+
 ## When to use Flyway
 
 - for Postgres and packaged deployments, use `./scripts/migrate.sh` or the Kubernetes Flyway job

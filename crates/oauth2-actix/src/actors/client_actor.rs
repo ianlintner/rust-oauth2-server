@@ -94,6 +94,43 @@ impl Actor for ClientActor {
     type Context = Context<Self>;
 }
 
+/// Drop every cached copy of a client (in-process entry and, when configured,
+/// the Redis entry). Send this *after* the storage write that changed or
+/// removed the client so a lookup in between cannot re-cache the old row.
+#[derive(Message)]
+#[rtype(result = "()")]
+pub struct InvalidateClient {
+    pub client_id: String,
+}
+
+impl ClientActor {
+    /// Evict the in-process entry now and return a future that removes the
+    /// Redis entry (a no-op without the `redis-cache` feature).
+    fn invalidate(&mut self, client_id: &str) -> impl std::future::Future<Output = ()> {
+        self.cache.pop(client_id);
+        #[cfg(feature = "redis-cache")]
+        let redis_conn = self.redis.clone();
+        #[cfg(feature = "redis-cache")]
+        let redis_key = format!("{}{}", REDIS_CLIENT_PREFIX, client_id);
+        async move {
+            #[cfg(feature = "redis-cache")]
+            if let Some(mut conn) = redis_conn {
+                if let Err(e) = conn.del(&redis_key).await {
+                    tracing::warn!(error = %e, "Failed to delete client from Redis cache");
+                }
+            }
+        }
+    }
+}
+
+impl Handler<InvalidateClient> for ClientActor {
+    type Result = ResponseFuture<()>;
+
+    fn handle(&mut self, msg: InvalidateClient, _: &mut Self::Context) -> Self::Result {
+        Box::pin(self.invalidate(&msg.client_id))
+    }
+}
+
 #[derive(Message)]
 #[rtype(result = "Result<Client, OAuth2Error>")]
 pub struct RegisterClient {
@@ -501,13 +538,24 @@ impl Handler<UpdateClient> for ClientActor {
 
         Box::pin(
             async move {
-                db.update_client(&msg.client).await?;
+                let mut client = msg.client;
+                // The caller's copy may come from the cache and be stale.
+                // Credentials and the enabled flag are not changed by this
+                // operation, so keep whatever storage holds now.
+                let stored = db
+                    .get_client(&client.client_id)
+                    .await?
+                    .ok_or_else(|| OAuth2Error::invalid_client("Client not found"))?;
+                client.client_secret = stored.client_secret;
+                client.enabled = stored.enabled;
+
+                db.update_client(&client).await?;
 
                 let _ = self_addr.try_send(CacheClient {
-                    client: msg.client.clone(),
+                    client: client.clone(),
                 });
 
-                Ok(msg.client)
+                Ok(client)
             }
             .instrument(actor_span),
         )
@@ -528,7 +576,7 @@ pub struct DeleteClient {
 impl Handler<DeleteClient> for ClientActor {
     type Result = ResponseFuture<Result<(), OAuth2Error>>;
 
-    fn handle(&mut self, msg: DeleteClient, _ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: DeleteClient, ctx: &mut Self::Context) -> Self::Result {
         let db = self.db.clone();
         let client_id = msg.client_id.clone();
 
@@ -542,12 +590,16 @@ impl Handler<DeleteClient> for ClientActor {
         );
         annotate_span_with_trace_ids(&actor_span);
 
-        // Evict from LRU cache eagerly.
-        self.cache.pop(&client_id);
+        // Evict now and again after the write, so a lookup racing the delete
+        // cannot leave a copy behind.
+        let invalidate = self.invalidate(&client_id);
+        let self_addr = ctx.address();
 
         Box::pin(
             async move {
                 db.delete_client(&client_id).await?;
+                invalidate.await;
+                let _ = self_addr.try_send(InvalidateClient { client_id });
                 Ok(())
             }
             .instrument(actor_span),
