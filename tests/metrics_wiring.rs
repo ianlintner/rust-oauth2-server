@@ -9,6 +9,7 @@
 //! Admin dashboard charts depend on all of these being populated.
 
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use actix::Actor;
 use actix_session::{storage::CookieSessionStore, Session, SessionMiddleware};
@@ -488,6 +489,118 @@ async fn login_unknown_user_increments_failed_authentications() {
         read_counter(text, "oauth2_server_oauth_failed_authentications"),
         1
     );
+}
+
+/// POST a login and evaluate to `(status, Location, elapsed)`.
+macro_rules! timed_login {
+    ($app:expr, $username:expr, $password:expr) => {{
+        let req = test::TestRequest::post()
+            .uri("/auth/login")
+            .set_form([("username", $username), ("password", $password)])
+            .to_request();
+        let start = Instant::now();
+        let resp = test::call_service($app, req).await;
+        let elapsed = start.elapsed();
+        let location = resp
+            .headers()
+            .get("Location")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or_default()
+            .to_string();
+        (resp.status().as_u16(), location, elapsed)
+    }};
+}
+
+fn median(mut v: Vec<Duration>) -> Duration {
+    v.sort();
+    v[v.len() / 2]
+}
+
+/// Storage with an enabled user `alice` and a disabled user `dave`.
+async fn login_timing_storage() -> DynStorage {
+    let storage = setup_storage().await;
+    for (name, enabled) in [("alice", true), ("dave", false)] {
+        let mut user = User::new(
+            name.to_string(),
+            hash_password("correct-horse-battery-staple").expect("hash password"),
+            format!("{name}@example.test"),
+        );
+        user.enabled = enabled;
+        storage.save_user(&user).await.expect("save user");
+    }
+    storage
+}
+
+/// Median over 5 failed logins for `username` after one warm-up request.
+macro_rules! failure_median {
+    ($app:expr, $username:expr) => {{
+        let _ = timed_login!($app, $username, "wrong-password");
+        let mut samples = Vec::new();
+        for _ in 0..5 {
+            let (status, location, elapsed) = timed_login!($app, $username, "wrong-password");
+            assert_eq!(status, 303);
+            assert_eq!(location, "/auth/login?error=invalid_credentials");
+            samples.push(elapsed);
+        }
+        median(samples)
+    }};
+}
+
+// Deliberately no `LoginRateLimiter` registered: it must not interfere.
+macro_rules! login_timing_app {
+    ($storage:expr) => {
+        test::init_service(
+            App::new()
+                .wrap(SessionMiddleware::new(
+                    CookieSessionStore::default(),
+                    Key::generate(),
+                ))
+                .app_data(web::Data::new($storage))
+                .app_data(web::Data::new(Metrics::new().expect("metrics")))
+                .route(
+                    "/auth/login",
+                    web::post().to(oauth2_actix::handlers::login::login_submit),
+                ),
+        )
+        .await
+    };
+}
+
+#[actix_web::test]
+async fn login_failure_does_equal_work_for_unknown_and_known_users() {
+    let app = login_timing_app!(login_timing_storage().await);
+    let known = failure_median!(&app, "alice");
+    let unknown = failure_median!(&app, "nobody");
+    assert!(
+        unknown * 2 >= known,
+        "unknown-user failure ({unknown:?}) is much faster than wrong-password failure ({known:?})"
+    );
+}
+
+#[actix_web::test]
+async fn login_failure_does_equal_work_for_disabled_user() {
+    let app = login_timing_app!(login_timing_storage().await);
+    let known = failure_median!(&app, "alice");
+    let disabled = failure_median!(&app, "dave");
+    assert!(
+        disabled * 2 >= known,
+        "disabled-user failure ({disabled:?}) is much faster than wrong-password failure ({known:?})"
+    );
+}
+
+#[actix_web::test]
+async fn login_failure_responses_are_identical() {
+    let app = login_timing_app!(login_timing_storage().await);
+    let mut seen = Vec::new();
+    for name in ["nobody", "dave", "alice"] {
+        let (status, location, _) = timed_login!(&app, name, "wrong-password");
+        seen.push((status, location));
+    }
+    assert_eq!(
+        seen[0],
+        (303, "/auth/login?error=invalid_credentials".to_string())
+    );
+    assert!(seen.windows(2).all(|w| w[0] == w[1]), "{seen:?}");
 }
 
 #[actix_web::test]
