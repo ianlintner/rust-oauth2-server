@@ -742,6 +742,54 @@ impl Handler<SetTokenFamily> for TokenActor {
     }
 }
 
+/// Atomically consume (revoke) a refresh token during rotation. Resolves to
+/// `true` only for the one caller that actually performed the revocation;
+/// `false` means the token was already consumed (reuse). Unlike `RevokeToken`
+/// this does not cascade to the token family, so tokens already minted in the
+/// family for this rotation survive for the winner.
+#[derive(Message)]
+#[rtype(result = "Result<bool, OAuth2Error>")]
+pub struct ConsumeRefreshToken {
+    pub refresh_token: String,
+    /// Access token of the same row, used to evict the validation cache.
+    pub access_token: String,
+    pub span: tracing::Span,
+}
+
+impl Handler<ConsumeRefreshToken> for TokenActor {
+    type Result = ResponseFuture<Result<bool, OAuth2Error>>;
+
+    fn handle(&mut self, msg: ConsumeRefreshToken, _: &mut Self::Context) -> Self::Result {
+        let db = self.db.clone();
+        let normalized_access = Self::normalize_token_key(&msg.access_token);
+        self.invalidate_cached_token(&normalized_access);
+
+        #[cfg(feature = "redis-cache")]
+        let redis_conn = self.redis.clone();
+        #[cfg(feature = "redis-cache")]
+        let redis_key = format!("{}{}", REDIS_TOKEN_PREFIX, normalized_access);
+
+        let actor_span = tracing::info_span!(
+            parent: &msg.span,
+            "actor.token.consume_refresh",
+            trace_id = tracing::field::Empty,
+            span_id = tracing::field::Empty,
+        );
+        annotate_span_with_trace_ids(&actor_span);
+
+        Box::pin(
+            async move {
+                #[cfg(feature = "redis-cache")]
+                if let Some(ref mut conn) = redis_conn.clone() {
+                    let _: Result<(), _> = conn.del(&redis_key).await;
+                }
+                db.consume_refresh_token(&msg.refresh_token).await
+            }
+            .instrument(actor_span),
+        )
+    }
+}
+
 /// Look up a token by its refresh_token string.
 /// Returns the full `Token` row if found and not revoked/expired, or an error.
 #[derive(Message)]

@@ -743,7 +743,7 @@ impl oauth2_ports::Storage for FlakyStorage {
     ) -> Result<Option<AuthorizationCode>, OAuth2Error> {
         self.inner.get_authorization_code(code).await
     }
-    async fn mark_authorization_code_used(&self, code: &str) -> Result<(), OAuth2Error> {
+    async fn mark_authorization_code_used(&self, code: &str) -> Result<bool, OAuth2Error> {
         self.inner.mark_authorization_code_used(code).await
     }
     async fn save_trusted_issuer(&self, trusted_issuer: &TrustedIssuer) -> Result<(), OAuth2Error> {

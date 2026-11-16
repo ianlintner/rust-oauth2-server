@@ -2356,6 +2356,42 @@ async fn resolve_named_actor(
     ))
 }
 
+/// RFC 9700 §2.1.5: when a presented code turns out to be a replay (it exists
+/// and is already `used`), cascade-revoke every token minted from it.
+async fn revoke_replayed_code_family(
+    auth_actor: &Addr<AuthActor>,
+    token_actor: &TokenActorPool,
+    client_id: &str,
+    code: &str,
+) -> Result<(), OAuth2Error> {
+    if let Ok(Some(stale)) = auth_actor
+        .send(crate::actors::LookupAuthorizationCode {
+            code: code.to_string(),
+            span: tracing::Span::current(),
+        })
+        .await
+        .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))?
+    {
+        if stale.used {
+            if let Some(family) = stale.token_family.clone() {
+                tracing::warn!(
+                    client_id = %client_id,
+                    token_family = %family,
+                    "RFC 9700 §2.1.5: authorization-code replay detected — cascade-revoking token family"
+                );
+                let _ = token_actor
+                    .route(client_id)
+                    .send(crate::actors::RevokeTokenFamily {
+                        family,
+                        span: tracing::Span::current(),
+                    })
+                    .await;
+            }
+        }
+    }
+    Ok(())
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn handle_authorization_code_grant(
     req: TokenRequest,
@@ -2408,31 +2444,7 @@ async fn handle_authorization_code_grant(
             // ignore here. Fetch the raw record (bypassing `is_valid`)
             // and, if we find a used entry carrying a `token_family`,
             // cascade-revoke the entire lineage via the TokenActor.
-            if let Ok(Some(stale)) = auth_actor
-                .send(crate::actors::LookupAuthorizationCode {
-                    code: code.clone(),
-                    span: tracing::Span::current(),
-                })
-                .await
-                .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))?
-            {
-                if stale.used {
-                    if let Some(family) = stale.token_family.clone() {
-                        tracing::warn!(
-                            client_id = %req.client_id,
-                            token_family = %family,
-                            "RFC 9700 §2.1.5: authorization-code replay detected — cascade-revoking token family"
-                        );
-                        let _ = token_actor
-                            .route(&req.client_id)
-                            .send(crate::actors::RevokeTokenFamily {
-                                family,
-                                span: tracing::Span::current(),
-                            })
-                            .await;
-                    }
-                }
-            }
+            revoke_replayed_code_family(&auth_actor, &token_actor, &req.client_id, &code).await?;
             return Err(validation_err);
         }
     };
@@ -2508,15 +2520,24 @@ async fn handle_authorization_code_grant(
 
     // Only consume (burn) the authorization code after we've authenticated/authorized the client.
     // This prevents invalid_client errors from exhausting valid codes.
-    auth_actor
+    //
+    // The consume is one atomic conditional write: exactly one concurrent
+    // request wins. A loser is a replay (RFC 6749 §4.1.2 / RFC 9700 §2.1.5).
+    let consumed = auth_actor
         .send(MarkAuthorizationCodeUsed {
-            code,
+            code: code.clone(),
             user_id: Some(auth_code.user_id.clone()),
             client_id: Some(auth_code.client_id.clone()),
             span: tracing::Span::current(),
         })
         .await
         .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))??;
+    if !consumed {
+        revoke_replayed_code_family(&auth_actor, &token_actor, &req.client_id, &code).await?;
+        return Err(OAuth2Error::invalid_grant(
+            "Authorization code has already been used",
+        ));
+    }
 
     // Create token — only include a refresh token when the client is authorized
     // to use the refresh_token grant and the `offline_access` scope was requested
@@ -2526,14 +2547,14 @@ async fn handle_authorization_code_grant(
     // derived from this grant shares a lineage that can be cascade-revoked
     // on code replay. Fall back to a fresh UUID for legacy codes issued
     // before migration V18 rolled out.
-    let token_family = if include_refresh {
+    // The family is attached even when no refresh token is issued, so a code
+    // replay can still revoke the access token minted from it.
+    let token_family = Some(
         auth_code
             .token_family
             .clone()
-            .or_else(|| Some(Uuid::new_v4().to_string()))
-    } else {
-        None
-    };
+            .unwrap_or_else(|| Uuid::new_v4().to_string()),
+    );
 
     // RFC 9396: prefer `authorization_details` from the token request over what
     // was stored in the auth code (token request wins if both are present).
@@ -2863,15 +2884,8 @@ async fn handle_refresh_token_grant(
         }
     };
 
-    // Revoke the old token (access + refresh).
-    token_actor
-        .route(&req.client_id)
-        .send(crate::actors::RevokeToken {
-            token: old_token.access_token.clone(),
-            span: tracing::Span::current(),
-        })
-        .await
-        .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))??;
+    let req_client_id = req.client_id.clone();
+    let family_for_revoke = family.clone();
 
     // RFC 9449 §5: preserve the DPoP / mTLS `cnf` binding from the original token.
     // Decode the JWT without signature verification to extract the cnf claim.
@@ -2906,6 +2920,54 @@ async fn handle_refresh_token_grant(
         })
         .await
         .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))??;
+
+    // Atomically consume the old refresh token AFTER minting the replacement
+    // (RFC 9700 §4.14.2). Exactly one concurrent request wins this conditional
+    // write. Every loser runs after the winner's consume, hence after the
+    // winner minted its pair, so the family revocation below also kills the
+    // winner's new tokens: concurrent use of one refresh token leaves the whole
+    // family inactive and only the winner (whose pair is already revoked)
+    // sees a 200.
+    let consumed = match token_actor
+        .route(&req_client_id)
+        .send(crate::actors::ConsumeRefreshToken {
+            refresh_token: old_token.refresh_token.clone().unwrap_or_default(),
+            access_token: old_token.access_token.clone(),
+            span: tracing::Span::current(),
+        })
+        .await
+        .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))?
+    {
+        Ok(c) => c,
+        Err(e) => {
+            // Do not leave a live replacement pair behind a failed consume.
+            let _ = token_actor
+                .route(&req_client_id)
+                .send(crate::actors::RevokeTokenFamily {
+                    family: family_for_revoke.clone(),
+                    span: tracing::Span::current(),
+                })
+                .await;
+            return Err(e);
+        }
+    };
+    if !consumed {
+        tracing::warn!(
+            client_id = %req_client_id,
+            token_family = %family_for_revoke,
+            "RFC 9700 §4.14.2: concurrent refresh-token reuse detected — revoking token family"
+        );
+        let _ = token_actor
+            .route(&req_client_id)
+            .send(crate::actors::RevokeTokenFamily {
+                family: family_for_revoke,
+                span: tracing::Span::current(),
+            })
+            .await;
+        return Err(OAuth2Error::invalid_grant(
+            "Refresh token has already been used (replay detected)",
+        ));
+    }
 
     metrics.oauth_token_issued_total.inc();
 

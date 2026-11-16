@@ -67,6 +67,21 @@ pub trait Storage: Send + Sync {
     ) -> Result<Option<Token>, OAuth2Error>;
     async fn revoke_token(&self, token: &str) -> Result<(), OAuth2Error>;
 
+    /// Atomically consume a refresh token during rotation: revoke the row
+    /// holding `refresh_token` only if it is still active. Returns `true` for
+    /// the single caller that performed the revocation, `false` if the row was
+    /// already revoked (reuse) or missing. Real backends override this with one
+    /// conditional write; the default is a non-atomic fallback for test doubles.
+    async fn consume_refresh_token(&self, refresh_token: &str) -> Result<bool, OAuth2Error> {
+        match self.get_token_by_refresh_token(refresh_token).await? {
+            Some(t) if !t.revoked => {
+                self.revoke_token(refresh_token).await?;
+                Ok(true)
+            }
+            _ => Ok(false),
+        }
+    }
+
     /// Revoke a token by its storage ID (as shown in the admin token list).
     /// Returns the number of newly revoked rows, or zero if missing/already revoked.
     /// Default impl is a no-op so existing backends are not broken.
@@ -109,7 +124,11 @@ pub trait Storage: Send + Sync {
         &self,
         code: &str,
     ) -> Result<Option<AuthorizationCode>, OAuth2Error>;
-    async fn mark_authorization_code_used(&self, code: &str) -> Result<(), OAuth2Error>;
+    /// Atomically consume an authorization code. Returns `true` only for the
+    /// single caller that flipped the code from unused to used; `false` means
+    /// it was already used (or does not exist). Implementations MUST do this
+    /// as one conditional write (RFC 6749 §4.1.2 single use).
+    async fn mark_authorization_code_used(&self, code: &str) -> Result<bool, OAuth2Error>;
 
     // OAuth2 Device Authorization Grant (RFC 8628) operations.
     // Default implementations are no-ops so older backends stay source-compatible.
