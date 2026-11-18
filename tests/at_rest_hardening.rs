@@ -271,3 +271,56 @@ fn symmetric_key_material_is_sealed_and_recoverable_only_with_key() {
         assert_eq!(k, b"synthetic-hmac-secret");
     }
 }
+
+#[actix_web::test]
+async fn refresh_rotation_evicts_warm_validation_cache() {
+    use actix::Actor;
+    use oauth2_actix::actors::token_actor::{RevokeToken, TokenActor, ValidateToken};
+
+    let (storage, _raw, _d) = setup().await;
+    storage.save_client(&client("c1", "s")).await.unwrap();
+    let t = Token::new(
+        "warm-access".to_string(),
+        Some("warm-refresh".to_string()),
+        "c1".to_string(),
+        None,
+        "read".to_string(),
+        3600,
+        None,
+    );
+    storage.save_token(&t).await.unwrap();
+    let actor = TokenActor::new(
+        storage.clone(),
+        "synthetic-jwt-secret".into(),
+        "http://localhost".into(),
+    )
+    .start();
+
+    let validate = |raw: &str| ValidateToken {
+        token: raw.to_string(),
+        span: tracing::Span::none(),
+    };
+    // Warm the L1 cache with the raw access token.
+    assert!(actor.send(validate("warm-access")).await.unwrap().is_ok());
+
+    // Rotation path: the old token is loaded from storage (access token is a
+    // verifier there) and revoked by that value.
+    let old = storage
+        .get_token_by_refresh_token("warm-refresh")
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(at_rest::is_bearer_verifier(&old.access_token));
+    actor
+        .send(RevokeToken {
+            token: old.access_token.clone(),
+            span: tracing::Span::none(),
+        })
+        .await
+        .unwrap()
+        .unwrap();
+
+    // Immediately invalid, not after cache TTL.
+    let res = actor.send(validate("warm-access")).await.unwrap();
+    assert!(res.map(|t| t.revoked).unwrap_or(true));
+}

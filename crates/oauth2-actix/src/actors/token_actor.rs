@@ -138,9 +138,15 @@ impl TokenActor {
             .to_string()
     }
 
+    /// Cache key: the at-rest verifier, so a raw value and its stored
+    /// verifier (e.g. loaded from storage during rotation) address one entry.
+    fn cache_key(token: &str) -> String {
+        oauth2_core::at_rest::protect_bearer(&Self::normalize_token_key(token))
+    }
+
     /// Invalidate a cached token (called on revoke).
     fn invalidate_cached_token(&mut self, access_token: &str) {
-        let key = Self::normalize_token_key(access_token);
+        let key = Self::cache_key(access_token);
         self.token_cache.pop(&key);
     }
 }
@@ -413,13 +419,13 @@ impl Handler<ValidateToken> for TokenActor {
         let cache_ttl = self.token_cache_ttl;
         let cached = self
             .token_cache
-            .get(&token_normalized)
+            .get(&Self::cache_key(&token_normalized))
             .filter(|ct| ct.inserted_at.elapsed() < cache_ttl)
             .map(|ct| ct.token.clone());
 
         // Remove expired entry eagerly.
         if cached.is_none() {
-            self.token_cache.pop(&token_normalized);
+            self.token_cache.pop(&Self::cache_key(&token_normalized));
         }
 
         // Clone Redis connection for async block.
@@ -453,7 +459,7 @@ impl Handler<ValidateToken> for TokenActor {
                     let redis_key = format!(
                         "{}{}",
                         REDIS_TOKEN_PREFIX,
-                        oauth2_core::at_rest::hash_bearer(&token_normalized)
+                        oauth2_core::at_rest::protect_bearer(&token_normalized)
                     );
                     let redis_result: Result<Option<String>, _> = conn.get(&redis_key).await;
                     if let Ok(Some(json)) = redis_result {
@@ -524,7 +530,7 @@ impl Handler<ValidateToken> for TokenActor {
                     let redis_key = format!(
                         "{}{}",
                         REDIS_TOKEN_PREFIX,
-                        oauth2_core::at_rest::hash_bearer(&token_normalized)
+                        oauth2_core::at_rest::protect_bearer(&token_normalized)
                     );
                     if let Ok(json) = serde_json::to_string(&token.for_storage()) {
                         let _: Result<(), _> = conn.set_ex(&redis_key, json, redis_ttl_secs).await;
@@ -569,7 +575,7 @@ impl Handler<CacheValidatedToken> for TokenActor {
 
     fn handle(&mut self, msg: CacheValidatedToken, _: &mut Self::Context) {
         self.token_cache.put(
-            msg.access_token,
+            Self::cache_key(&msg.access_token),
             CachedToken {
                 token: msg.token,
                 inserted_at: Instant::now(),
@@ -616,7 +622,7 @@ impl Handler<RevokeToken> for TokenActor {
         let redis_key = format!(
             "{}{}",
             REDIS_TOKEN_PREFIX,
-            oauth2_core::at_rest::hash_bearer(&normalized_token)
+            oauth2_core::at_rest::protect_bearer(&normalized_token)
         );
 
         let normalized_token_for_db = normalized_token.clone();

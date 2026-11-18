@@ -56,3 +56,8 @@ JWT access tokens are self-contained and are not affected by storage format. Aft
 keep validating by signature until `exp` when stateless validation is enabled; with database-backed
 validation (default) the lookup finds no row and they are rejected. To invalidate stateless tokens
 immediately, rotate the signing key (JWKS) or use the denylist. ID tokens are unaffected.
+
+## Notes
+
+- `transaction_authorizations.id` (a UUIDv4) is stored as-is. It is a handle, not a bearer credential: use of it always requires client authentication or an authenticated session, so it is intentionally not hashed.
+- The validation caches (in-process LRU and Redis) are keyed by the storage verifier, so revoking by either the raw value or the stored verifier (as refresh rotation does) evicts the entry immediately.
