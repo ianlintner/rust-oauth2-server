@@ -396,3 +396,215 @@ fn invalid_or_missing_seed_fails_closed() {
     assert!(!ok);
     assert!(out.contains("seed schema violation"), "{out}");
 }
+
+// ── SUT interface v2 (contract §7): capabilities + DPoP nonce mode ──────────
+
+fn v2_seed_file(dir: &tempfile::TempDir, port: u16) -> std::path::PathBuf {
+    let path = dir.path().join("seed-v2.yaml");
+    std::fs::write(
+        &path,
+        format!(
+            "issuer: http://127.0.0.1:{port}
+clients:
+  - client_id: client-cc
+    client_secret: test-only-cc-secret
+    token_endpoint_auth_method: client_secret_basic
+    redirect_uris: [https://client.example/callback]
+    grant_types: [client_credentials]
+  - client_id: client-jwt
+    token_endpoint_auth_method: private_key_jwt
+    redirect_uris: [https://client.example/callback]
+    grant_types: [client_credentials]
+    jwks:
+      keys:
+        - {{kty: EC, kid: client-assertion, crv: P-256, alg: ES256, x: MKBCTNIcKUSDii11ySs3526iDZ8AiTo7Tu6KPAqv7D4, y: 4Etl6SRW2YiLUrN5vfvVHuhp7x8PxltmWWlbbM4IFyM}}
+users:
+  - username: alice
+    password: test-only-password
+"
+        ),
+    )
+    .unwrap();
+    path
+}
+
+fn dpop_proof(htu: &str, jti: &str, nonce: Option<&str>) -> String {
+    use base64::{engine::general_purpose, Engine as _};
+    use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
+    use rsa::pkcs1::EncodeRsaPrivateKey;
+    use rsa::traits::PublicKeyParts;
+    static KEY: std::sync::OnceLock<(String, serde_json::Value)> = std::sync::OnceLock::new();
+    let (pem, jwk) = KEY.get_or_init(|| {
+        let private = rsa::RsaPrivateKey::new(&mut rand_core::OsRng, 2048).unwrap();
+        let public = rsa::RsaPublicKey::from(&private);
+        let pem = private
+            .to_pkcs1_pem(rsa::pkcs1::LineEnding::LF)
+            .unwrap()
+            .to_string();
+        let jwk = serde_json::json!({
+            "kty": "RSA",
+            "n": general_purpose::URL_SAFE_NO_PAD.encode(public.n().to_bytes_be()),
+            "e": general_purpose::URL_SAFE_NO_PAD.encode(public.e().to_bytes_be()),
+        });
+        (pem, jwk)
+    });
+    let mut header = Header::new(Algorithm::RS256);
+    header.typ = Some("dpop+jwt".to_string());
+    header.jwk = Some(serde_json::from_value(jwk.clone()).unwrap());
+    let mut claims = serde_json::json!({
+        "htm": "POST", "htu": htu, "iat": chrono::Utc::now().timestamp(), "jti": jti,
+    });
+    if let Some(n) = nonce {
+        claims["nonce"] = n.into();
+    }
+    encode(
+        &header,
+        &claims,
+        &EncodingKey::from_rsa_pem(pem.as_bytes()).unwrap(),
+    )
+    .unwrap()
+}
+
+async fn cc_token(base: &str, proof: &str) -> reqwest::Response {
+    post_form(
+        &http(),
+        &format!("{base}/oauth/token"),
+        &[("grant_type", "client_credentials")],
+    )
+    .basic_auth("client-cc", Some("test-only-cc-secret"))
+    .header("DPoP", proof)
+    .send()
+    .await
+    .unwrap()
+}
+
+#[tokio::test]
+async fn v2_capabilities_and_dpop_nonce_mode_in_conformance_mode() {
+    let dir = tempfile::tempdir().unwrap();
+    let port = free_port();
+    let seed = v2_seed_file(&dir, port);
+    let base = format!("http://127.0.0.1:{port}");
+    let mut server = Server(
+        command(
+            port,
+            &[
+                ("OAUTH2_CONFORMANCE_MODE", "1"),
+                ("OAUTH2_CONFORMANCE_SEED", seed.to_str().unwrap()),
+                ("OAUTH2_ENV", "test"),
+            ],
+        )
+        .spawn()
+        .unwrap(),
+    );
+    // Seed with a private_key_jwt client + public jwks is applied (ready).
+    let ready = wait_ready(&base, &mut server).await;
+    assert_eq!(ready["conformance"]["clients"], 2);
+
+    // Advertisement only lists what is implemented; no mtls/instances keys.
+    let caps: serde_json::Value = http()
+        .get(format!("{base}/conformance/capabilities"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(caps["interface_version"], 2);
+    assert_eq!(caps["capabilities"], serde_json::json!(["dpop-nonce-mode"]));
+    assert!(caps.get("mtls").is_none() && caps.get("instances").is_none());
+
+    // Default: nonce not required.
+    let htu = format!("{base}/oauth/token");
+    assert_eq!(
+        cc_token(&base, &dpop_proof(&htu, "jti-default", None))
+            .await
+            .status(),
+        200
+    );
+
+    // Malformed toggle bodies are 400.
+    for body in ["{}", r#"{"required":"yes"}"#, "not json"] {
+        let r = http()
+            .post(format!("{base}/conformance/dpop-nonce"))
+            .header("content-type", "application/json")
+            .body(body)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(r.status(), 400, "body {body:?}");
+    }
+
+    // Toggle on.
+    let on: serde_json::Value = http()
+        .post(format!("{base}/conformance/dpop-nonce"))
+        .json(&serde_json::json!({"required": true}))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(on["required"], true);
+
+    // Proof without nonce → use_dpop_nonce + fresh DPoP-Nonce header.
+    let resp = cc_token(&base, &dpop_proof(&htu, "jti-no-nonce", None)).await;
+    assert_eq!(resp.status(), 400);
+    let nonce = resp.headers()["dpop-nonce"].to_str().unwrap().to_string();
+    let body: serde_json::Value = resp.json().await.unwrap();
+    assert_eq!(body["error"], "use_dpop_nonce");
+
+    // Retry with the issued nonce succeeds and the token is DPoP-bound.
+    let ok = cc_token(&base, &dpop_proof(&htu, "jti-with-nonce", Some(&nonce))).await;
+    let ok_status = ok.status();
+    let ok_text = ok.text().await.unwrap();
+    assert_eq!(ok_status, 200, "retry body: {ok_text}");
+    let ok_body: serde_json::Value = serde_json::from_str(&ok_text).unwrap();
+    assert_eq!(ok_body["token_type"], "DPoP");
+
+    // Forged nonce is rejected.
+    let forged = cc_token(&base, &dpop_proof(&htu, "jti-forged", Some("AAAA"))).await;
+    assert_eq!(forged.status(), 400);
+
+    // Toggle off restores the default.
+    let off = http()
+        .post(format!("{base}/conformance/dpop-nonce"))
+        .json(&serde_json::json!({"required": false}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(off.status(), 200);
+    assert_eq!(
+        cc_token(&base, &dpop_proof(&htu, "jti-off", None))
+            .await
+            .status(),
+        200
+    );
+}
+
+#[tokio::test]
+async fn v2_endpoints_do_not_exist_outside_conformance_mode() {
+    let port = free_port();
+    let base = format!("http://127.0.0.1:{port}");
+    let mut server = Server(
+        command(port, &[("OAUTH2_SEED_PASSWORD", "a-real-seed-password-1")])
+            .spawn()
+            .unwrap(),
+    );
+    wait_ready(&base, &mut server).await;
+    assert_eq!(
+        http()
+            .get(format!("{base}/conformance/capabilities"))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        404
+    );
+    let toggle = http()
+        .post(format!("{base}/conformance/dpop-nonce"))
+        .json(&serde_json::json!({"required": true}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(toggle.status(), 404, "toggle must not exist in normal mode");
+}

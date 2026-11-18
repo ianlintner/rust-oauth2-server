@@ -218,6 +218,14 @@ What it does when on:
   consent screen in this server, so seeded clients are consented implicitly.
 - `GET /ready` adds a `conformance` object (`seed_applied`, counts, signing key
   ids; never credentials) once the seed is applied. `/health` is unchanged.
+- Seed clients with `token_endpoint_auth_method: private_key_jwt` carry a
+  public-only `jwks` (private key members such as `d` are refused).
+- SUT interface v2 (only while the mode is on; both paths are 404 otherwise):
+  `GET /conformance/capabilities` lists the implemented optional capabilities
+  (currently `dpop-nonce-mode`), and `POST /conformance/dpop-nonce`
+  `{"required": true|false}` forces server-provided DPoP nonces at the token
+  endpoint (process-local, resets on restart). `test-clock`, `restart`,
+  `multi-instance` and `mtls` are not implemented yet and are not advertised.
 
 It fails closed. Startup aborts, before any storage is opened, when:
 

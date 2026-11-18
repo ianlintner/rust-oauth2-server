@@ -1648,6 +1648,8 @@ pub async fn token(
     agent_config: Option<web::Data<oauth2_config::AgentConfig>>,
     keyset: Option<web::Data<std::sync::Arc<tokio::sync::RwLock<KeySet>>>>,
     cimd: Option<web::Data<CimdFetcher>>,
+    // Conformance mode only (absent otherwise): global DPoP-nonce toggle.
+    conformance_controls: Option<web::Data<crate::handlers::conformance::ConformanceControls>>,
 ) -> Result<HttpResponse, OAuth2Error> {
     // OAuch: reject duplicate parameters (prevents parser differentials / smuggling).
     ensure_no_duplicate_query_params(&req)?;
@@ -1798,7 +1800,9 @@ pub async fn token(
         )
         .await;
         if let Ok(client) = lookup {
-            if client.dpop_nonce_required {
+            if client.dpop_nonce_required
+                || crate::handlers::conformance::dpop_nonce_forced(conformance_controls.as_ref())
+            {
                 match enforce_dpop_nonce(validated, issuer) {
                     Ok(()) => {}
                     Err(e) if e.error == "use_dpop_nonce" => {
