@@ -138,15 +138,24 @@ impl TokenActor {
             .to_string()
     }
 
-    /// Cache key: the at-rest verifier, so a raw value and its stored
-    /// verifier (e.g. loaded from storage during rotation) address one entry.
+    /// Cache key for *reading and inserting* validated tokens.
+    ///
+    /// Always hashes, so a stored verifier presented as a bearer can never
+    /// address a real entry (it hashes to a different value than the raw
+    /// token's verifier). Use [`Self::evict_key`] for invalidation.
     fn cache_key(token: &str) -> String {
+        oauth2_core::at_rest::hash_bearer(&Self::normalize_token_key(token))
+    }
+
+    /// Cache key for *eviction*: accepts a raw bearer or an already-stored
+    /// verifier, because revoke callers may pass a value loaded from storage.
+    fn evict_key(token: &str) -> String {
         oauth2_core::at_rest::protect_bearer(&Self::normalize_token_key(token))
     }
 
     /// Invalidate a cached token (called on revoke).
     fn invalidate_cached_token(&mut self, access_token: &str) {
-        let key = Self::cache_key(access_token);
+        let key = Self::evict_key(access_token);
         self.token_cache.pop(&key);
     }
 }
@@ -459,7 +468,7 @@ impl Handler<ValidateToken> for TokenActor {
                     let redis_key = format!(
                         "{}{}",
                         REDIS_TOKEN_PREFIX,
-                        oauth2_core::at_rest::protect_bearer(&token_normalized)
+                        oauth2_core::at_rest::hash_bearer(&token_normalized)
                     );
                     let redis_result: Result<Option<String>, _> = conn.get(&redis_key).await;
                     if let Ok(Some(json)) = redis_result {
@@ -530,7 +539,7 @@ impl Handler<ValidateToken> for TokenActor {
                     let redis_key = format!(
                         "{}{}",
                         REDIS_TOKEN_PREFIX,
-                        oauth2_core::at_rest::protect_bearer(&token_normalized)
+                        oauth2_core::at_rest::hash_bearer(&token_normalized)
                     );
                     if let Ok(json) = serde_json::to_string(&token.for_storage()) {
                         let _: Result<(), _> = conn.set_ex(&redis_key, json, redis_ttl_secs).await;

@@ -28,7 +28,10 @@ hash cannot support them. The record therefore also carries the secret sealed un
   token the caller authenticated with; a stored secret is never echoed.
 * Refresh-token DPoP/mTLS binding is read from the persisted `cnf` column (the stored access token is no
   longer a JWT).
-* The Redis token cache is keyed by the verifier and holds verifiers only.
+* The Redis token cache is keyed by the verifier and holds verifiers only. Cache
+  lookup/insert keys hash the presented value unconditionally, so a stored verifier presented as a bearer
+  never matches a live entry; eviction (on revoke/rotation) instead maps a raw value or an already-stored
+  verifier back to the same key.
 
 ## Cutover (operator-initiated)
 

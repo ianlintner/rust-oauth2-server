@@ -324,3 +324,65 @@ async fn refresh_rotation_evicts_warm_validation_cache() {
     let res = actor.send(validate("warm-access")).await.unwrap();
     assert!(res.map(|t| t.revoked).unwrap_or(true));
 }
+
+/// A stored verifier (`h1$…`) must never be accepted as a bearer, even when
+/// the legitimate raw token has warmed the L1/L2 cache. Read/insert keys hash
+/// unconditionally; only eviction maps a verifier back to the raw token's key.
+#[actix_web::test]
+async fn stored_verifier_is_not_accepted_as_bearer_when_cache_is_warm() {
+    use actix::Actor;
+    use oauth2_actix::actors::token_actor::{TokenActor, ValidateToken};
+
+    let (storage, _raw, _d) = setup().await;
+    storage.save_client(&client("c1", "s")).await.unwrap();
+    let t = Token::new(
+        "verifier-access".to_string(),
+        Some("verifier-refresh".to_string()),
+        "c1".to_string(),
+        None,
+        "read".to_string(),
+        3600,
+        None,
+    );
+    storage.save_token(&t).await.unwrap();
+    let actor = TokenActor::new(
+        storage.clone(),
+        "synthetic-jwt-secret".into(),
+        "http://localhost".into(),
+    )
+    .start();
+
+    let validate = |raw: &str| ValidateToken {
+        token: raw.to_string(),
+        span: tracing::Span::none(),
+    };
+
+    // Read the verifier the way the database stores it.
+    let stored = storage
+        .get_token_by_refresh_token("verifier-refresh")
+        .await
+        .unwrap()
+        .unwrap();
+    let verifier = stored.access_token.clone();
+    assert!(at_rest::is_bearer_verifier(&verifier));
+    assert_ne!(verifier, "verifier-access");
+
+    // Cold: the verifier is not a credential.
+    assert!(actor.send(validate(&verifier)).await.unwrap().is_err());
+
+    // Warm both caches with the legitimate raw token.
+    assert!(actor
+        .send(validate("verifier-access"))
+        .await
+        .unwrap()
+        .is_ok());
+    // Let the cache-insert message (sent back to the actor) land.
+    let _ = actor.send(validate("verifier-access")).await.unwrap();
+
+    // Warm: presenting the stored verifier must still fail.
+    let res = actor.send(validate(&verifier)).await.unwrap();
+    assert!(
+        res.is_err(),
+        "stored verifier was accepted as a bearer while the cache was warm"
+    );
+}
