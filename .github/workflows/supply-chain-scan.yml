@@ -1,0 +1,92 @@
+name: Supply Chain Scan
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: ${{ format('{0}-{1}', github.workflow, github.event.pull_request.number || github.ref) }}
+  cancel-in-progress: true
+
+jobs:
+  gitleaks:
+    name: Gitleaks (blocking)
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Download gitleaks release and checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="8.30.1"
+          base="https://github.com/gitleaks/gitleaks/releases/download/v${version}"
+          curl -fsSL -o "gitleaks_${version}_linux_x64.tar.gz" "${base}/gitleaks_${version}_linux_x64.tar.gz"
+          curl -fsSL -o "gitleaks_${version}_checksums.txt" "${base}/gitleaks_${version}_checksums.txt"
+
+      - name: Verify gitleaks sha256
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha256sum -c "gitleaks_8.30.1_checksums.txt" --ignore-missing
+          tar xzf "gitleaks_8.30.1_linux_x64.tar.gz" gitleaks
+
+      - name: Run gitleaks (blocking)
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gitleaks git --redact --exit-code 1 --report-format sarif --report-path gitleaks.sarif .
+
+      - name: Upload gitleaks SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        with:
+          sarif_file: gitleaks.sarif
+          category: gitleaks
+
+  osv-scanner:
+    name: OSV-Scanner (advisory)
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@32d3cd482bdadfb38b186c0ad1b031902d55d932 # v2.7.1
+    with:
+      scan-args: |-
+        --recursive
+        ./
+      fail-on-vuln: false
+      upload-sarif: true
+
+  zizmor:
+    name: Zizmor (advisory)
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Run zizmor (uploads its own SARIF)
+        uses: zizmorcore/zizmor-action@45d7276c9ca790aabd705e31ca99c6185c3e76dd # v0.8.1
+        with:
+          advanced-security: true

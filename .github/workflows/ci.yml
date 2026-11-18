@@ -46,6 +46,8 @@ jobs:
       build_matrix: ${{ steps.build_matrix.outputs.matrix }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
         id: filter
         with:
@@ -110,6 +112,8 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Rust toolchain + cache
         if: needs.changes.outputs.code == 'true'
@@ -223,6 +227,8 @@ jobs:
         include: ${{ fromJSON(needs.changes.outputs.build_matrix) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Rust toolchain + cache
         uses: ./.github/actions/rust-setup
@@ -260,6 +266,8 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       # Publishing-policy regression: main/PR pushes must never publish images.
       # Unconditional (cheap, no toolchain) so workflow-only edits are covered.
@@ -286,7 +294,7 @@ jobs:
 
       - name: Check Dependencies (cargo-deny)
         if: needs.changes.outputs.code == 'true'
-        uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2
+        uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
         with:
           command: check
 
@@ -355,6 +363,8 @@ jobs:
           --health-retries 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Rust toolchain + cache
         uses: ./.github/actions/rust-setup
@@ -425,6 +435,8 @@ jobs:
             binary_suffix: -mongo-only
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Assert publishing is disabled for this ref
         id: mode
@@ -497,6 +509,8 @@ jobs:
             tag_suffix: -mongo-only
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Assert publishing is allowed for this ref (tags only)
         id: mode
@@ -668,6 +682,8 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Rust toolchain + cache
         uses: ./.github/actions/rust-setup
@@ -709,8 +725,9 @@ jobs:
           python-version: "3.11"
 
       - name: Cache pip
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v5
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
+          lookup-only: true
           path: ~/.cache/pip
           key: ${{ runner.os }}-pip-${{ hashFiles('requirements-docs.txt', 'mkdocs.yml') }}
           restore-keys: |
