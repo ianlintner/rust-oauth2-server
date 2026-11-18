@@ -1,0 +1,52 @@
+# Gitleaks config: extends the default ruleset with allowlists for known-fake
+# fixtures in this repository. Every allow-listed path below holds a
+# documentation example, benchmark/test harness placeholder, vendored
+# third-party test code, or generated CI config — no real credentials.
+# Path-scoped allowlists are used (rather than .gitleaksignore fingerprints)
+# because fingerprints pin the commit that introduced a finding, but gitleaks
+# re-attributes the same leak to different commits depending on clone depth and
+# merge topology (e.g. the PR merge ref), making them unreliable in CI.
+# Triaged 2026-11-15 for the supply-chain-scan Phase 1 rollout.
+
+title = "rust-oauth2-server gitleaks config (fixture allowlists)"
+
+[extend]
+useDefault = true
+
+# Basic-auth credentials embedded in curl examples (public docs, agent refs).
+[[rules]]
+id = "curl-auth-user"
+description = "Identifies username and password in URI (placeholder docs examples)"
+[rules.allowlists]
+paths = ["^docs/", "^\\.skills/"]
+
+# Authorization tokens embedded in curl example headers (public docs).
+[[rules]]
+id = "curl-auth-header"
+description = "Identifies authorization tokens in curl headers (placeholder docs examples)"
+[rules.allowlists]
+paths = ["^docs/"]
+
+# Generic API keys / secrets in test fixtures, vendored code, and example config.
+[[rules]]
+id = "generic-api-key"
+description = "Detects generic API keys (placeholder fixtures/examples)"
+[rules.allowlists]
+paths = [
+  "^docs/",
+  "^\\.skills/",
+  "^benchmarks/",
+  "^tests/",
+  "^vendor/",
+  "^scripts/",
+  "^\\.env\\.example$",
+  "^docker-compose\\.e2e\\.yml$",
+  "^k8s/base/secret\\.yaml$",
+]
+
+# Private keys embedded in the generated local KinD kubeconfig (CI test cluster).
+[[rules]]
+id = "private-key"
+description = "Identifies private keys (generated KinD kubeconfig)"
+[rules.allowlists]
+paths = ["^\\.kube/kind-kubeconfig$"]
