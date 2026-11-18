@@ -80,6 +80,8 @@ impl ClientActor {
     }
 
     fn insert_cached_client(&mut self, client: Client) {
+        // Never keep a raw secret / registration token in the cache.
+        let client = client.for_storage();
         self.cache.put(
             client.client_id.clone(),
             CachedClient {
@@ -443,12 +445,7 @@ impl Handler<ValidateClient> for ClientActor {
                 };
 
                 // Use constant-time comparison to prevent timing attacks
-                use subtle::ConstantTimeEq;
-                let secret_match = client
-                    .client_secret
-                    .as_bytes()
-                    .ct_eq(presented_secret.as_bytes())
-                    .into();
+                let secret_match = client.verify_secret(&presented_secret);
 
                 // Emit event
                 if let Some(event_bus) = event_bus {

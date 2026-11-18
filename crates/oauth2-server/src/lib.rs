@@ -441,6 +441,11 @@ pub async fn run() -> std::io::Result<()> {
     let metrics = oauth2_observability::Metrics::new().expect("Failed to initialize metrics");
     tracing::info!("Metrics initialized");
 
+    // At-rest credential protection (storage format v1): seals client-secret
+    // key material under a key derived from the JWT secret. Must precede any
+    // client write (including seeding).
+    oauth2_core::at_rest::init_at_rest_key(&config.jwt.secret);
+
     // Initialize storage backend (SQLx by default, optional MongoDB)
     tracing::info!(
         database_url = %redact_db_url(&config.database.url),

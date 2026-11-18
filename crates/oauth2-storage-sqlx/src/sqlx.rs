@@ -654,6 +654,7 @@ impl Storage for SqlxStorage {
     }
 
     async fn save_client(&self, client: &Client) -> Result<(), OAuth2Error> {
+        let client = &client.for_storage();
         match &self.pool {
             DatabasePool::Sqlite(pool) => {
                 sqlx::query(
@@ -783,6 +784,7 @@ impl Storage for SqlxStorage {
     }
 
     async fn update_client(&self, client: &Client) -> Result<(), OAuth2Error> {
+        let client = &client.for_storage();
         match &self.pool {
             DatabasePool::Sqlite(pool) => {
                 sqlx::query(
@@ -1037,6 +1039,8 @@ impl Storage for SqlxStorage {
     }
 
     async fn save_token(&self, token: &Token) -> Result<(), OAuth2Error> {
+        // Only verifiers of the bearer values are persisted (storage format v1).
+        let token = &token.for_storage();
         match &self.pool {
             DatabasePool::Sqlite(pool) => {
                 sqlx::query(
@@ -1097,47 +1101,62 @@ impl Storage for SqlxStorage {
         &self,
         access_token: &str,
     ) -> Result<Option<Token>, OAuth2Error> {
+        // Always hash the presented value: a stored verifier is never itself
+        // a usable credential.
+        let lookup = oauth2_core::at_rest::hash_bearer(access_token);
         let token = match self.read_pool() {
             DatabasePool::Sqlite(pool) => {
                 sqlx::query_as::<_, Token>("SELECT * FROM tokens WHERE access_token = ?")
-                    .bind(access_token)
+                    .bind(&lookup)
                     .fetch_optional(pool)
                     .await?
             }
             DatabasePool::Postgres(pool) => {
                 sqlx::query_as::<_, Token>("SELECT * FROM tokens WHERE access_token = $1")
-                    .bind(access_token)
+                    .bind(&lookup)
                     .fetch_optional(pool)
                     .await?
             }
         };
 
-        Ok(token)
+        // The caller already holds the raw value; hand it back so JWT claims
+        // can still be read from it. The refresh token stays a verifier.
+        Ok(token.map(|mut t| {
+            t.access_token = access_token.to_string();
+            t
+        }))
     }
 
     async fn get_token_by_refresh_token(
         &self,
         refresh_token: &str,
     ) -> Result<Option<Token>, OAuth2Error> {
+        let lookup = oauth2_core::at_rest::hash_bearer(refresh_token);
         let token = match self.read_pool() {
             DatabasePool::Sqlite(pool) => {
                 sqlx::query_as::<_, Token>("SELECT * FROM tokens WHERE refresh_token = ?")
-                    .bind(refresh_token)
+                    .bind(&lookup)
                     .fetch_optional(pool)
                     .await?
             }
             DatabasePool::Postgres(pool) => {
                 sqlx::query_as::<_, Token>("SELECT * FROM tokens WHERE refresh_token = $1")
-                    .bind(refresh_token)
+                    .bind(&lookup)
                     .fetch_optional(pool)
                     .await?
             }
         };
 
-        Ok(token)
+        Ok(token.map(|mut t| {
+            t.refresh_token = Some(refresh_token.to_string());
+            t
+        }))
     }
 
     async fn revoke_token(&self, token: &str) -> Result<(), OAuth2Error> {
+        // Accepts a raw bearer or an already-stored verifier (revocation only
+        // ever narrows access, so the stored form is safe to accept here).
+        let token = &oauth2_core::at_rest::protect_bearer(token);
         match &self.pool {
             DatabasePool::Sqlite(pool) => {
                 sqlx::query(
@@ -1183,6 +1202,7 @@ impl Storage for SqlxStorage {
     }
 
     async fn set_token_family(&self, access_token: &str, family: &str) -> Result<(), OAuth2Error> {
+        let access_token = &oauth2_core::at_rest::protect_bearer(access_token);
         match &self.pool {
             DatabasePool::Sqlite(pool) => {
                 sqlx::query("UPDATE tokens SET token_family = ? WHERE access_token = ?")
@@ -1249,6 +1269,7 @@ impl Storage for SqlxStorage {
         &self,
         auth_code: &AuthorizationCode,
     ) -> Result<(), OAuth2Error> {
+        let auth_code = &auth_code.for_storage();
         match &self.pool {
             DatabasePool::Sqlite(pool) => {
                 sqlx::query(
@@ -1315,12 +1336,13 @@ impl Storage for SqlxStorage {
         &self,
         code: &str,
     ) -> Result<Option<AuthorizationCode>, OAuth2Error> {
+        let lookup = oauth2_core::at_rest::hash_bearer(code);
         let auth_code = match self.read_pool() {
             DatabasePool::Sqlite(pool) => {
                 sqlx::query_as::<_, AuthorizationCode>(
                     "SELECT * FROM authorization_codes WHERE code = ?",
                 )
-                .bind(code)
+                .bind(&lookup)
                 .fetch_optional(pool)
                 .await?
             }
@@ -1328,16 +1350,20 @@ impl Storage for SqlxStorage {
                 sqlx::query_as::<_, AuthorizationCode>(
                     "SELECT * FROM authorization_codes WHERE code = $1",
                 )
-                .bind(code)
+                .bind(&lookup)
                 .fetch_optional(pool)
                 .await?
             }
         };
 
-        Ok(auth_code)
+        Ok(auth_code.map(|mut c| {
+            c.code = code.to_string();
+            c
+        }))
     }
 
     async fn mark_authorization_code_used(&self, code: &str) -> Result<(), OAuth2Error> {
+        let code = &oauth2_core::at_rest::protect_bearer(code);
         match &self.pool {
             DatabasePool::Sqlite(pool) => {
                 sqlx::query("UPDATE authorization_codes SET used = 1 WHERE code = ?")
@@ -1360,6 +1386,7 @@ impl Storage for SqlxStorage {
         &self,
         device_auth: &DeviceAuthorization,
     ) -> Result<(), OAuth2Error> {
+        let device_auth = &device_auth.for_storage();
         match &self.pool {
             DatabasePool::Sqlite(pool) => {
                 sqlx::query(
@@ -1414,12 +1441,13 @@ impl Storage for SqlxStorage {
         &self,
         device_code: &str,
     ) -> Result<Option<DeviceAuthorization>, OAuth2Error> {
+        let lookup = oauth2_core::at_rest::hash_bearer(device_code);
         let record = match self.read_pool() {
             DatabasePool::Sqlite(pool) => {
                 sqlx::query_as::<_, DeviceAuthorization>(
                     "SELECT * FROM device_authorizations WHERE device_code = ?",
                 )
-                .bind(device_code)
+                .bind(&lookup)
                 .fetch_optional(pool)
                 .await?
             }
@@ -1427,13 +1455,16 @@ impl Storage for SqlxStorage {
                 sqlx::query_as::<_, DeviceAuthorization>(
                     "SELECT * FROM device_authorizations WHERE device_code = $1",
                 )
-                .bind(device_code)
+                .bind(&lookup)
                 .fetch_optional(pool)
                 .await?
             }
         };
 
-        Ok(record)
+        Ok(record.map(|mut d| {
+            d.device_code = device_code.to_string();
+            d
+        }))
     }
 
     async fn get_device_authorization_by_user_code(
@@ -1515,6 +1546,7 @@ impl Storage for SqlxStorage {
     }
 
     async fn mark_device_authorization_used(&self, device_code: &str) -> Result<(), OAuth2Error> {
+        let device_code = &oauth2_core::at_rest::protect_bearer(device_code);
         match &self.pool {
             DatabasePool::Sqlite(pool) => {
                 sqlx::query("UPDATE device_authorizations SET used = 1 WHERE device_code = ?")
@@ -1815,6 +1847,7 @@ impl Storage for SqlxStorage {
     }
 
     async fn expire_device_authorization(&self, device_code: &str) -> Result<(), OAuth2Error> {
+        let device_code = &oauth2_core::at_rest::protect_bearer(device_code);
         let past = chrono::Utc::now() - chrono::Duration::seconds(1);
         match &self.pool {
             DatabasePool::Sqlite(pool) => {
@@ -2036,6 +2069,7 @@ impl Storage for SqlxStorage {
         client_id: &str,
         client_secret: &str,
     ) -> Result<(), OAuth2Error> {
+        let client_secret = &oauth2_core::at_rest::protect_client_secret(client_secret);
         let now = chrono::Utc::now();
         match &self.pool {
             DatabasePool::Sqlite(pool) => {

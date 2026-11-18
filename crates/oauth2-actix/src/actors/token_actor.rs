@@ -449,10 +449,18 @@ impl Handler<ValidateToken> for TokenActor {
                 // L2: Check Redis cache before DB.
                 #[cfg(feature = "redis-cache")]
                 if let Some(ref mut conn) = redis_conn.clone() {
-                    let redis_key = format!("{}{}", REDIS_TOKEN_PREFIX, token_normalized);
+                    // Keyed by the verifier, never the raw bearer.
+                    let redis_key = format!(
+                        "{}{}",
+                        REDIS_TOKEN_PREFIX,
+                        oauth2_core::at_rest::hash_bearer(&token_normalized)
+                    );
                     let redis_result: Result<Option<String>, _> = conn.get(&redis_key).await;
                     if let Ok(Some(json)) = redis_result {
-                        if let Ok(token) = serde_json::from_str::<Token>(&json) {
+                        if let Ok(mut token) = serde_json::from_str::<Token>(&json) {
+                            // The cached copy holds verifiers only; the caller
+                            // presented the raw value.
+                            token.access_token = token_normalized.clone();
                             tracing::debug!(
                                 cache = "hit",
                                 layer = "L2",
@@ -513,8 +521,12 @@ impl Handler<ValidateToken> for TokenActor {
                 // Write to Redis L2 cache.
                 #[cfg(feature = "redis-cache")]
                 if let Some(ref mut conn) = redis_conn.clone() {
-                    let redis_key = format!("{}{}", REDIS_TOKEN_PREFIX, token_normalized);
-                    if let Ok(json) = serde_json::to_string(&token) {
+                    let redis_key = format!(
+                        "{}{}",
+                        REDIS_TOKEN_PREFIX,
+                        oauth2_core::at_rest::hash_bearer(&token_normalized)
+                    );
+                    if let Ok(json) = serde_json::to_string(&token.for_storage()) {
                         let _: Result<(), _> = conn.set_ex(&redis_key, json, redis_ttl_secs).await;
                     }
                 }
@@ -601,7 +613,11 @@ impl Handler<RevokeToken> for TokenActor {
         #[cfg(feature = "redis-cache")]
         let redis_conn = self.redis.clone();
         #[cfg(feature = "redis-cache")]
-        let redis_key = format!("{}{}", REDIS_TOKEN_PREFIX, normalized_token);
+        let redis_key = format!(
+            "{}{}",
+            REDIS_TOKEN_PREFIX,
+            oauth2_core::at_rest::hash_bearer(&normalized_token)
+        );
 
         let normalized_token_for_db = normalized_token.clone();
 

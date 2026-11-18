@@ -40,6 +40,7 @@ async fn rfc9700_client_secret_jwt_replay_is_rejected() {
     );
     client.token_endpoint_auth_method = "client_secret_jwt".to_string();
 
+    oauth2_core::at_rest::init_at_rest_key("test-at-rest-key");
     let storage = oauth2_storage_factory::create_storage("sqlite::memory:")
         .await
         .expect("storage");
@@ -186,6 +187,7 @@ async fn rfc9700_fresh_jti_from_same_client_is_accepted() {
     );
     client.token_endpoint_auth_method = "client_secret_jwt".to_string();
 
+    oauth2_core::at_rest::init_at_rest_key("test-at-rest-key");
     let storage = oauth2_storage_factory::create_storage("sqlite::memory:")
         .await
         .expect("storage");

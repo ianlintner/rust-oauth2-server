@@ -1,0 +1,273 @@
+//! Storage format v1: credentials are persisted as verifiers, not raw values.
+//! Synthetic, ephemeral records only.
+
+use oauth2_core::at_rest::{self, BEARER_PREFIX, CLIENT_SECRET_PREFIX};
+use oauth2_core::{AuthorizationCode, Client, DeviceAuthorization, Token};
+use oauth2_ports::DynStorage;
+use sqlx::Row;
+
+async fn setup() -> (DynStorage, sqlx::SqlitePool, tempfile::TempDir) {
+    let dir = tempfile::tempdir().unwrap();
+    let url = format!("sqlite:{}?mode=rwc", dir.path().join("t.db").display());
+    let storage = oauth2_storage_factory::create_storage(&url).await.unwrap();
+    storage.init().await.unwrap();
+    let raw = sqlx::SqlitePool::connect(&url).await.unwrap();
+    (storage, raw, dir)
+}
+
+fn client(id: &str, secret: &str) -> Client {
+    Client::new(
+        id.to_string(),
+        secret.to_string(),
+        vec!["https://example.test/cb".to_string()],
+        vec!["authorization_code".to_string()],
+        "read".to_string(),
+        format!("synthetic {id}"),
+    )
+}
+
+async fn column(raw: &sqlx::SqlitePool, sql: &str) -> Vec<String> {
+    sqlx::query(sql)
+        .fetch_all(raw)
+        .await
+        .unwrap()
+        .iter()
+        .map(|r| r.get::<String, _>(0))
+        .collect()
+}
+
+#[actix_web::test]
+async fn client_secret_is_stored_as_record_and_verifies() {
+    let (storage, raw, _d) = setup().await;
+    let mut c = client("c-hash", "synthetic-secret-value");
+    c.registration_access_token = "synthetic-reg-token".to_string();
+    storage.save_client(&c).await.unwrap();
+
+    let secrets = column(&raw, "SELECT client_secret FROM clients").await;
+    assert!(secrets[0].starts_with(CLIENT_SECRET_PREFIX));
+    assert!(!secrets[0].contains("synthetic-secret-value"));
+    let regs = column(&raw, "SELECT registration_access_token FROM clients").await;
+    assert!(regs[0].starts_with(BEARER_PREFIX));
+    assert!(!regs[0].contains("synthetic-reg-token"));
+
+    let got = storage.get_client("c-hash").await.unwrap().unwrap();
+    assert!(got.verify_secret("synthetic-secret-value"));
+    assert!(!got.verify_secret("wrong"));
+    // Re-saving a client read back from storage does not double-protect.
+    storage.update_client(&got).await.unwrap();
+    let got2 = storage.get_client("c-hash").await.unwrap().unwrap();
+    assert!(got2.verify_secret("synthetic-secret-value"));
+    assert!(at_rest::verify_bearer(
+        "synthetic-reg-token",
+        &got2.registration_access_token
+    ));
+}
+
+#[actix_web::test]
+async fn client_secret_rotation_replaces_verifier() {
+    let (storage, raw, _d) = setup().await;
+    storage
+        .save_client(&client("c-rot", "old-secret"))
+        .await
+        .unwrap();
+    storage
+        .set_client_secret("c-rot", "new-secret")
+        .await
+        .unwrap();
+    let got = storage.get_client("c-rot").await.unwrap().unwrap();
+    assert!(got.verify_secret("new-secret"));
+    assert!(!got.verify_secret("old-secret"));
+    let secrets = column(&raw, "SELECT client_secret FROM clients").await;
+    assert!(!secrets[0].contains("new-secret"));
+}
+
+#[actix_web::test]
+async fn tokens_are_stored_hashed_and_lookups_use_raw_values() {
+    let (storage, raw, _d) = setup().await;
+    storage.save_client(&client("c1", "s")).await.unwrap();
+    let t = Token::new(
+        "synthetic-access".to_string(),
+        Some("synthetic-refresh".to_string()),
+        "c1".to_string(),
+        None,
+        "read".to_string(),
+        3600,
+        Some("fam".to_string()),
+    );
+    storage.save_token(&t).await.unwrap();
+
+    let a = column(&raw, "SELECT access_token FROM tokens").await;
+    let r = column(&raw, "SELECT refresh_token FROM tokens").await;
+    assert!(a[0].starts_with(BEARER_PREFIX) && !a[0].contains("synthetic"));
+    assert!(r[0].starts_with(BEARER_PREFIX) && !r[0].contains("synthetic"));
+
+    let by_access = storage
+        .get_token_by_access_token("synthetic-access")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(by_access.access_token, "synthetic-access");
+    let by_refresh = storage
+        .get_token_by_refresh_token("synthetic-refresh")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(by_refresh.id, t.id);
+
+    // The stored verifier is not itself a credential.
+    assert!(storage
+        .get_token_by_access_token(&a[0])
+        .await
+        .unwrap()
+        .is_none());
+    assert!(storage
+        .get_token_by_refresh_token(&r[0])
+        .await
+        .unwrap()
+        .is_none());
+}
+
+#[actix_web::test]
+async fn token_revocation_by_raw_value_hits_both_credentials() {
+    let (storage, _raw, _d) = setup().await;
+    storage.save_client(&client("c1", "s")).await.unwrap();
+    let t = Token::new(
+        "acc-rev".to_string(),
+        Some("ref-rev".to_string()),
+        "c1".to_string(),
+        None,
+        "read".to_string(),
+        3600,
+        None,
+    );
+    storage.save_token(&t).await.unwrap();
+    storage.revoke_token("ref-rev").await.unwrap();
+    let got = storage
+        .get_token_by_access_token("acc-rev")
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(got.revoked);
+}
+
+#[actix_web::test]
+async fn legacy_plaintext_rows_are_not_accepted() {
+    let (storage, raw, _d) = setup().await;
+    // Simulate a pre-cutover row written directly (synthetic).
+    storage.save_client(&client("c-legacy", "x")).await.unwrap();
+    sqlx::query("UPDATE clients SET client_secret = 'legacy-plain' WHERE client_id = 'c-legacy'")
+        .execute(&raw)
+        .await
+        .unwrap();
+    let got = storage.get_client("c-legacy").await.unwrap().unwrap();
+    assert!(!got.verify_secret("legacy-plain"));
+    assert!(got.symmetric_key().is_none());
+
+    let t = Token::new(
+        "a".into(),
+        Some("r".into()),
+        "c-legacy".into(),
+        None,
+        "s".into(),
+        60,
+        None,
+    );
+    storage.save_token(&t).await.unwrap();
+    sqlx::query("UPDATE tokens SET access_token = 'legacy-raw-access'")
+        .execute(&raw)
+        .await
+        .unwrap();
+    assert!(storage
+        .get_token_by_access_token("legacy-raw-access")
+        .await
+        .unwrap()
+        .is_none());
+}
+
+#[actix_web::test]
+async fn authorization_and_device_codes_are_hashed() {
+    let (storage, raw, _d) = setup().await;
+    storage.save_client(&client("c1", "s")).await.unwrap();
+    let user = oauth2_core::User::new("u1".into(), "$argon2id$x".into(), "u1@test.example".into());
+    storage.save_user(&user).await.unwrap();
+    let code = AuthorizationCode::new(
+        "synthetic-code".into(),
+        "c1".into(),
+        user.id.clone(),
+        "https://example.test/cb".into(),
+        "read".into(),
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+    );
+    storage.save_authorization_code(&code).await.unwrap();
+    let stored = column(&raw, "SELECT code FROM authorization_codes").await;
+    assert!(stored[0].starts_with(BEARER_PREFIX) && !stored[0].contains("synthetic"));
+    let got = storage
+        .get_authorization_code("synthetic-code")
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(!got.used);
+    storage
+        .mark_authorization_code_used("synthetic-code")
+        .await
+        .unwrap();
+    assert!(
+        storage
+            .get_authorization_code("synthetic-code")
+            .await
+            .unwrap()
+            .unwrap()
+            .used
+    );
+    assert!(storage
+        .get_authorization_code(&stored[0])
+        .await
+        .unwrap()
+        .is_none());
+
+    let dev = DeviceAuthorization::new(
+        "synthetic-device".into(),
+        "ABCD-EFGH".into(),
+        "c1".into(),
+        "read".into(),
+        600,
+        5,
+    );
+    storage.save_device_authorization(&dev).await.unwrap();
+    let stored = column(&raw, "SELECT device_code FROM device_authorizations").await;
+    assert!(stored[0].starts_with(BEARER_PREFIX) && !stored[0].contains("synthetic"));
+    assert!(storage
+        .get_device_authorization_by_device_code("synthetic-device")
+        .await
+        .unwrap()
+        .is_some());
+    storage
+        .mark_device_authorization_used("synthetic-device")
+        .await
+        .unwrap();
+    assert!(
+        storage
+            .get_device_authorization_by_device_code("synthetic-device")
+            .await
+            .unwrap()
+            .unwrap()
+            .used
+    );
+}
+
+#[test]
+fn symmetric_key_material_is_sealed_and_recoverable_only_with_key() {
+    at_rest::init_at_rest_key("synthetic-server-key");
+    let rec = at_rest::seal_client_secret("synthetic-hmac-secret");
+    assert!(!rec.contains("synthetic-hmac-secret"));
+    assert!(at_rest::verify_client_secret("synthetic-hmac-secret", &rec));
+    // Only assert recovery if this process owns the key (first init wins).
+    if let Some(k) = oauth2_core::at_rest::client_secret_key(&rec) {
+        assert_eq!(k, b"synthetic-hmac-secret");
+    }
+}

@@ -36,6 +36,7 @@ async fn setup_phase2_context(
     // binary and every registration test here wants the flag enabled.
     std::env::set_var("OAUTH2_DYNAMIC_REGISTRATION_ENABLED", "true");
 
+    oauth2_core::at_rest::init_at_rest_key("test-at-rest-key");
     let storage = oauth2_storage_factory::create_storage("sqlite::memory:")
         .await
         .expect("create storage");
