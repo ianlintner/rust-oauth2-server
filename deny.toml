@@ -30,6 +30,11 @@ ignore = [
     # Affected path: proc-macro-error2 2.0.1 → defmt-macros 1.1.0 → defmt 1.1.0 → jiff 0.2.29 → env_logger 0.11.10 → oauth2-server 0.6.2
     # Status: unmaintained advisory
     { id = "RUSTSEC-2026-0173", reason = "transitive-only unmaintained proc-macro-error2 through defmt/jiff; no known vulnerability and no clean replacement in the current graph" },
+    # RUSTSEC-2026-0543: chrono unmaintained (INFO, no vulnerability, no patched version exists).
+    # chrono is a direct dependency of nine workspace crates and public types, and also a
+    # required dependency of oauth2 5.0.0, so it cannot be dropped by a lock update.
+    # Migrating to jiff/time is a separate API change; re-evaluate monthly.
+    { id = "RUSTSEC-2026-0543", reason = "chrono unmaintained informational advisory only; no vulnerability, no patched release, and migration off chrono (also required by oauth2 5.0.0) is a separate workspace-wide change" },
     # RUSTSEC-2026-0459 (CVE-2026-119375): libsqlite3-sys < 0.39.0 bundles SQLite < 3.54.0;
     # a locally placed crafted db plus a sibling `-wal` with a differing page size can return
     # uninitialized page-cache memory (local information disclosure, CVSS 6.8).
