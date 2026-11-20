@@ -519,10 +519,12 @@ fn median(mut v: Vec<Duration>) -> Duration {
 /// Storage with an enabled user `alice` and a disabled user `dave`.
 async fn login_timing_storage() -> DynStorage {
     let storage = setup_storage().await;
+    // Runtime-generated secret: no hard-coded credential literal in the test.
+    let password = uuid::Uuid::new_v4().to_string();
     for (name, enabled) in [("alice", true), ("dave", false)] {
         let mut user = User::new(
             name.to_string(),
-            hash_password("correct-horse-battery-staple").expect("hash password"),
+            hash_password(&password).expect("hash password"),
             format!("{name}@example.test"),
         );
         user.enabled = enabled;
