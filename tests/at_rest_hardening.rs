@@ -438,3 +438,43 @@ fn cutover_marker_is_never_sealed_into_a_secret() {
     assert_eq!(at_rest::protect_client_secret(m), m);
     assert!(!at_rest::verify_client_secret(m, m));
 }
+
+#[actix_web::test]
+async fn metadata_update_never_seals_legacy_client_credentials() {
+    let (storage, raw, _d) = setup().await;
+    storage
+        .save_client(&client("c-legacy-upd", "synthetic-new"))
+        .await
+        .unwrap();
+    // Simulate a pre-cutover row: unprefixed secret and registration token.
+    sqlx::query(
+        "UPDATE clients SET client_secret = 'legacy-plain', \
+         registration_access_token = 'legacy-reg' WHERE client_id = 'c-legacy-upd'",
+    )
+    .execute(&raw)
+    .await
+    .unwrap();
+
+    let mut got = storage.get_client("c-legacy-upd").await.unwrap().unwrap();
+    assert!(!got.verify_secret("legacy-plain"));
+    got.name = "renamed".to_string();
+    storage.update_client(&got).await.unwrap();
+
+    let after = storage.get_client("c-legacy-upd").await.unwrap().unwrap();
+    assert_eq!(after.name, "renamed");
+    assert!(!after.verify_secret("legacy-plain"));
+    assert!(!after.verify_secret(at_rest::LEGACY_INVALIDATED_MARKER));
+    assert!(!at_rest::verify_bearer(
+        "legacy-reg",
+        &after.registration_access_token
+    ));
+    assert!(!after.registration_access_token.starts_with(BEARER_PREFIX));
+
+    // Explicit rotation still works after an update.
+    storage
+        .set_client_secret("c-legacy-upd", "rotated")
+        .await
+        .unwrap();
+    let rotated = storage.get_client("c-legacy-upd").await.unwrap().unwrap();
+    assert!(rotated.verify_secret("rotated"));
+}

@@ -399,7 +399,7 @@ impl Storage for MongoStorage {
     async fn update_client(&self, client: &Client) -> Result<(), OAuth2Error> {
         let filter = doc! { "client_id": &client.client_id };
         self.clients
-            .replace_one(filter, client.for_storage())
+            .replace_one(filter, client.for_update())
             .await
             .map(|_| ())
             .map_err(Self::mongo_err_to_oauth)

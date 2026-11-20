@@ -784,7 +784,7 @@ impl Storage for SqlxStorage {
     }
 
     async fn update_client(&self, client: &Client) -> Result<(), OAuth2Error> {
-        let client = &client.for_storage();
+        let client = &client.for_update();
         match &self.pool {
             DatabasePool::Sqlite(pool) => {
                 sqlx::query(

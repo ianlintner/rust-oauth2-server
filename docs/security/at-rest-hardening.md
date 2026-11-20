@@ -45,6 +45,10 @@ The server never deletes or rewrites data at startup; legacy values are simply n
 4. Start the new build; rotate each confidential client's secret via the admin path and distribute the new
    value. Clients must re-register or use the rotated secret; previously issued refresh tokens are gone.
 
+Credentials are sealed only at issuance or explicit rotation. A metadata-only client update
+(`update_client`, admin PATCH, CIMD refresh) never seals a legacy plaintext secret or registration
+token; it replaces such a value with the `legacy-invalidated` marker, so the pre-cutover window stays closed.
+
 Order matters: running the new build before the script is safe (legacy rows are rejected) but leaves
 unusable legacy rows in place.
 

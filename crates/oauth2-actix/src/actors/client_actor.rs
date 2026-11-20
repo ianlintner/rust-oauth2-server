@@ -504,7 +504,7 @@ impl Handler<UpdateClient> for ClientActor {
                 db.update_client(&msg.client).await?;
 
                 let _ = self_addr.try_send(CacheClient {
-                    client: msg.client.for_storage(),
+                    client: msg.client.for_update(),
                 });
 
                 Ok(msg.client)
