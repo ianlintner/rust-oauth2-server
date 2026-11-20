@@ -386,3 +386,55 @@ async fn stored_verifier_is_not_accepted_as_bearer_when_cache_is_warm() {
         "stored verifier was accepted as a bearer while the cache was warm"
     );
 }
+
+#[actix_web::test]
+async fn legacy_client_secret_and_marker_stay_rejected_after_cache_warming() {
+    use actix::Actor;
+    use oauth2_actix::actors::{ClientActor, GetClient, ValidateClient};
+
+    let (storage, raw, _d) = setup().await;
+    storage.save_client(&client("c-warm", "x")).await.unwrap();
+    storage.save_client(&client("c-mark", "x")).await.unwrap();
+    sqlx::query("UPDATE clients SET client_secret = 'legacy-plain' WHERE client_id = 'c-warm'")
+        .execute(&raw)
+        .await
+        .unwrap();
+    sqlx::query(
+        "UPDATE clients SET client_secret = 'legacy-invalidated' WHERE client_id = 'c-mark'",
+    )
+    .execute(&raw)
+    .await
+    .unwrap();
+
+    let actor = ClientActor::new(storage).start();
+    for (id, presented) in [("c-warm", "legacy-plain"), ("c-mark", "legacy-invalidated")] {
+        // Run twice so the second pass is served from the warm cache.
+        for _ in 0..2 {
+            let fetched = actor
+                .send(GetClient {
+                    client_id: id.to_string(),
+                    span: tracing::Span::none(),
+                })
+                .await
+                .unwrap()
+                .unwrap();
+            assert!(!fetched.verify_secret(presented), "{id} verifies via cache");
+            let valid = actor
+                .send(ValidateClient {
+                    client_id: id.to_string(),
+                    client_secret: presented.to_string(),
+                    span: tracing::Span::none(),
+                })
+                .await
+                .unwrap();
+            assert!(!matches!(valid, Ok(true)), "{id} accepted after warming");
+        }
+    }
+}
+
+#[test]
+fn cutover_marker_is_never_sealed_into_a_secret() {
+    let m = at_rest::LEGACY_INVALIDATED_MARKER;
+    assert_eq!(at_rest::protect_client_secret(m), m);
+    assert!(!at_rest::verify_client_secret(m, m));
+}

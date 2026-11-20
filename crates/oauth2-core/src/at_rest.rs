@@ -22,11 +22,15 @@
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use sha2::{Digest, Sha256};
 use std::sync::OnceLock;
+use subtle::ConstantTimeEq;
 
 /// Prefix of a bearer verifier.
 pub const BEARER_PREFIX: &str = "h1$";
 /// Prefix of a client secret record.
 pub const CLIENT_SECRET_PREFIX: &str = "c1$";
+
+/// Value the cutover scripts write over legacy client secrets. Never valid.
+pub const LEGACY_INVALIDATED_MARKER: &str = "legacy-invalidated";
 
 static AT_REST_KEY: OnceLock<String> = OnceLock::new();
 
@@ -47,10 +51,7 @@ fn digest(domain: &str, parts: &[&[u8]]) -> [u8; 32] {
 }
 
 fn ct_eq(a: &[u8], b: &[u8]) -> bool {
-    if a.len() != b.len() {
-        return false;
-    }
-    a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
+    a.ct_eq(b).into()
 }
 
 /// Deterministic verifier for a bearer value (used as the storage identifier).
@@ -123,7 +124,8 @@ pub fn is_client_secret_record(s: &str) -> bool {
 
 /// Write-side idempotent protection (see [`protect_bearer`]).
 pub fn protect_client_secret(value: &str) -> String {
-    if value.is_empty() || is_client_secret_record(value) {
+    // The operator cutover marker must never be sealed into a usable secret.
+    if value.is_empty() || value == LEGACY_INVALIDATED_MARKER || is_client_secret_record(value) {
         value.to_string()
     } else {
         seal_client_secret(value)

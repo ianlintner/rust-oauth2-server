@@ -80,8 +80,9 @@ impl ClientActor {
     }
 
     fn insert_cached_client(&mut self, client: Client) {
-        // Never keep a raw secret / registration token in the cache.
-        let client = client.for_storage();
+        // Callers pass records already in at-rest form (loaded from storage
+        // or Redis) or protect them first. Never re-protect here: that would
+        // turn rejected legacy values into valid verifiers.
         self.cache.put(
             client.client_id.clone(),
             CachedClient {
@@ -238,9 +239,11 @@ impl Handler<RegisterClient> for ClientActor {
 
                 db.save_client(&client).await?;
 
-                // Send back to actor for LRU cache insertion.
+                // Send back to actor for LRU cache insertion. `client` still
+                // holds the raw secret for the one-time response; cache only
+                // the at-rest form.
                 let _ = self_addr.try_send(CacheClient {
-                    client: client.clone(),
+                    client: client.for_storage(),
                 });
 
                 // Emit event
@@ -501,7 +504,7 @@ impl Handler<UpdateClient> for ClientActor {
                 db.update_client(&msg.client).await?;
 
                 let _ = self_addr.try_send(CacheClient {
-                    client: msg.client.clone(),
+                    client: msg.client.for_storage(),
                 });
 
                 Ok(msg.client)

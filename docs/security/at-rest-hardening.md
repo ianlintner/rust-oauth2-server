@@ -48,6 +48,15 @@ The server never deletes or rewrites data at startup; legacy values are simply n
 Order matters: running the new build before the script is safe (legacy rows are rejected) but leaves
 unusable legacy rows in place.
 
+### Partial-failure recovery
+
+The MongoDB script runs in a single transaction (replica set or sharded cluster required): on any error it
+aborts and nothing changes, so fix the cause and re-run. On a standalone `mongod` it aborts before changing
+anything; convert to a single-node replica set first. Every step is idempotent, so
+if the script was interrupted in some other way (e.g. client killed mid-commit), check the outcome and simply
+re-run it. A cluster left half-migrated is still safe: legacy rows are rejected by the server, and the
+`legacy-invalidated` marker is never accepted or re-sealed (cached or stored). If in doubt, restore the backup.
+
 ### Rollback
 
 The old build cannot read v1 rows. Roll back by stopping the service, restoring the pre-cutover backup and
