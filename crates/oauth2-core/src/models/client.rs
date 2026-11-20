@@ -160,28 +160,6 @@ impl Client {
         c
     }
 
-    /// Copy of this client for a metadata update. Unlike [`Self::for_storage`]
-    /// it never seals raw values: credentials are only protected at issuance
-    /// or explicit rotation (`save_client`, `set_client_secret`). A value that
-    /// is not already in at-rest form (legacy plaintext read back from
-    /// storage) is replaced with the cutover marker so an update can never
-    /// turn it into a valid credential.
-    pub fn for_update(&self) -> Self {
-        use crate::at_rest::{
-            is_bearer_verifier, is_client_secret_record, LEGACY_INVALIDATED_MARKER,
-        };
-        let mut c = self.clone();
-        if !c.client_secret.is_empty() && !is_client_secret_record(&c.client_secret) {
-            c.client_secret = LEGACY_INVALIDATED_MARKER.to_string();
-        }
-        if !c.registration_access_token.is_empty()
-            && !is_bearer_verifier(&c.registration_access_token)
-        {
-            c.registration_access_token = LEGACY_INVALIDATED_MARKER.to_string();
-        }
-        c
-    }
-
     /// Constant-time check of a presented client secret against the stored
     /// record. Legacy (pre-cutover) stored values never match.
     pub fn verify_secret(&self, presented: &str) -> bool {

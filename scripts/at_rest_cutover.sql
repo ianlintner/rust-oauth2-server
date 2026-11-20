@@ -2,7 +2,7 @@
 -- NOT a Flyway migration and never run by the server. Review, take a backup,
 -- then run it deliberately (SQLite and PostgreSQL compatible):
 --
---   sqlite3 oauth2.db < scripts/at_rest_cutover.sql
+--   sqlite3 -bail oauth2.db < scripts/at_rest_cutover.sql
 --   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/at_rest_cutover.sql
 --
 -- Effect (all-or-nothing in one transaction):

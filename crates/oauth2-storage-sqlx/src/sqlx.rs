@@ -784,16 +784,18 @@ impl Storage for SqlxStorage {
     }
 
     async fn update_client(&self, client: &Client) -> Result<(), OAuth2Error> {
-        let client = &client.for_update();
+        // Metadata only: the credential columns (client_secret,
+        // registration_access_token) are written solely at issuance and by
+        // set_client_secret, so a stale or legacy snapshot can neither restore
+        // an old credential nor seal a legacy value.
         match &self.pool {
             DatabasePool::Sqlite(pool) => {
                 sqlx::query(
                     r#"
                     UPDATE clients SET
-                        client_secret = ?, redirect_uris = ?, grant_types = ?,
+                        redirect_uris = ?, grant_types = ?,
                         scope = ?, name = ?, updated_at = ?,
                         token_endpoint_auth_method = ?,
-                        registration_access_token = ?,
                         response_types = ?, contacts = ?,
                         logo_uri = ?, client_uri = ?,
                         policy_uri = ?, tos_uri = ?,
@@ -814,14 +816,12 @@ impl Storage for SqlxStorage {
                     WHERE client_id = ?
                     "#,
                 )
-                .bind(&client.client_secret)
                 .bind(&client.redirect_uris)
                 .bind(&client.grant_types)
                 .bind(&client.scope)
                 .bind(&client.name)
                 .bind(client.updated_at)
                 .bind(&client.token_endpoint_auth_method)
-                .bind(&client.registration_access_token)
                 .bind(&client.response_types)
                 .bind(&client.contacts)
                 .bind(&client.logo_uri)
@@ -851,38 +851,35 @@ impl Storage for SqlxStorage {
                 sqlx::query(
                     r#"
                     UPDATE clients SET
-                        client_secret = $1, redirect_uris = $2, grant_types = $3,
-                        scope = $4, name = $5, updated_at = $6,
-                        token_endpoint_auth_method = $7,
-                        registration_access_token = $8,
-                        response_types = $9, contacts = $10,
-                        logo_uri = $11, client_uri = $12,
-                        policy_uri = $13, tos_uri = $14,
-                        jwks = $15, jwks_uri = $16,
-                        backchannel_logout_uri = $17,
-                        backchannel_logout_session_required = $18,
-                        frontchannel_logout_uri = $19,
-                        frontchannel_logout_session_required = $20,
-                        post_logout_redirect_uris = $21,
-                        tls_client_certificate_subject_dn = $22,
-                        enabled = $23,
-                        dpop_nonce_required = $24,
-                        allowed_actors = $25,
-                        tls_client_auth_san = $26,
-                        software_id = $27,
-                        software_version = $28,
-                        cimd_managed = $29
-                    WHERE client_id = $30
+                        redirect_uris = $1, grant_types = $2,
+                        scope = $3, name = $4, updated_at = $5,
+                        token_endpoint_auth_method = $6,
+                        response_types = $7, contacts = $8,
+                        logo_uri = $9, client_uri = $10,
+                        policy_uri = $11, tos_uri = $12,
+                        jwks = $13, jwks_uri = $14,
+                        backchannel_logout_uri = $15,
+                        backchannel_logout_session_required = $16,
+                        frontchannel_logout_uri = $17,
+                        frontchannel_logout_session_required = $18,
+                        post_logout_redirect_uris = $19,
+                        tls_client_certificate_subject_dn = $20,
+                        enabled = $21,
+                        dpop_nonce_required = $22,
+                        allowed_actors = $23,
+                        tls_client_auth_san = $24,
+                        software_id = $25,
+                        software_version = $26,
+                        cimd_managed = $27
+                    WHERE client_id = $28
                     "#,
                 )
-                .bind(&client.client_secret)
                 .bind(&client.redirect_uris)
                 .bind(&client.grant_types)
                 .bind(&client.scope)
                 .bind(&client.name)
                 .bind(client.updated_at)
                 .bind(&client.token_endpoint_auth_method)
-                .bind(&client.registration_access_token)
                 .bind(&client.response_types)
                 .bind(&client.contacts)
                 .bind(&client.logo_uri)

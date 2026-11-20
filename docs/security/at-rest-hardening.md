@@ -47,7 +47,10 @@ The server never deletes or rewrites data at startup; legacy values are simply n
 
 Credentials are sealed only at issuance or explicit rotation. A metadata-only client update
 (`update_client`, admin PATCH, CIMD refresh) never seals a legacy plaintext secret or registration
-token; it replaces such a value with the `legacy-invalidated` marker, so the pre-cutover window stays closed.
+token, and never overwrites the stored credential columns at all (SQLx `UPDATE` and the Mongo `$set`
+omit `client_secret` and `registration_access_token`). So a stale snapshot cannot restore an old secret
+after a rotation, and the pre-cutover window stays closed. Credentials change only at issuance and
+via `set_client_secret`.
 
 Order matters: running the new build before the script is safe (legacy rows are rejected) but leaves
 unusable legacy rows in place.

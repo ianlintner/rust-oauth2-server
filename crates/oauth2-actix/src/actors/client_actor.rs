@@ -503,9 +503,11 @@ impl Handler<UpdateClient> for ClientActor {
             async move {
                 db.update_client(&msg.client).await?;
 
-                let _ = self_addr.try_send(CacheClient {
-                    client: msg.client.for_update(),
-                });
+                // Cache the stored record (credentials are not written by
+                // update_client), not the caller's possibly stale snapshot.
+                if let Some(stored) = db.get_client(&msg.client.client_id).await? {
+                    let _ = self_addr.try_send(CacheClient { client: stored });
+                }
 
                 Ok(msg.client)
             }

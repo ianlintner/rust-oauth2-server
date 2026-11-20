@@ -478,3 +478,29 @@ async fn metadata_update_never_seals_legacy_client_credentials() {
     let rotated = storage.get_client("c-legacy-upd").await.unwrap().unwrap();
     assert!(rotated.verify_secret("rotated"));
 }
+
+#[actix_web::test]
+async fn stale_metadata_update_does_not_undo_secret_rotation() {
+    let (storage, _raw, _d) = setup().await;
+    storage
+        .save_client(&client("c-stale-upd", "synthetic-old"))
+        .await
+        .unwrap();
+
+    // Snapshot read before the rotation.
+    let mut snapshot = storage.get_client("c-stale-upd").await.unwrap().unwrap();
+    assert!(snapshot.verify_secret("synthetic-old"));
+
+    storage
+        .set_client_secret("c-stale-upd", "synthetic-rotated")
+        .await
+        .unwrap();
+
+    snapshot.name = "renamed-from-stale-snapshot".to_string();
+    storage.update_client(&snapshot).await.unwrap();
+
+    let after = storage.get_client("c-stale-upd").await.unwrap().unwrap();
+    assert_eq!(after.name, "renamed-from-stale-snapshot");
+    assert!(after.verify_secret("synthetic-rotated"));
+    assert!(!after.verify_secret("synthetic-old"));
+}

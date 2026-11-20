@@ -398,8 +398,15 @@ impl Storage for MongoStorage {
 
     async fn update_client(&self, client: &Client) -> Result<(), OAuth2Error> {
         let filter = doc! { "client_id": &client.client_id };
+        // Metadata only: never write the credential fields from a (possibly
+        // stale or legacy) snapshot; issuance and set_client_secret own them.
+        let mut set = mongodb::bson::to_document(client)
+            .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))?;
+        set.remove("client_secret");
+        set.remove("registration_access_token");
         self.clients
-            .replace_one(filter, client.for_update())
+            .clone_with_type::<mongodb::bson::Document>()
+            .update_one(filter, doc! { "$set": set })
             .await
             .map(|_| ())
             .map_err(Self::mongo_err_to_oauth)
