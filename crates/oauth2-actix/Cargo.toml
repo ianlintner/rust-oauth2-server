@@ -40,7 +40,7 @@ lru = "0.19"
 sha2 = "0.11"
 hmac = "0.13"
 base64 = { version = "0.23", default-features = false, features = ["std"] }
-jsonwebtoken = { version = "11.1", features = ["aws_lc_rs"] }
+jsonwebtoken = { version = "12.0", features = ["aws_lc_rs"] }
 
 # JWKS (RS256 public key publishing)
 rsa = { version = "0.9", features = ["pem"] }
