@@ -805,7 +805,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ianlintner/oauth2-conformance
-          ref: ad45cc7f2240c41e71622177ea2a88e917c617b4 # contract main with seed jwks (K2) + SUT interface v2 (K3) (keep in sync with conformance.yaml)
+          ref: b7620924068f32c8800cb23c8d47b6c1b2b6c583 # contract main (keep in sync with conformance.yaml)
           path: .conformance-contract
           persist-credentials: false
 

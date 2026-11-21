@@ -2529,15 +2529,13 @@ async fn handle_authorization_code_grant(
     // RFC 9700 §2.1.5: adopt the auth-code's token_family so every token
     // derived from this grant shares a lineage that can be cascade-revoked
     // on code replay. Fall back to a fresh UUID for legacy codes issued
-    // before migration V18 rolled out.
-    let token_family = if include_refresh {
-        auth_code
-            .token_family
-            .clone()
-            .or_else(|| Some(Uuid::new_v4().to_string()))
-    } else {
-        None
-    };
+    // before migration V18 rolled out. Applies even when no refresh token is
+    // issued: the access token must still be revoked on code replay
+    // (RFC 6749 §4.1.2).
+    let token_family = auth_code
+        .token_family
+        .clone()
+        .or_else(|| Some(Uuid::new_v4().to_string()));
 
     // RFC 9396: prefer `authorization_details` from the token request over what
     // was stored in the auth code (token request wins if both are present).
