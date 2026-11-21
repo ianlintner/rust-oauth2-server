@@ -2552,7 +2552,8 @@ async fn handle_authorization_code_grant(
     // on code replay. Fall back to a fresh UUID for legacy codes issued
     // before migration V18 rolled out.
     // The family is attached even when no refresh token is issued, so a code
-    // replay can still revoke the access token minted from it.
+    // replay can still revoke the access token minted from it
+    // (RFC 6749 §4.1.2).
     let token_family = Some(
         auth_code
             .token_family

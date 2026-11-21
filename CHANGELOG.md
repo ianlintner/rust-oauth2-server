@@ -1,5 +1,15 @@
 ## [Unreleased]
 
+### Changed
+
+- Conformance contract pin bumped to `b762092`.
+
+### Fixed
+
+- Authorization-code replay now revokes the access token even for clients
+  without the `refresh_token` grant (the token family was only assigned when a
+  refresh token was issued; RFC 6749 §4.1.2 SHOULD, RFC 9700 §4.2.4).
+
 ### Added
 
 - Conformance mode, contract K2/K3 first slice (conformance mode only):
