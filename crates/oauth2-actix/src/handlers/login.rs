@@ -218,6 +218,12 @@ pub async fn login_submit(
     // verified against a process-wide dummy hash of identical cost.
     let usable = user.as_ref().filter(|u| u.enabled).and_then(|u| {
         match PasswordHash::new(&u.password_hash) {
+            // Argon2 rejects a digest-less hash or a non-Argon2 algorithm as a
+            // plain mismatch without doing any hashing, so treat both as unusable.
+            Ok(h) if h.hash.is_none() || !h.algorithm.as_str().starts_with("argon2") => {
+                tracing::error!("Unusable password hash for user {}", u.id);
+                None
+            }
             Ok(h) => Some(h),
             Err(e) => {
                 tracing::error!("Invalid password hash format for user {}: {e}", u.id);
@@ -225,23 +231,33 @@ pub async fn login_submit(
             }
         }
     });
-    let (parsed_hash, genuine) = match usable {
-        Some(h) => (h, true),
-        None => {
-            if let Some(u) = user.as_ref().filter(|u| !u.enabled) {
-                // Log internally for operational visibility only.
-                tracing::info!(user_id = %u.id, "Login attempt against disabled account");
+    if let Some(u) = user.as_ref().filter(|u| !u.enabled) {
+        // Log internally for operational visibility only.
+        tracing::info!(user_id = %u.id, "Login attempt against disabled account");
+    }
+    let argon2 = Argon2::default();
+    let verified = match usable {
+        Some(h) => match argon2.verify_password(form.password.as_bytes(), &h) {
+            Ok(()) => true,
+            // Plain mismatch: the full Argon2 computation already ran.
+            Err(argon2::password_hash::Error::PasswordInvalid) => false,
+            // A syntactically valid PHC string that Argon2 cannot use (missing
+            // digest, unsupported algorithm/params) fails before any hashing
+            // work, so pay the cost against the dummy instead.
+            Err(e) => {
+                tracing::error!("Stored password hash unusable for verification: {e}");
+                let _ = argon2.verify_password(form.password.as_bytes(), &dummy_password_hash());
+                false
             }
-            (dummy_password_hash(), false)
+        },
+        None => {
+            let _ = argon2.verify_password(form.password.as_bytes(), &dummy_password_hash());
+            false
         }
     };
 
-    let verified = Argon2::default()
-        .verify_password(form.password.as_bytes(), &parsed_hash)
-        .is_ok();
-
     let user = match user {
-        Some(u) if genuine && verified => u,
+        Some(u) if verified => u,
         _ => {
             metrics.oauth_failed_authentications.inc();
             return Ok(HttpResponse::SeeOther()
@@ -316,6 +332,12 @@ fn dummy_password_hash() -> PasswordHash {
         hash_password(&uuid::Uuid::new_v4().to_string()).expect("hash dummy password")
     });
     PasswordHash::new(s).expect("dummy hash is valid")
+}
+
+/// Compute the dummy hash now so the first failed login does not also pay for
+/// generating it. Call once at startup before serving requests.
+pub fn init_login_timing() {
+    let _ = dummy_password_hash();
 }
 
 /// Hash a plaintext password using Argon2id.

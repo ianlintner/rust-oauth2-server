@@ -518,9 +518,27 @@ fn median(mut v: Vec<Duration>) -> Duration {
 
 /// Storage with an enabled user `alice` and a disabled user `dave`.
 async fn login_timing_storage() -> DynStorage {
+    oauth2_actix::handlers::login::init_login_timing();
     let storage = setup_storage().await;
     // Runtime-generated secret: no hard-coded credential literal in the test.
     let password = uuid::Uuid::new_v4().to_string();
+    // `erin`/`frank`: enabled, hash parses as PHC but Argon2 cannot verify it
+    // (no digest; unsupported algorithm).
+    let unusable = [
+        ("erin", "$argon2id$v=19$m=19456,t=2,p=1$c29tZXNhbHRzYWx0"),
+        (
+            "frank",
+            "$scrypt$ln=15,r=8,p=1$c29tZXNhbHRzYWx0$aGFzaGhhc2hoYXNo",
+        ),
+    ];
+    for (name, hash) in unusable {
+        let user = User::new(
+            name.to_string(),
+            hash.to_string(),
+            format!("{name}@example.test"),
+        );
+        storage.save_user(&user).await.expect("save user");
+    }
     for (name, enabled) in [("alice", true), ("dave", false)] {
         let mut user = User::new(
             name.to_string(),
@@ -533,10 +551,10 @@ async fn login_timing_storage() -> DynStorage {
     storage
 }
 
-/// Median over 5 failed logins for `username` after one warm-up request.
+/// Median over 5 failed logins for `username`. No warm-up request: the dummy
+/// hash is initialised up front, as at server startup.
 macro_rules! failure_median {
     ($app:expr, $username:expr) => {{
-        let _ = timed_login!($app, $username, "wrong-password");
         let mut samples = Vec::new();
         for _ in 0..5 {
             let (status, location, elapsed) = timed_login!($app, $username, "wrong-password");
@@ -591,10 +609,23 @@ async fn login_failure_does_equal_work_for_disabled_user() {
 }
 
 #[actix_web::test]
+async fn login_failure_does_equal_work_for_unusable_stored_hash() {
+    let app = login_timing_app!(login_timing_storage().await);
+    let known = failure_median!(&app, "alice");
+    for name in ["erin", "frank"] {
+        let unusable = failure_median!(&app, name);
+        assert!(
+            unusable * 2 >= known,
+            "{name} failure ({unusable:?}) is much faster than wrong-password failure ({known:?})"
+        );
+    }
+}
+
+#[actix_web::test]
 async fn login_failure_responses_are_identical() {
     let app = login_timing_app!(login_timing_storage().await);
     let mut seen = Vec::new();
-    for name in ["nobody", "dave", "alice"] {
+    for name in ["nobody", "dave", "alice", "erin", "frank"] {
         let (status, location, _) = timed_login!(&app, name, "wrong-password");
         seen.push((status, location));
     }
