@@ -20,12 +20,6 @@ ignore = [
   #         (sqlx-mysql is pulled in by sqlx macros internals.)
   "RUSTSEC-2023-0071",
 
-  # RUSTSEC-2024-0421: `idna` accepts Punycode labels that do not produce any non-ASCII when decoded
-  # Status: Fix requires upgrading transitive dependency chain.
-  # Reason: Only pulled in via the optional `mongo` feature (mongodb -> trust-dns-* -> idna 0.2.x).
-  #         The default build does not include MongoDB.
-  "RUSTSEC-2024-0421",
-
   # RUSTSEC-2021-0153: `encoding` crate is unmaintained
   # Affected path: encoding 0.2.33 ← java-properties ← hocon ← oauth2-config
   # Status: Crate is unmaintained since 2021
@@ -35,26 +29,6 @@ ignore = [
   # Review date: 2026-05-04
   # Next review: Consider replacing hocon or submitting PR to hocon to remove encoding dep
   "RUSTSEC-2021-0153",
-
-  # RUSTSEC-2024-0384: `instant` crate is unmaintained
-  # Affected path: instant 0.1.13 ← fastrand 1.9.0 ← futures-lite 1.13.0 ← async-io 1.13.0
-  #                ← async-reactor-trait ← lapin ← oauth2-events
-  # Status: Crate is unmaintained since Sept 2024
-  # Reason: Transitive dependency through lapin (RabbitMQ client). Only used when
-  #         events-rabbit feature is enabled (optional). Deep in dependency tree.
-  # Review date: 2026-05-04
-  # Next review: Monitor lapin for updates to newer async-io that doesn't depend on instant
-  "RUSTSEC-2024-0384",
-
-  # RUSTSEC-2025-0134: `rustls-pemfile` crate is unmaintained
-  # Affected path: rustls-pemfile 2.2.0 ← tcp-stream ← amq-protocol-tcp ← amq-protocol
-  #                ← lapin ← oauth2-events
-  # Status: Crate is unmaintained since Nov 2025
-  # Reason: Transitive dependency through lapin (RabbitMQ client). Only used when
-  #         events-rabbit feature is enabled (optional).
-  # Review date: 2026-05-04
-  # Next review: Monitor lapin for updates or migration to rustls-pemfile successor
-  "RUSTSEC-2025-0134",
 
   # RUSTSEC-2026-0459 (CVE-2026-119375): libsqlite3-sys < 0.39.0 bundles SQLite < 3.54.0;
   # a locally placed crafted db plus a sibling `-wal` with a differing page size can return
