@@ -275,15 +275,18 @@ macro_rules! post_pkj {
     }};
 }
 
-/// Introspect, optionally authenticating as `$client_id` with its secret.
+/// Introspect, optionally authenticating as `$client_id` with a fresh
+/// `private_key_jwt` assertion (the registered method for the workload
+/// clients in this file).
 macro_rules! introspect_as {
     ($app:expr, $token:expr, $client_id:expr) => {{
         let mut pairs: Vec<(&str, String)> = vec![("token", $token.to_string())];
-        let secret;
+        let client_assertion: String;
         if let Some(client_id) = $client_id {
-            secret = format!("{client_id}_secret");
+            client_assertion = assertion(client_id);
             pairs.push(("client_id", client_id.to_string()));
-            pairs.push(("client_secret", secret.clone()));
+            pairs.push(("client_assertion_type", ASSERTION_TYPE.to_string()));
+            pairs.push(("client_assertion", client_assertion.clone()));
         }
         let body = pairs
             .iter()
