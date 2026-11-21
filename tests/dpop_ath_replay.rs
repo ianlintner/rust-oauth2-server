@@ -453,8 +453,8 @@ impl oauth2_ports::Storage for NonPersistingStorage {
     ) -> Result<Option<AuthorizationCode>, OAuth2Error> {
         Ok(None)
     }
-    async fn mark_authorization_code_used(&self, _code: &str) -> Result<(), OAuth2Error> {
-        Ok(())
+    async fn mark_authorization_code_used(&self, _code: &str) -> Result<bool, OAuth2Error> {
+        Ok(true)
     }
 }
 

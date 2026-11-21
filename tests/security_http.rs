@@ -319,8 +319,8 @@ impl Storage for CountingStorage {
         Ok(None)
     }
 
-    async fn mark_authorization_code_used(&self, _code: &str) -> Result<(), OAuth2Error> {
-        Ok(())
+    async fn mark_authorization_code_used(&self, _code: &str) -> Result<bool, OAuth2Error> {
+        Ok(true)
     }
 }
 

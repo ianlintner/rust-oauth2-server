@@ -1162,6 +1162,26 @@ impl Storage for SqlxStorage {
         Ok(())
     }
 
+    async fn consume_refresh_token(&self, refresh_token: &str) -> Result<bool, OAuth2Error> {
+        let rows = match &self.pool {
+            DatabasePool::Sqlite(pool) => {
+                sqlx::query("UPDATE tokens SET revoked = 1 WHERE refresh_token = ? AND revoked = 0")
+                    .bind(refresh_token)
+                    .execute(pool)
+                    .await?
+                    .rows_affected()
+            }
+            DatabasePool::Postgres(pool) => sqlx::query(
+                "UPDATE tokens SET revoked = true WHERE refresh_token = $1 AND revoked = false",
+            )
+            .bind(refresh_token)
+            .execute(pool)
+            .await?
+            .rows_affected(),
+        };
+        Ok(rows > 0)
+    }
+
     async fn revoke_token_by_id(&self, id: &str) -> Result<u64, OAuth2Error> {
         let rows = match &self.pool {
             DatabasePool::Sqlite(pool) => {
@@ -1337,23 +1357,25 @@ impl Storage for SqlxStorage {
         Ok(auth_code)
     }
 
-    async fn mark_authorization_code_used(&self, code: &str) -> Result<(), OAuth2Error> {
-        match &self.pool {
+    async fn mark_authorization_code_used(&self, code: &str) -> Result<bool, OAuth2Error> {
+        let rows = match &self.pool {
             DatabasePool::Sqlite(pool) => {
-                sqlx::query("UPDATE authorization_codes SET used = 1 WHERE code = ?")
+                sqlx::query("UPDATE authorization_codes SET used = 1 WHERE code = ? AND used = 0")
                     .bind(code)
                     .execute(pool)
-                    .await?;
+                    .await?
+                    .rows_affected()
             }
-            DatabasePool::Postgres(pool) => {
-                sqlx::query("UPDATE authorization_codes SET used = true WHERE code = $1")
-                    .bind(code)
-                    .execute(pool)
-                    .await?;
-            }
-        }
+            DatabasePool::Postgres(pool) => sqlx::query(
+                "UPDATE authorization_codes SET used = true WHERE code = $1 AND used = false",
+            )
+            .bind(code)
+            .execute(pool)
+            .await?
+            .rows_affected(),
+        };
 
-        Ok(())
+        Ok(rows > 0)
     }
 
     async fn save_device_authorization(

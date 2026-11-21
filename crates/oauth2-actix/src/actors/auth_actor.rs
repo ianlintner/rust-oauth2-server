@@ -178,7 +178,7 @@ pub struct ValidateAuthorizationCode {
 }
 
 #[derive(Message)]
-#[rtype(result = "Result<(), OAuth2Error>")]
+#[rtype(result = "Result<bool, OAuth2Error>")]
 pub struct MarkAuthorizationCodeUsed {
     pub code: String,
     /// Optional user/client IDs carried from the preceding ValidateAuthorizationCode
@@ -297,7 +297,7 @@ impl Handler<ValidateAuthorizationCode> for AuthActor {
 }
 
 impl Handler<MarkAuthorizationCodeUsed> for AuthActor {
-    type Result = ResponseFuture<Result<(), OAuth2Error>>;
+    type Result = ResponseFuture<Result<bool, OAuth2Error>>;
 
     fn handle(&mut self, msg: MarkAuthorizationCodeUsed, _: &mut Self::Context) -> Self::Result {
         let db = self.db.clone();
@@ -320,7 +320,10 @@ impl Handler<MarkAuthorizationCodeUsed> for AuthActor {
                 // The authorization code was already fetched and validated by
                 // ValidateAuthorizationCode, so we skip the redundant DB lookup
                 // and go straight to marking it used.
-                db.mark_authorization_code_used(&msg.code).await?;
+                // Atomic conditional write: only one concurrent caller wins.
+                if !db.mark_authorization_code_used(&msg.code).await? {
+                    return Ok(false);
+                }
 
                 // Emit validated/consumed event using the IDs carried in the message.
                 if let Some(event_bus) = event_bus {
@@ -334,7 +337,7 @@ impl Handler<MarkAuthorizationCodeUsed> for AuthActor {
                     event_bus.publish_best_effort(envelope);
                 }
 
-                Ok(())
+                Ok(true)
             }
             .instrument(actor_span),
         )

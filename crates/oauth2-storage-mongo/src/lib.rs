@@ -481,6 +481,17 @@ impl Storage for MongoStorage {
             .map_err(Self::mongo_err_to_oauth)
     }
 
+    async fn consume_refresh_token(&self, refresh_token: &str) -> Result<bool, OAuth2Error> {
+        self.tokens
+            .update_one(
+                doc! { "refresh_token": refresh_token, "revoked": false },
+                doc! { "$set": { "revoked": true } },
+            )
+            .await
+            .map(|r| r.modified_count > 0)
+            .map_err(Self::mongo_err_to_oauth)
+    }
+
     async fn revoke_token_by_id(&self, id: &str) -> Result<u64, OAuth2Error> {
         self.tokens
             .update_one(
@@ -524,11 +535,14 @@ impl Storage for MongoStorage {
             .map_err(Self::mongo_err_to_oauth)
     }
 
-    async fn mark_authorization_code_used(&self, code: &str) -> Result<(), OAuth2Error> {
+    async fn mark_authorization_code_used(&self, code: &str) -> Result<bool, OAuth2Error> {
         self.authorization_codes
-            .update_one(doc! { "code": code }, doc! { "$set": { "used": true } })
+            .update_one(
+                doc! { "code": code, "used": false },
+                doc! { "$set": { "used": true } },
+            )
             .await
-            .map(|_| ())
+            .map(|r| r.modified_count > 0)
             .map_err(Self::mongo_err_to_oauth)
     }
 

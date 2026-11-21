@@ -37,6 +37,17 @@
   a regression in the fixed RFC behaviors fails CI even before the contract
   promotes them to `stable`.
 
+### Security
+
+- Authorization codes and refresh tokens are now consumed by a single atomic
+  conditional storage write (`mark_authorization_code_used` now returns `bool`;
+  new `consume_refresh_token`), so concurrent requests can no longer redeem the
+  same grant twice. A losing request gets `invalid_grant` and the token family
+  is revoked. Codes issued to clients without the `refresh_token` grant now also
+  carry a token family so replay revokes their access token. Behaviour change:
+  a client that retries a refresh after a network failure will see
+  `invalid_grant` and a revoked family (RFC 9700 §4.14.2).
+
 ### Changed
 
 - Fix: the DPoP nonce issuer was built per HTTP worker, so a nonce issued by
