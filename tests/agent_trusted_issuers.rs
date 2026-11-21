@@ -159,6 +159,15 @@ async fn admin_trusted_issuers_post_get_delete_round_trip() {
     use oauth2_actix::middleware::admin_guard::AdminGuard;
 
     let dyn_storage = setup_storage().await;
+    // The guard re-reads the session's user from storage.
+    let mut admin = oauth2_core::User::new(
+        "admin".to_string(),
+        "$argon2id$unused".to_string(),
+        "admin@example.test".to_string(),
+    );
+    admin.id = "admin_1".to_string();
+    admin.role = "admin".to_string();
+    dyn_storage.save_user(&admin).await.expect("seed admin");
 
     let session_key = Key::generate();
     let app = test::init_service(

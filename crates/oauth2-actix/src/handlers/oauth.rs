@@ -761,6 +761,8 @@ pub async fn authorize(
     // Optional so the inline test `App` builders that predate it keep working.
     cimd: Option<web::Data<CimdFetcher>>,
     agent_config: Option<web::Data<oauth2_config::AgentConfig>>,
+    // Optional so inline test `App` builders without storage keep working.
+    storage: Option<web::Data<DynStorage>>,
 ) -> Result<HttpResponse, OAuth2Error> {
     // OAuch: reject duplicate parameters (prevents ambiguous parsing).
     ensure_no_duplicate_query_params(&req)?;
@@ -1075,7 +1077,18 @@ pub async fn authorize(
     }
 
     // Check if there is an authenticated session.
-    let user_id: Option<String> = session.get("user_id").unwrap_or(None);
+    let mut user_id: Option<String> = session.get("user_id").unwrap_or(None);
+
+    // The session cookie cannot be revoked server-side, so confirm the user
+    // still exists and is enabled; otherwise treat the session as absent.
+    if let (Some(uid), Some(store)) = (user_id.as_deref(), storage.as_ref()) {
+        if crate::handlers::session_user::load_active_user(store.get_ref(), uid)
+            .await?
+            .is_none()
+        {
+            user_id = None;
+        }
+    }
 
     // prompt=none: the AS must NOT display any UI. If not authenticated, return error.
     if has_none {
