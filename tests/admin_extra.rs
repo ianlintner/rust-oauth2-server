@@ -5,10 +5,12 @@
 //! the handler(s) under test behind a minimal SessionMiddleware so
 //! `build_audit` can read the session.
 
+use actix::Actor;
 use actix_session::{storage::CookieSessionStore, Session, SessionMiddleware};
 use actix_web::{cookie::Key, test, web, App, HttpResponse};
 use serde_json::{json, Value};
 
+use oauth2_actix::actors::client_actor::{ClientActor, GetClient, ValidateClient};
 use oauth2_actix::handlers::events::RecentEventsStore;
 use oauth2_actix::handlers::{admin, admin_extra, events as events_handler};
 use oauth2_core::{Client, DenylistEntry, ListQuery, Token, User};
@@ -657,6 +659,7 @@ async fn update_client_mutates_metadata() {
             ))
             .app_data(web::Data::new(storage.clone()))
             .app_data(web::Data::new(RecentEventsStore::new(16)))
+            .app_data(web::Data::new(ClientActor::new(storage.clone()).start()))
             .route("/test/login", web::get().to(seed_session))
             .route(
                 "/admin/api/clients/{id}",
@@ -712,6 +715,7 @@ async fn set_client_enabled_toggles_and_revokes_tokens_on_disable() {
             ))
             .app_data(web::Data::new(storage.clone()))
             .app_data(web::Data::new(RecentEventsStore::new(16)))
+            .app_data(web::Data::new(ClientActor::new(storage.clone()).start()))
             .route("/test/login", web::get().to(seed_session))
             .route(
                 "/admin/api/clients/{id}/enabled",
@@ -757,8 +761,9 @@ async fn regenerate_client_secret_rejects_public_clients() {
                 CookieSessionStore::default(),
                 session_key(),
             ))
-            .app_data(web::Data::new(storage))
+            .app_data(web::Data::new(storage.clone()))
             .app_data(web::Data::new(RecentEventsStore::new(16)))
+            .app_data(web::Data::new(ClientActor::new(storage.clone()).start()))
             .route("/test/login", web::get().to(seed_session))
             .route(
                 "/admin/api/clients/{id}/regenerate-secret",
@@ -794,6 +799,7 @@ async fn regenerate_client_secret_replaces_secret() {
             ))
             .app_data(web::Data::new(storage.clone()))
             .app_data(web::Data::new(RecentEventsStore::new(16)))
+            .app_data(web::Data::new(ClientActor::new(storage.clone()).start()))
             .route("/test/login", web::get().to(seed_session))
             .route(
                 "/admin/api/clients/{id}/regenerate-secret",
@@ -1303,3 +1309,303 @@ async fn capabilities_exposes_new_feature_flags() {
 // trait defaults (`false` for both `supports_denylist` /
 // `supports_audit_log` on `oauth2_ports::Storage`) until real impls ship
 // in v0.7.0.
+
+// ---------------------------------------------------------------------------
+// Client cache coherence: admin changes must be seen by cached lookups
+// ---------------------------------------------------------------------------
+
+fn span() -> tracing::Span {
+    tracing::Span::none()
+}
+
+#[actix_web::test]
+async fn regenerate_client_secret_takes_effect_through_client_actor() {
+    let storage = setup_storage().await;
+    let client = make_client_row("regen-cache");
+    let old_secret = client.client_secret.clone();
+    storage.save_client(&client).await.unwrap();
+    let actor = ClientActor::new(storage.clone()).start();
+    // Prime the cache with the pre-rotation record.
+    actor
+        .send(GetClient {
+            client_id: client.client_id.clone(),
+            span: span(),
+        })
+        .await
+        .unwrap()
+        .unwrap();
+
+    let app = test::init_service(
+        App::new()
+            .wrap(SessionMiddleware::new(
+                CookieSessionStore::default(),
+                session_key(),
+            ))
+            .app_data(web::Data::new(storage.clone()))
+            .app_data(web::Data::new(RecentEventsStore::new(16)))
+            .app_data(web::Data::new(actor.clone()))
+            .route("/test/login", web::get().to(seed_session))
+            .route(
+                "/admin/api/clients/{id}/regenerate-secret",
+                web::post().to(admin_extra::regenerate_client_secret),
+            ),
+    )
+    .await;
+    let cookie = admin_cookie!(app);
+
+    let req = test::TestRequest::post()
+        .uri(&format!(
+            "/admin/api/clients/{}/regenerate-secret",
+            client.id
+        ))
+        .insert_header(("Cookie", cookie))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    let new_secret = body["client_secret"].as_str().unwrap().to_string();
+
+    let old_ok = actor
+        .send(ValidateClient {
+            client_id: client.client_id.clone(),
+            client_secret: old_secret,
+            span: span(),
+        })
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(!old_ok, "old secret must stop working immediately");
+    let new_ok = actor
+        .send(ValidateClient {
+            client_id: client.client_id.clone(),
+            client_secret: new_secret,
+            span: span(),
+        })
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(new_ok, "new secret must work immediately");
+}
+
+#[actix_web::test]
+async fn disabling_client_takes_effect_through_client_actor() {
+    let storage = setup_storage().await;
+    let client = make_client_row("disable-cache");
+    storage.save_client(&client).await.unwrap();
+    let actor = ClientActor::new(storage.clone()).start();
+    actor
+        .send(GetClient {
+            client_id: client.client_id.clone(),
+            span: span(),
+        })
+        .await
+        .unwrap()
+        .unwrap();
+
+    let app = test::init_service(
+        App::new()
+            .wrap(SessionMiddleware::new(
+                CookieSessionStore::default(),
+                session_key(),
+            ))
+            .app_data(web::Data::new(storage.clone()))
+            .app_data(web::Data::new(RecentEventsStore::new(16)))
+            .app_data(web::Data::new(actor.clone()))
+            .route("/test/login", web::get().to(seed_session))
+            .route(
+                "/admin/api/clients/{id}/enabled",
+                web::post().to(admin_extra::set_client_enabled),
+            ),
+    )
+    .await;
+    let cookie = admin_cookie!(app);
+
+    let req = test::TestRequest::post()
+        .uri(&format!("/admin/api/clients/{}/enabled", client.id))
+        .insert_header(("Cookie", cookie))
+        .set_json(json!({ "enabled": false }))
+        .to_request();
+    assert_eq!(test::call_service(&app, req).await.status(), 200);
+
+    let seen = actor
+        .send(GetClient {
+            client_id: client.client_id.clone(),
+            span: span(),
+        })
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(!seen.enabled);
+}
+
+#[actix_web::test]
+async fn admin_update_client_takes_effect_through_client_actor() {
+    let storage = setup_storage().await;
+    let client = make_client_row("update-cache");
+    storage.save_client(&client).await.unwrap();
+    let actor = ClientActor::new(storage.clone()).start();
+    actor
+        .send(GetClient {
+            client_id: client.client_id.clone(),
+            span: span(),
+        })
+        .await
+        .unwrap()
+        .unwrap();
+
+    let app = test::init_service(
+        App::new()
+            .wrap(SessionMiddleware::new(
+                CookieSessionStore::default(),
+                session_key(),
+            ))
+            .app_data(web::Data::new(storage.clone()))
+            .app_data(web::Data::new(RecentEventsStore::new(16)))
+            .app_data(web::Data::new(actor.clone()))
+            .route("/test/login", web::get().to(seed_session))
+            .route(
+                "/admin/api/clients/{id}",
+                web::put().to(admin_extra::update_client),
+            ),
+    )
+    .await;
+    let cookie = admin_cookie!(app);
+
+    let req = test::TestRequest::put()
+        .uri(&format!("/admin/api/clients/{}", client.id))
+        .insert_header(("Cookie", cookie))
+        .set_json(json!({ "name": "renamed" }))
+        .to_request();
+    assert_eq!(test::call_service(&app, req).await.status(), 200);
+
+    let seen = actor
+        .send(GetClient {
+            client_id: client.client_id.clone(),
+            span: span(),
+        })
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(seen.name, "renamed");
+}
+
+#[actix_web::test]
+async fn admin_delete_client_takes_effect_through_client_actor() {
+    let storage = setup_storage().await;
+    let client = make_client_row("delete-cache");
+    storage.save_client(&client).await.unwrap();
+    let actor = ClientActor::new(storage.clone()).start();
+    actor
+        .send(GetClient {
+            client_id: client.client_id.clone(),
+            span: span(),
+        })
+        .await
+        .unwrap()
+        .unwrap();
+
+    let app = test::init_service(
+        App::new()
+            .app_data(web::Data::new(storage.clone()))
+            .app_data(web::Data::new(actor.clone()))
+            .route(
+                "/admin/api/clients/{id}",
+                web::delete().to(admin::delete_client),
+            ),
+    )
+    .await;
+
+    let req = test::TestRequest::delete()
+        .uri(&format!("/admin/api/clients/{}", client.id))
+        .to_request();
+    assert_eq!(test::call_service(&app, req).await.status(), 200);
+
+    let err = actor
+        .send(GetClient {
+            client_id: client.client_id.clone(),
+            span: span(),
+        })
+        .await
+        .unwrap()
+        .expect_err("deleted client must not be found");
+    assert_eq!(err.error, "invalid_client");
+}
+
+#[actix_web::test]
+async fn rfc7592_update_does_not_restore_rotated_secret() {
+    use oauth2_actix::handlers::client::{dynamic_register, update_client_configuration};
+    use oauth2_actix::handlers::wellknown::OidcConfig;
+
+    std::env::set_var("OAUTH2_DYNAMIC_REGISTRATION_ENABLED", "true");
+    let storage = setup_storage().await;
+    let actor = ClientActor::new(storage.clone()).start();
+    let oidc_config = OidcConfig {
+        issuer: "https://auth.example.com".to_string(),
+        jwt_secret: "rfc7592_test_jwt_secret_at_least_32_chars".to_string(),
+        id_token_alg: "HS256".to_string(),
+        id_token_kid: None,
+        id_token_private_key_pem: None,
+    };
+
+    let app = test::init_service(
+        App::new()
+            .app_data(web::Data::new(storage.clone()))
+            .app_data(web::Data::new(actor.clone()))
+            .app_data(web::Data::new(oidc_config))
+            .route("/connect/register", web::post().to(dynamic_register))
+            .route(
+                "/connect/register/{client_id}",
+                web::put().to(update_client_configuration),
+            ),
+    )
+    .await;
+
+    let body = json!({
+        "client_name": "Rotation Test",
+        "redirect_uris": ["https://app.example/callback"],
+        "grant_types": ["authorization_code"],
+        "scope": "openid"
+    });
+    let req = test::TestRequest::post()
+        .uri("/connect/register")
+        .set_json(&body)
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    let reg: Value = test::read_body_json(resp).await;
+    let client_id = reg["client_id"].as_str().unwrap().to_string();
+    let rat = reg["registration_access_token"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    // Cache the pre-rotation record, then rotate behind the cache's back.
+    actor
+        .send(GetClient {
+            client_id: client_id.clone(),
+            span: span(),
+        })
+        .await
+        .unwrap()
+        .unwrap();
+    storage
+        .set_client_secret(&client_id, "rotated-secret")
+        .await
+        .unwrap();
+
+    let req = test::TestRequest::put()
+        .uri(&format!("/connect/register/{client_id}"))
+        .insert_header(("Authorization", format!("Bearer {rat}")))
+        .set_json(json!({
+            "client_name": "Renamed",
+            "redirect_uris": ["https://app.example/callback"],
+            "grant_types": ["authorization_code"],
+            "scope": "openid"
+        }))
+        .to_request();
+    assert_eq!(test::call_service(&app, req).await.status(), 200);
+
+    let stored = storage.get_client(&client_id).await.unwrap().unwrap();
+    assert_eq!(stored.name, "Renamed");
+    assert_eq!(stored.client_secret, "rotated-secret");
+}
