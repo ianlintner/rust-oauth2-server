@@ -152,12 +152,37 @@ where
                 return Ok(req.into_response(response).map_into_right_body());
             }
 
-            let role: String = session
+            let mut role: String = session
                 .get("role")
                 .unwrap_or(None)
                 .unwrap_or_else(|| "user".to_string());
             let username: String = session.get("username").unwrap_or(None).unwrap_or_default();
-            let email: String = session.get("email").unwrap_or(None).unwrap_or_default();
+            let mut email: String = session.get("email").unwrap_or(None).unwrap_or_default();
+
+            // The cookie cannot be revoked server-side, so decide from the
+            // current user record rather than the values frozen in it.
+            if let (Some(uid), Some(storage)) =
+                (user_id.as_deref(), req.app_data::<web::Data<DynStorage>>())
+            {
+                match crate::handlers::session_user::load_active_user(storage.get_ref(), uid).await
+                {
+                    Ok(Some(user)) => {
+                        role = user.role;
+                        email = user.email;
+                    }
+                    Ok(None) => {
+                        let response = HttpResponse::Found()
+                            .append_header(("Location", "/auth/login?error=login_required"))
+                            .finish();
+                        return Ok(req.into_response(response).map_into_right_body());
+                    }
+                    Err(_) => {
+                        let response = HttpResponse::InternalServerError()
+                            .json(serde_json::json!({ "error": "server_error" }));
+                        return Ok(req.into_response(response).map_into_right_body());
+                    }
+                }
+            }
 
             let is_admin = role == "admin" || is_admin_email(&email);
 

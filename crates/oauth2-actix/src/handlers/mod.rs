@@ -19,6 +19,7 @@ pub mod oauth;
 pub mod oidc_logout;
 pub mod profile;
 pub mod session;
+pub(crate) mod session_user;
 pub mod token;
 pub mod token_exchange;
 pub mod transaction_authorization;

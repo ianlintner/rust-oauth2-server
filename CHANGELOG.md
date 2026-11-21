@@ -6,6 +6,14 @@
 
 ### Fixed
 
+- Enforce client and user status on grant paths. A disabled client is now
+  refused (`invalid_client`) at `/oauth/authorize`, `/oauth/par`, every
+  `/oauth/token` grant, device authorization, introspection and revocation.
+  A session whose user record is missing or disabled no longer authorizes,
+  approves device/TAC requests, or passes the admin guard, and the admin guard
+  takes the role from the current user record rather than the session cookie.
+  Behaviour change: the guard and the approval handlers now do one user lookup
+  per request.
 - Authorization-code replay now revokes the access token even for clients
   without the `refresh_token` grant (the token family was only assigned when a
   refresh token was issued; RFC 6749 §4.1.2 SHOULD, RFC 9700 §4.2.4).

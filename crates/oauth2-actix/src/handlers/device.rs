@@ -108,7 +108,8 @@ pub async fn device_authorization(
         .await
         .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))??;
 
-    if !client_secret_matches(&client, &client_secret) {
+    // A disabled client gets the same answer as a wrong secret.
+    if !client.enabled || !client_secret_matches(&client, &client_secret) {
         return Err(OAuth2Error::invalid_client("Invalid client_secret"));
     }
 
@@ -210,6 +211,7 @@ pub async fn verify_submit(
 ) -> Result<HttpResponse, OAuth2Error> {
     let user_id: Option<String> = session.get("user_id").unwrap_or(None);
     let user_id = user_id.ok_or_else(|| OAuth2Error::access_denied("Authentication required"))?;
+    crate::handlers::session_user::require_active_user(storage.get_ref(), &user_id).await?;
 
     let record = storage
         .get_device_authorization_by_user_code(&form.user_code)
