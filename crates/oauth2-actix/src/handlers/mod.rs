@@ -6,6 +6,7 @@ pub mod admin_trusted_issuers;
 pub mod cimd;
 pub mod client;
 pub mod client_resolver;
+pub mod conformance;
 pub mod device;
 pub mod dpop;
 pub mod dpop_nonce;

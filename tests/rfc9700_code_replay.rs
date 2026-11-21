@@ -52,6 +52,18 @@ fn session_cookie(
 /// @url https://datatracker.ietf.org/doc/html/rfc9700#section-2.1.1
 #[actix_web::test]
 async fn rfc9700_authorization_code_replay_revokes_issued_tokens() {
+    replay_revokes_access_token(&["authorization_code", "refresh_token"]).await;
+}
+
+/// RFC 6749 §4.1.2 SHOULD: code replay also revokes the access token of a
+/// client whose grant_types omit `refresh_token` (no refresh token is issued,
+/// but the access token must still be linked to the code's lineage).
+#[actix_web::test]
+async fn code_replay_revokes_access_token_without_refresh_grant() {
+    replay_revokes_access_token(&["authorization_code"]).await;
+}
+
+async fn replay_revokes_access_token(grant_types: &[&str]) {
     const ISSUER: &str = "https://auth.example.com";
     const VERIFIER: &str = "verifier-replay-abcdefghijklmnopqrstuvwxyz1234567890";
 
@@ -59,10 +71,7 @@ async fn rfc9700_authorization_code_replay_revokes_issued_tokens() {
         "client_replay".to_string(),
         "secret_replay".to_string(),
         vec!["https://client.example.test/cb".to_string()],
-        vec![
-            "authorization_code".to_string(),
-            "refresh_token".to_string(),
-        ],
+        grant_types.iter().map(|g| g.to_string()).collect(),
         "read".to_string(),
         "Replay Test Client".to_string(),
     );

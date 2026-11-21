@@ -5,6 +5,8 @@ use oauth2_observability::annotate_span_with_trace_ids;
 use oauth2_ports::DynStorage;
 use rand::{Rng, SeedableRng};
 use std::num::NonZeroUsize;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tracing::Instrument;
 
@@ -33,6 +35,115 @@ pub struct ClientActor {
     cache_ttl: Duration,
     #[allow(dead_code)]
     redis: ClientRedisConn,
+    /// Bumped by every invalidation. A lookup records the value before it
+    /// reads storage and may only fill a cache while it is unchanged, so a
+    /// read that began before a change can never re-cache the old record.
+    epoch: Arc<AtomicU64>,
+    /// Clients whose Redis entry could not be deleted. Redis is not read or
+    /// written for them until a delete succeeds.
+    #[cfg(feature = "redis-cache")]
+    redis_dirty: Arc<RedisDirty>,
+}
+
+/// Set of client ids whose Redis entry is not known to be gone.
+#[cfg(feature = "redis-cache")]
+#[derive(Default)]
+struct RedisDirty(std::sync::Mutex<std::collections::HashSet<String>>);
+
+#[cfg(feature = "redis-cache")]
+impl RedisDirty {
+    fn mark(&self, client_id: &str) {
+        self.0
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(client_id.to_string());
+    }
+    fn clear(&self, client_id: &str) {
+        self.0
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(client_id);
+    }
+    fn contains(&self, client_id: &str) -> bool {
+        self.0
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .contains(client_id)
+    }
+}
+
+/// Delete the Redis entry, tracking failure in `dirty`.
+#[cfg(feature = "redis-cache")]
+async fn redis_delete(
+    conn: &mut oauth2_observability::TracedRedis,
+    dirty: &RedisDirty,
+    client_id: &str,
+) -> bool {
+    let key = format!("{}{}", REDIS_CLIENT_PREFIX, client_id);
+    match conn.del(&key).await {
+        Ok(()) => {
+            dirty.clear(client_id);
+            true
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, "Failed to delete client from Redis cache; bypassing Redis for this client");
+            dirty.mark(client_id);
+            false
+        }
+    }
+}
+
+/// Whether Redis may be used for `client_id`. A client whose delete failed is
+/// retried here and skipped until the delete goes through.
+#[cfg(feature = "redis-cache")]
+async fn redis_usable(
+    conn: &mut oauth2_observability::TracedRedis,
+    dirty: &RedisDirty,
+    client_id: &str,
+) -> bool {
+    !dirty.contains(client_id) || redis_delete(conn, dirty, client_id).await
+}
+
+/// Read the client from Redis, if usable and present.
+#[cfg(feature = "redis-cache")]
+async fn redis_read(
+    conn: &mut oauth2_observability::TracedRedis,
+    dirty: &RedisDirty,
+    client_id: &str,
+) -> Option<Client> {
+    if !redis_usable(conn, dirty, client_id).await {
+        return None;
+    }
+    let key = format!("{}{}", REDIS_CLIENT_PREFIX, client_id);
+    let json: Option<String> = conn.get(&key).await.ok().flatten();
+    serde_json::from_str::<Client>(&json?).ok()
+}
+
+/// Write the client to Redis unless an invalidation happened since the
+/// lookup began (`epoch` no longer equals `captured`). The epoch is checked
+/// again after the write: an invalidation that deleted the key before our
+/// SET landed bumped the epoch first, so we delete again.
+#[cfg(feature = "redis-cache")]
+async fn redis_fill(
+    conn: &mut oauth2_observability::TracedRedis,
+    dirty: &RedisDirty,
+    epoch: &AtomicU64,
+    captured: u64,
+    client: &Client,
+    ttl_secs: u64,
+) {
+    if epoch.load(Ordering::SeqCst) != captured
+        || !redis_usable(conn, dirty, &client.client_id).await
+    {
+        return;
+    }
+    let key = format!("{}{}", REDIS_CLIENT_PREFIX, client.client_id);
+    if let Ok(json) = serde_json::to_string(client) {
+        let _: Result<(), _> = conn.set_ex(&key, json, ttl_secs).await;
+    }
+    if epoch.load(Ordering::SeqCst) != captured {
+        redis_delete(conn, dirty, &client.client_id).await;
+    }
 }
 
 impl ClientActor {
@@ -43,6 +154,9 @@ impl ClientActor {
             cache: LruCache::new(NonZeroUsize::new(CLIENT_CACHE_MAX_ENTRIES).expect("non-zero")),
             cache_ttl: Duration::from_secs(CLIENT_CACHE_TTL_SECS),
             redis: Default::default(),
+            epoch: Arc::new(AtomicU64::new(0)),
+            #[cfg(feature = "redis-cache")]
+            redis_dirty: Default::default(),
         }
     }
 
@@ -53,6 +167,9 @@ impl ClientActor {
             cache: LruCache::new(NonZeroUsize::new(CLIENT_CACHE_MAX_ENTRIES).expect("non-zero")),
             cache_ttl: Duration::from_secs(CLIENT_CACHE_TTL_SECS),
             redis: Default::default(),
+            epoch: Arc::new(AtomicU64::new(0)),
+            #[cfg(feature = "redis-cache")]
+            redis_dirty: Default::default(),
         }
     }
 
@@ -97,6 +214,38 @@ impl Actor for ClientActor {
     type Context = Context<Self>;
 }
 
+/// Drop every cached copy of a client (in-process entry and, when configured,
+/// the Redis entry). Send this *after* the storage write that changed or
+/// removed the client so a lookup in between cannot re-cache the old row.
+#[derive(Message)]
+#[rtype(result = "()")]
+pub struct InvalidateClient {
+    pub client_id: String,
+}
+
+impl Handler<InvalidateClient> for ClientActor {
+    type Result = ResponseFuture<()>;
+
+    fn handle(&mut self, msg: InvalidateClient, _: &mut Self::Context) -> Self::Result {
+        // Bump first, then evict: fills that started earlier are now stale and
+        // are refused, in the L1 handler and in `redis_fill`.
+        self.epoch.fetch_add(1, Ordering::SeqCst);
+        self.cache.pop(&msg.client_id);
+        #[cfg(feature = "redis-cache")]
+        let redis_conn = self.redis.clone();
+        #[cfg(feature = "redis-cache")]
+        let dirty = self.redis_dirty.clone();
+        Box::pin(async move {
+            #[cfg(feature = "redis-cache")]
+            if let Some(mut conn) = redis_conn {
+                redis_delete(&mut conn, &dirty, &msg.client_id).await;
+            }
+            #[cfg(not(feature = "redis-cache"))]
+            let _ = msg;
+        })
+    }
+}
+
 #[derive(Message)]
 #[rtype(result = "Result<Client, OAuth2Error>")]
 pub struct RegisterClient {
@@ -109,13 +258,17 @@ pub struct RegisterClient {
 #[rtype(result = "()")]
 pub struct CacheClient {
     pub client: Client,
+    /// Invalidation epoch observed before `client` was read from storage.
+    pub epoch: u64,
 }
 
 impl Handler<CacheClient> for ClientActor {
     type Result = ();
 
     fn handle(&mut self, msg: CacheClient, _: &mut Self::Context) {
-        self.insert_cached_client(msg.client);
+        if msg.epoch == self.epoch.load(Ordering::SeqCst) {
+            self.insert_cached_client(msg.client);
+        }
     }
 }
 
@@ -126,6 +279,7 @@ impl Handler<RegisterClient> for ClientActor {
         let db = self.db.clone();
         let event_bus = self.event_bus.clone();
         let self_addr = ctx.address();
+        let epoch = self.epoch.load(Ordering::SeqCst);
 
         let parent_span = msg.span.clone();
         let actor_span = tracing::info_span!(
@@ -244,6 +398,7 @@ impl Handler<RegisterClient> for ClientActor {
                 // the at-rest form.
                 let _ = self_addr.try_send(CacheClient {
                     client: client.for_storage(),
+                    epoch,
                 });
 
                 // Emit event
@@ -295,6 +450,11 @@ impl Handler<GetClient> for ClientActor {
         // Check the LRU cache synchronously before going async.
         let cached = self.get_cached_client(&requested_client_id);
         let self_addr = ctx.address();
+        let epoch = self.epoch.load(Ordering::SeqCst);
+        #[cfg(feature = "redis-cache")]
+        let epoch_shared = self.epoch.clone();
+        #[cfg(feature = "redis-cache")]
+        let dirty = self.redis_dirty.clone();
 
         #[cfg(feature = "redis-cache")]
         let redis_conn = self.redis.clone();
@@ -311,20 +471,13 @@ impl Handler<GetClient> for ClientActor {
                 // L2: Check Redis cache.
                 #[cfg(feature = "redis-cache")]
                 if let Some(ref mut conn) = redis_conn.clone() {
-                    let redis_key = format!("{}{}", REDIS_CLIENT_PREFIX, requested_client_id);
-                    let redis_result: Result<Option<String>, _> = conn.get(&redis_key).await;
-                    if let Ok(Some(json)) = redis_result {
-                        if let Ok(client) = serde_json::from_str::<Client>(&json) {
-                            tracing::debug!(
-                                cache = "hit",
-                                layer = "L2",
-                                "Client found in Redis cache"
-                            );
-                            let _ = self_addr.try_send(CacheClient {
-                                client: client.clone(),
-                            });
-                            return Ok(client);
-                        }
+                    if let Some(client) = redis_read(conn, &dirty, &requested_client_id).await {
+                        tracing::debug!(cache = "hit", layer = "L2", "Client found in Redis cache");
+                        let _ = self_addr.try_send(CacheClient {
+                            client: client.clone(),
+                            epoch,
+                        });
+                        return Ok(client);
                     }
                 }
 
@@ -336,14 +489,12 @@ impl Handler<GetClient> for ClientActor {
                 // Write to Redis L2.
                 #[cfg(feature = "redis-cache")]
                 if let Some(ref mut conn) = redis_conn.clone() {
-                    let redis_key = format!("{}{}", REDIS_CLIENT_PREFIX, requested_client_id);
-                    if let Ok(json) = serde_json::to_string(&client) {
-                        let _: Result<(), _> = conn.set_ex(&redis_key, json, cache_ttl_secs).await;
-                    }
+                    redis_fill(conn, &dirty, &epoch_shared, epoch, &client, cache_ttl_secs).await;
                 }
 
                 let _ = self_addr.try_send(CacheClient {
                     client: client.clone(),
+                    epoch,
                 });
 
                 Ok(client)
@@ -383,6 +534,11 @@ impl Handler<ValidateClient> for ClientActor {
         // Check the LRU cache synchronously.
         let cached = self.get_cached_client(&requested_client_id);
         let self_addr = ctx.address();
+        let epoch = self.epoch.load(Ordering::SeqCst);
+        #[cfg(feature = "redis-cache")]
+        let epoch_shared = self.epoch.clone();
+        #[cfg(feature = "redis-cache")]
+        let dirty = self.redis_dirty.clone();
 
         #[cfg(feature = "redis-cache")]
         let redis_conn = self.redis.clone();
@@ -404,20 +560,17 @@ impl Handler<ValidateClient> for ClientActor {
                     let mut from_redis = None;
                     #[cfg(feature = "redis-cache")]
                     if let Some(ref mut conn) = redis_conn.clone() {
-                        let redis_key = format!("{}{}", REDIS_CLIENT_PREFIX, requested_client_id);
-                        let redis_result: Result<Option<String>, _> = conn.get(&redis_key).await;
-                        if let Ok(Some(json)) = redis_result {
-                            if let Ok(client) = serde_json::from_str::<Client>(&json) {
-                                tracing::debug!(
-                                    cache = "hit",
-                                    layer = "L2",
-                                    "Client found in Redis validation cache"
-                                );
-                                let _ = self_addr.try_send(CacheClient {
-                                    client: client.clone(),
-                                });
-                                from_redis = Some(client);
-                            }
+                        if let Some(client) = redis_read(conn, &dirty, &requested_client_id).await {
+                            tracing::debug!(
+                                cache = "hit",
+                                layer = "L2",
+                                "Client found in Redis validation cache"
+                            );
+                            let _ = self_addr.try_send(CacheClient {
+                                client: client.clone(),
+                                epoch,
+                            });
+                            from_redis = Some(client);
                         }
                     }
 
@@ -432,16 +585,20 @@ impl Handler<ValidateClient> for ClientActor {
                         // Write to Redis L2.
                         #[cfg(feature = "redis-cache")]
                         if let Some(ref mut conn) = redis_conn.clone() {
-                            let redis_key =
-                                format!("{}{}", REDIS_CLIENT_PREFIX, requested_client_id);
-                            if let Ok(json) = serde_json::to_string(&fetched) {
-                                let _: Result<(), _> =
-                                    conn.set_ex(&redis_key, json, cache_ttl_secs).await;
-                            }
+                            redis_fill(
+                                conn,
+                                &dirty,
+                                &epoch_shared,
+                                epoch,
+                                &fetched,
+                                cache_ttl_secs,
+                            )
+                            .await;
                         }
 
                         let _ = self_addr.try_send(CacheClient {
                             client: fetched.clone(),
+                            epoch,
                         });
                         fetched
                     }
@@ -488,6 +645,7 @@ impl Handler<UpdateClient> for ClientActor {
     fn handle(&mut self, msg: UpdateClient, ctx: &mut Self::Context) -> Self::Result {
         let db = self.db.clone();
         let self_addr = ctx.address();
+        let epoch_shared = self.epoch.clone();
 
         let parent_span = msg.span.clone();
         let actor_span = tracing::info_span!(
@@ -501,17 +659,34 @@ impl Handler<UpdateClient> for ClientActor {
 
         Box::pin(
             async move {
-                db.update_client(&msg.client).await?;
+                // The caller's copy may come from the cache and be stale, so
+                // the write leaves `client_secret` and `enabled` out of the
+                // statement instead of copying them from an earlier read.
+                db.update_client_metadata(&msg.client).await?;
 
-                // Cache the stored record (credentials are not written by
-                // update_client), not the caller's possibly stale snapshot.
-                // Read from the authoritative store: a lagging read replica
-                // could still hold a pre-rotation verifier.
+                // Invalidate first: a lookup that read storage before this
+                // write can no longer fill a stale verifier into the cache.
+                self_addr
+                    .send(InvalidateClient {
+                        client_id: msg.client.client_id.clone(),
+                    })
+                    .await
+                    .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))?;
+
+                // Cache the authoritative post-write record rather than the
+                // caller's possibly stale snapshot; a read replica could still
+                // hold a pre-rotation verifier.
+                let epoch = epoch_shared.load(Ordering::SeqCst);
                 if let Some(stored) = db.get_client_authoritative(&msg.client.client_id).await? {
-                    let _ = self_addr.try_send(CacheClient { client: stored });
+                    let _ = self_addr.try_send(CacheClient {
+                        client: stored,
+                        epoch,
+                    });
                 }
 
-                Ok(msg.client)
+                db.get_client(&msg.client.client_id)
+                    .await?
+                    .ok_or_else(|| OAuth2Error::invalid_client("Client not found"))
             }
             .instrument(actor_span),
         )
@@ -532,7 +707,7 @@ pub struct DeleteClient {
 impl Handler<DeleteClient> for ClientActor {
     type Result = ResponseFuture<Result<(), OAuth2Error>>;
 
-    fn handle(&mut self, msg: DeleteClient, _ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: DeleteClient, ctx: &mut Self::Context) -> Self::Result {
         let db = self.db.clone();
         let client_id = msg.client_id.clone();
 
@@ -546,12 +721,15 @@ impl Handler<DeleteClient> for ClientActor {
         );
         annotate_span_with_trace_ids(&actor_span);
 
-        // Evict from LRU cache eagerly.
-        self.cache.pop(&client_id);
+        let self_addr = ctx.address();
 
         Box::pin(
             async move {
                 db.delete_client(&client_id).await?;
+                self_addr
+                    .send(InvalidateClient { client_id })
+                    .await
+                    .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))?;
                 Ok(())
             }
             .instrument(actor_span),
@@ -633,6 +811,7 @@ impl Handler<MaterializeCimdClient> for ClientActor {
 
         let db = self.db.clone();
         let self_addr = ctx.address();
+        let epoch = self.epoch.load(Ordering::SeqCst);
 
         let parent_span = msg.span.clone();
         let actor_span = tracing::info_span!(
@@ -664,7 +843,7 @@ impl Handler<MaterializeCimdClient> for ClientActor {
                         }
                         preserve_operator_state(&mut client, &existing);
                         if cimd_row_matches(&existing, &client) {
-                            let _ = self_addr.try_send(CacheClient { client });
+                            let _ = self_addr.try_send(CacheClient { client, epoch });
                             return Ok(());
                         }
                         db.update_client(&client).await?;
@@ -696,6 +875,7 @@ impl Handler<MaterializeCimdClient> for ClientActor {
 
                 let _ = self_addr.try_send(CacheClient {
                     client: client.clone(),
+                    epoch,
                 });
                 Ok(())
             }
@@ -720,4 +900,20 @@ fn generate_secret_of_length(len: usize) -> String {
             }
         })
         .collect()
+}
+
+#[cfg(all(test, feature = "redis-cache"))]
+mod redis_dirty_tests {
+    use super::RedisDirty;
+
+    #[test]
+    fn mark_then_clear_tracks_per_client() {
+        let dirty = RedisDirty::default();
+        assert!(!dirty.contains("a"));
+        dirty.mark("a");
+        assert!(dirty.contains("a"));
+        assert!(!dirty.contains("b"));
+        dirty.clear("a");
+        assert!(!dirty.contains("a"));
+    }
 }

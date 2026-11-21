@@ -1,9 +1,12 @@
+use actix::Addr;
 use actix_web::{web, HttpResponse, Result};
 use serde::Serialize;
 
 use oauth2_core::{ListQuery, Page};
 use oauth2_observability::Metrics;
 use oauth2_ports::DynStorage;
+
+use crate::actors::client_actor::{ClientActor, InvalidateClient};
 
 // --- Response types ---
 
@@ -202,6 +205,7 @@ pub async fn get_client(
 pub async fn delete_client(
     client_id: web::Path<String>,
     db: web::Data<DynStorage>,
+    client_actor: web::Data<Addr<ClientActor>>,
 ) -> Result<HttpResponse> {
     // Resolve internal id → client_id field used by delete_client storage method.
     // The storage trait's delete_client takes the *client_id* string (not the uuid id).
@@ -217,6 +221,12 @@ pub async fn delete_client(
         }
         Some(c) => {
             db.delete_client(&c.client_id)
+                .await
+                .map_err(actix_web::error::ErrorInternalServerError)?;
+            client_actor
+                .send(InvalidateClient {
+                    client_id: c.client_id.clone(),
+                })
                 .await
                 .map_err(actix_web::error::ErrorInternalServerError)?;
             Ok(HttpResponse::Ok().json(serde_json::json!({ "message": "Client deleted" })))

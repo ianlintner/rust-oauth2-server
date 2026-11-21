@@ -126,7 +126,7 @@ jobs:
 
       - name: Install cargo-nextest
         if: needs.changes.outputs.code == 'true'
-        uses: taiki-e/install-action@3a3daafd3b7f23b8f65d9f5ba2db203fb59b79e2 # v2.90.2
+        uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
         with:
           tool: cargo-nextest
 
@@ -284,7 +284,7 @@ jobs:
 
       - name: Install cargo-audit + cargo-vet
         if: needs.changes.outputs.code == 'true'
-        uses: taiki-e/install-action@3a3daafd3b7f23b8f65d9f5ba2db203fb59b79e2 # v2.90.2
+        uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
         with:
           tool: cargo-audit,cargo-vet@0.10.2
 
@@ -805,7 +805,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ianlintner/oauth2-conformance
-          ref: 985fef7aca4835a7ab4fb92c94e8f979f7308189 # contract v0.5 sender-constrained (keep in sync with conformance.yaml)
+          ref: b7620924068f32c8800cb23c8d47b6c1b2b6c583 # contract main (keep in sync with conformance.yaml)
           path: .conformance-contract
           persist-credentials: false
 

@@ -1,6 +1,26 @@
 ## [Unreleased]
 
+### Changed
+
+- Conformance contract pin bumped to `b762092`.
+
+### Fixed
+
+- Authorization-code replay now revokes the access token even for clients
+  without the `refresh_token` grant (the token family was only assigned when a
+  refresh token was issued; RFC 6749 §4.1.2 SHOULD, RFC 9700 §4.2.4).
+
 ### Added
+
+- Conformance mode, contract K2/K3 first slice (conformance mode only):
+  the seed accepts a per-client public-only `jwks` for `private_key_jwt`
+  clients (private key members are rejected) and the
+  `urn:ietf:params:oauth:grant-type:jwt-bearer` grant; `GET
+  /conformance/capabilities` (interface v2) advertises `dpop-nonce-mode`, and
+  `POST /conformance/dpop-nonce` toggles server-provided DPoP nonces at the
+  token endpoint. Neither route nor state exists with the mode off. The
+  contract pin is bumped to `ad45cc7`. `test-clock`, `restart`,
+  `multi-instance` and `mtls` are not implemented yet and not advertised.
 
 - Conformance test mode for the `oauth2-conformance` SUT interface:
   `OAUTH2_CONFORMANCE_MODE=1` + `OAUTH2_CONFORMANCE_SEED=<file>` seeds issuer,
@@ -19,6 +39,9 @@
 
 ### Changed
 
+- Fix: the DPoP nonce issuer was built per HTTP worker, so a nonce issued by
+  one worker failed verification on another when `OAUTH2_DPOP_NONCE_SECRET`
+  was unset; it is now built once and shared.
 - **Behavior change (RFC-aligned, owner review):** `GET /oauth/authorize`
   now reports a missing or unsupported `response_type`, a missing/empty
   `code_challenge`, a missing `code_challenge_method` and a non-`S256`

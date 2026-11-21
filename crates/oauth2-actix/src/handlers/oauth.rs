@@ -1655,6 +1655,8 @@ pub async fn token(
     agent_config: Option<web::Data<oauth2_config::AgentConfig>>,
     keyset: Option<web::Data<std::sync::Arc<tokio::sync::RwLock<KeySet>>>>,
     cimd: Option<web::Data<CimdFetcher>>,
+    // Conformance mode only (absent otherwise): global DPoP-nonce toggle.
+    conformance_controls: Option<web::Data<crate::handlers::conformance::ConformanceControls>>,
 ) -> Result<HttpResponse, OAuth2Error> {
     // OAuch: reject duplicate parameters (prevents parser differentials / smuggling).
     ensure_no_duplicate_query_params(&req)?;
@@ -1805,7 +1807,9 @@ pub async fn token(
         )
         .await;
         if let Ok(client) = lookup {
-            if client.dpop_nonce_required {
+            if client.dpop_nonce_required
+                || crate::handlers::conformance::dpop_nonce_forced(conformance_controls.as_ref())
+            {
                 match enforce_dpop_nonce(validated, issuer) {
                     Ok(()) => {}
                     Err(e) if e.error == "use_dpop_nonce" => {
@@ -2532,15 +2536,13 @@ async fn handle_authorization_code_grant(
     // RFC 9700 §2.1.5: adopt the auth-code's token_family so every token
     // derived from this grant shares a lineage that can be cascade-revoked
     // on code replay. Fall back to a fresh UUID for legacy codes issued
-    // before migration V18 rolled out.
-    let token_family = if include_refresh {
-        auth_code
-            .token_family
-            .clone()
-            .or_else(|| Some(Uuid::new_v4().to_string()))
-    } else {
-        None
-    };
+    // before migration V18 rolled out. Applies even when no refresh token is
+    // issued: the access token must still be revoked on code replay
+    // (RFC 6749 §4.1.2).
+    let token_family = auth_code
+        .token_family
+        .clone()
+        .or_else(|| Some(Uuid::new_v4().to_string()));
 
     // RFC 9396: prefer `authorization_details` from the token request over what
     // was stored in the auth code (token request wins if both are present).

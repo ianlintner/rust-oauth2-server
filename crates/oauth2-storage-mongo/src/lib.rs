@@ -412,6 +412,22 @@ impl Storage for MongoStorage {
             .map_err(Self::mongo_err_to_oauth)
     }
 
+    async fn update_client_metadata(&self, client: &Client) -> Result<(), OAuth2Error> {
+        let mut fields = mongodb::bson::to_document(client)
+            .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))?;
+        for key in ["_id", "client_id", "client_secret", "enabled", "created_at"] {
+            fields.remove(key);
+        }
+        self.clients
+            .update_one(
+                doc! { "client_id": &client.client_id },
+                doc! { "$set": fields },
+            )
+            .await
+            .map(|_| ())
+            .map_err(Self::mongo_err_to_oauth)
+    }
+
     async fn delete_client(&self, client_id: &str) -> Result<(), OAuth2Error> {
         self.clients
             .delete_one(doc! { "client_id": client_id })

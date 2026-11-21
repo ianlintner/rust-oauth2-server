@@ -931,6 +931,128 @@ impl Storage for SqlxStorage {
         Ok(())
     }
 
+    async fn update_client_metadata(&self, client: &Client) -> Result<(), OAuth2Error> {
+        match &self.pool {
+            DatabasePool::Sqlite(pool) => {
+                sqlx::query(
+                    r#"
+                    UPDATE clients SET
+                        redirect_uris = ?, grant_types = ?,
+                        scope = ?, name = ?, updated_at = ?,
+                        token_endpoint_auth_method = ?,
+                        registration_access_token = ?,
+                        response_types = ?, contacts = ?,
+                        logo_uri = ?, client_uri = ?,
+                        policy_uri = ?, tos_uri = ?,
+                        jwks = ?, jwks_uri = ?,
+                        backchannel_logout_uri = ?,
+                        backchannel_logout_session_required = ?,
+                        frontchannel_logout_uri = ?,
+                        frontchannel_logout_session_required = ?,
+                        post_logout_redirect_uris = ?,
+                        tls_client_certificate_subject_dn = ?,
+                        dpop_nonce_required = ?,
+                        allowed_actors = ?,
+                        tls_client_auth_san = ?,
+                        software_id = ?,
+                        software_version = ?,
+                        cimd_managed = ?
+                    WHERE client_id = ?
+                    "#,
+                )
+                .bind(&client.redirect_uris)
+                .bind(&client.grant_types)
+                .bind(&client.scope)
+                .bind(&client.name)
+                .bind(client.updated_at)
+                .bind(&client.token_endpoint_auth_method)
+                .bind(&client.registration_access_token)
+                .bind(&client.response_types)
+                .bind(&client.contacts)
+                .bind(&client.logo_uri)
+                .bind(&client.client_uri)
+                .bind(&client.policy_uri)
+                .bind(&client.tos_uri)
+                .bind(&client.jwks)
+                .bind(&client.jwks_uri)
+                .bind(&client.backchannel_logout_uri)
+                .bind(client.backchannel_logout_session_required)
+                .bind(&client.frontchannel_logout_uri)
+                .bind(client.frontchannel_logout_session_required)
+                .bind(&client.post_logout_redirect_uris)
+                .bind(&client.tls_client_certificate_subject_dn)
+                .bind(client.dpop_nonce_required)
+                .bind(&client.allowed_actors)
+                .bind(&client.tls_client_auth_san)
+                .bind(&client.software_id)
+                .bind(&client.software_version)
+                .bind(client.cimd_managed)
+                .bind(&client.client_id)
+                .execute(pool)
+                .await?;
+            }
+            DatabasePool::Postgres(pool) => {
+                sqlx::query(
+                    r#"
+                    UPDATE clients SET
+                        redirect_uris = $1, grant_types = $2,
+                        scope = $3, name = $4, updated_at = $5,
+                        token_endpoint_auth_method = $6,
+                        registration_access_token = $7,
+                        response_types = $8, contacts = $9,
+                        logo_uri = $10, client_uri = $11,
+                        policy_uri = $12, tos_uri = $13,
+                        jwks = $14, jwks_uri = $15,
+                        backchannel_logout_uri = $16,
+                        backchannel_logout_session_required = $17,
+                        frontchannel_logout_uri = $18,
+                        frontchannel_logout_session_required = $19,
+                        post_logout_redirect_uris = $20,
+                        tls_client_certificate_subject_dn = $21,
+                        dpop_nonce_required = $22,
+                        allowed_actors = $23,
+                        tls_client_auth_san = $24,
+                        software_id = $25,
+                        software_version = $26,
+                        cimd_managed = $27
+                    WHERE client_id = $28
+                    "#,
+                )
+                .bind(&client.redirect_uris)
+                .bind(&client.grant_types)
+                .bind(&client.scope)
+                .bind(&client.name)
+                .bind(client.updated_at)
+                .bind(&client.token_endpoint_auth_method)
+                .bind(&client.registration_access_token)
+                .bind(&client.response_types)
+                .bind(&client.contacts)
+                .bind(&client.logo_uri)
+                .bind(&client.client_uri)
+                .bind(&client.policy_uri)
+                .bind(&client.tos_uri)
+                .bind(&client.jwks)
+                .bind(&client.jwks_uri)
+                .bind(&client.backchannel_logout_uri)
+                .bind(client.backchannel_logout_session_required)
+                .bind(&client.frontchannel_logout_uri)
+                .bind(client.frontchannel_logout_session_required)
+                .bind(&client.post_logout_redirect_uris)
+                .bind(&client.tls_client_certificate_subject_dn)
+                .bind(client.dpop_nonce_required)
+                .bind(&client.allowed_actors)
+                .bind(&client.tls_client_auth_san)
+                .bind(&client.software_id)
+                .bind(&client.software_version)
+                .bind(client.cimd_managed)
+                .bind(&client.client_id)
+                .execute(pool)
+                .await?;
+            }
+        }
+        Ok(())
+    }
+
     async fn delete_client(&self, client_id: &str) -> Result<(), OAuth2Error> {
         match &self.pool {
             DatabasePool::Sqlite(pool) => {

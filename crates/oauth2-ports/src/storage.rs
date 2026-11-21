@@ -40,6 +40,24 @@ pub trait Storage: Send + Sync {
     /// Update an existing client's metadata (RFC 7592).
     async fn update_client(&self, client: &Client) -> Result<(), OAuth2Error>;
 
+    /// Update a client's metadata (RFC 7592) without touching the credential
+    /// or the `enabled` flag, so a stale copy of the client cannot restore a
+    /// rotated secret or re-enable a disabled client.
+    ///
+    /// Backends should override this with a single statement that omits those
+    /// columns. The default reads the stored row and writes it back with its
+    /// current `client_secret`/`enabled`, which is not atomic.
+    async fn update_client_metadata(&self, client: &Client) -> Result<(), OAuth2Error> {
+        let stored = self
+            .get_client(&client.client_id)
+            .await?
+            .ok_or_else(|| OAuth2Error::invalid_client("Client not found"))?;
+        let mut merged = client.clone();
+        merged.client_secret = stored.client_secret;
+        merged.enabled = stored.enabled;
+        self.update_client(&merged).await
+    }
+
     /// Delete a client by `client_id` (RFC 7592).
     async fn delete_client(&self, client_id: &str) -> Result<(), OAuth2Error>;
 
