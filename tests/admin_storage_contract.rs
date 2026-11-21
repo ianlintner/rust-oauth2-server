@@ -215,7 +215,8 @@ async fn set_client_secret_replaces_secret() {
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(reloaded.client_secret, "brand-new-secret");
+    assert!(reloaded.verify_secret("brand-new-secret"));
+    assert!(!reloaded.verify_secret("secret"));
 }
 
 // ---------------------------------------------------------------------------

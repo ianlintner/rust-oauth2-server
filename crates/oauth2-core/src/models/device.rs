@@ -22,6 +22,14 @@ pub struct DeviceAuthorization {
 }
 
 impl DeviceAuthorization {
+    /// Copy with the device code replaced by its at-rest verifier
+    /// (idempotent). The short `user_code` is typed by a human and stays as-is.
+    pub fn for_storage(&self) -> Self {
+        let mut d = self.clone();
+        d.device_code = crate::at_rest::protect_bearer(&d.device_code);
+        d
+    }
+
     pub fn new(
         device_code: String,
         user_code: String,

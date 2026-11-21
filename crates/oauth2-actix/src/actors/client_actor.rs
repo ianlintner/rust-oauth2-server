@@ -80,6 +80,9 @@ impl ClientActor {
     }
 
     fn insert_cached_client(&mut self, client: Client) {
+        // Callers pass records already in at-rest form (loaded from storage
+        // or Redis) or protect them first. Never re-protect here: that would
+        // turn rejected legacy values into valid verifiers.
         self.cache.put(
             client.client_id.clone(),
             CachedClient {
@@ -236,9 +239,11 @@ impl Handler<RegisterClient> for ClientActor {
 
                 db.save_client(&client).await?;
 
-                // Send back to actor for LRU cache insertion.
+                // Send back to actor for LRU cache insertion. `client` still
+                // holds the raw secret for the one-time response; cache only
+                // the at-rest form.
                 let _ = self_addr.try_send(CacheClient {
-                    client: client.clone(),
+                    client: client.for_storage(),
                 });
 
                 // Emit event
@@ -443,12 +448,7 @@ impl Handler<ValidateClient> for ClientActor {
                 };
 
                 // Use constant-time comparison to prevent timing attacks
-                use subtle::ConstantTimeEq;
-                let secret_match = client
-                    .client_secret
-                    .as_bytes()
-                    .ct_eq(presented_secret.as_bytes())
-                    .into();
+                let secret_match = client.verify_secret(&presented_secret);
 
                 // Emit event
                 if let Some(event_bus) = event_bus {
@@ -503,9 +503,13 @@ impl Handler<UpdateClient> for ClientActor {
             async move {
                 db.update_client(&msg.client).await?;
 
-                let _ = self_addr.try_send(CacheClient {
-                    client: msg.client.clone(),
-                });
+                // Cache the stored record (credentials are not written by
+                // update_client), not the caller's possibly stale snapshot.
+                // Read from the authoritative store: a lagging read replica
+                // could still hold a pre-rotation verifier.
+                if let Some(stored) = db.get_client_authoritative(&msg.client.client_id).await? {
+                    let _ = self_addr.try_send(CacheClient { client: stored });
+                }
 
                 Ok(msg.client)
             }

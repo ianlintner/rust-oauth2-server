@@ -151,6 +151,27 @@ fn default_allowed_actors() -> String {
 }
 
 impl Client {
+    /// Copy of this client with credentials in their at-rest form
+    /// (see [`crate::at_rest`]). Idempotent: already-protected values are kept.
+    pub fn for_storage(&self) -> Self {
+        let mut c = self.clone();
+        c.client_secret = crate::at_rest::protect_client_secret(&c.client_secret);
+        c.registration_access_token = crate::at_rest::protect_bearer(&c.registration_access_token);
+        c
+    }
+
+    /// Constant-time check of a presented client secret against the stored
+    /// record. Legacy (pre-cutover) stored values never match.
+    pub fn verify_secret(&self, presented: &str) -> bool {
+        crate::at_rest::verify_client_secret(presented, &self.client_secret)
+    }
+
+    /// HMAC key material for `client_secret_jwt` / HS256 request objects, if
+    /// the stored record carries sealed key material that can be opened.
+    pub fn symmetric_key(&self) -> Option<Vec<u8>> {
+        crate::at_rest::client_secret_key(&self.client_secret)
+    }
+
     pub fn new(
         client_id: String,
         client_secret: String,
@@ -447,7 +468,11 @@ impl ClientRegistrationResponse {
     /// Build a registration response from a `Client` and the server's issuer base URL.
     pub fn from_client(client: &Client, issuer_base: &str) -> Self {
         let base = issuer_base.trim_end_matches('/');
-        let client_secret = if client.is_public() {
+        // A stored secret record is a verifier, not the secret: it can only be
+        // echoed back at issuance, when the raw value is still in memory.
+        let client_secret = if client.is_public()
+            || crate::at_rest::is_client_secret_record(&client.client_secret)
+        {
             None
         } else {
             Some(client.client_secret.clone())

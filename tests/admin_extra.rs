@@ -822,7 +822,8 @@ async fn regenerate_client_secret_replaces_secret() {
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(reloaded.client_secret, new_secret);
+    assert!(reloaded.verify_secret(new_secret));
+    assert!(!reloaded.verify_secret(&original_secret));
 }
 
 // ---------------------------------------------------------------------------

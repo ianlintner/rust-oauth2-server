@@ -124,6 +124,7 @@ async fn setup_rfc9700_context(
     Metrics,
     OidcConfig,
 ) {
+    oauth2_core::at_rest::init_at_rest_key("test-at-rest-key");
     let storage = oauth2_storage_factory::create_storage("sqlite::memory:")
         .await
         .expect("create storage");
@@ -354,6 +355,7 @@ async fn test_vector_c_authorization_code_replay() {
         "test".to_string(),
     );
 
+    oauth2_core::at_rest::init_at_rest_key("test-at-rest-key");
     let storage = oauth2_storage_factory::create_storage("sqlite::memory:")
         .await
         .expect("storage");
@@ -550,6 +552,7 @@ async fn test_vector_d_refresh_token_replay() {
         "test".to_string(),
     );
 
+    oauth2_core::at_rest::init_at_rest_key("test-at-rest-key");
     let storage = oauth2_storage_factory::create_storage("sqlite::memory:")
         .await
         .expect("storage");
@@ -1020,6 +1023,7 @@ async fn test_vector_g_redirect_uri_extra_query_param() {
 /// @url https://datatracker.ietf.org/doc/html/rfc9700#section-4.11
 #[actix_web::test]
 async fn test_vector_h_login_redirect_303() {
+    oauth2_core::at_rest::init_at_rest_key("test-at-rest-key");
     let storage = oauth2_storage_factory::create_storage("sqlite::memory:")
         .await
         .expect("storage");

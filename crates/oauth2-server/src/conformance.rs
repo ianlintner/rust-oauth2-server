@@ -1020,7 +1020,7 @@ users:
         assert_eq!((applied.clients, applied.users), (2, 1));
 
         let confidential = storage.get_client("client-a").await.unwrap().unwrap();
-        assert_eq!(confidential.client_secret, "test-only-secret");
+        assert!(confidential.verify_secret("test-only-secret"));
         assert_eq!(
             confidential.token_endpoint_auth_method,
             "client_secret_basic"

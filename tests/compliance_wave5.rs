@@ -117,6 +117,7 @@ async fn setup_context(
     Metrics,
     OidcConfig,
 ) {
+    oauth2_core::at_rest::init_at_rest_key("test-at-rest-key");
     let storage = oauth2_storage_factory::create_storage("sqlite::memory:")
         .await
         .expect("create storage");

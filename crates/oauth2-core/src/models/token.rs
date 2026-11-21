@@ -548,6 +548,18 @@ pub struct Token {
 }
 
 impl Token {
+    /// Copy with access/refresh token replaced by their at-rest verifiers
+    /// (idempotent; see [`crate::at_rest`]).
+    pub fn for_storage(&self) -> Self {
+        let mut t = self.clone();
+        t.access_token = crate::at_rest::protect_bearer(&t.access_token);
+        t.refresh_token = t
+            .refresh_token
+            .as_deref()
+            .map(crate::at_rest::protect_bearer);
+        t
+    }
+
     pub fn new(
         access_token: String,
         refresh_token: Option<String>,
