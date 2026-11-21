@@ -504,3 +504,80 @@ async fn stale_metadata_update_does_not_undo_secret_rotation() {
     assert!(after.verify_secret("synthetic-rotated"));
     assert!(!after.verify_secret("synthetic-old"));
 }
+
+#[actix_web::test]
+async fn update_client_cache_ignores_lagging_read_replica_after_rotation() {
+    use actix::Actor;
+    use oauth2_actix::actors::{ClientActor, UpdateClient, ValidateClient};
+    use oauth2_ports::Storage;
+    use oauth2_storage_sqlx::{PoolConfig, SqlxStorage};
+    use std::sync::Arc;
+
+    let dir = tempfile::tempdir().unwrap();
+    let primary = dir.path().join("primary.db");
+    let replica = dir.path().join("replica.db");
+    let url = |p: &std::path::Path| format!("sqlite:{}?mode=rwc", p.display());
+
+    // Seed the primary, then freeze a copy as the "lagging replica".
+    let seed = SqlxStorage::new(&url(&primary)).await.unwrap();
+    seed.init().await.unwrap();
+    seed.save_client(&client("c-lag", "synthetic-old"))
+        .await
+        .unwrap();
+    drop(seed);
+    std::fs::copy(&primary, &replica).unwrap();
+
+    let storage: DynStorage = Arc::new(
+        SqlxStorage::with_read_replica(&url(&primary), &url(&replica), PoolConfig::default())
+            .await
+            .unwrap(),
+    );
+
+    // Rotate on the primary only. The replica still holds the old verifier.
+    storage
+        .set_client_secret("c-lag", "synthetic-rotated")
+        .await
+        .unwrap();
+    let via_replica = storage.get_client("c-lag").await.unwrap().unwrap();
+    assert!(
+        via_replica.verify_secret("synthetic-old"),
+        "test setup: replica must be stale"
+    );
+
+    // Metadata update through the actor refreshes the validation cache.
+    let actor = ClientActor::new(storage.clone()).start();
+    let mut snapshot = via_replica;
+    snapshot.name = "renamed".to_string();
+    actor
+        .send(UpdateClient {
+            client: snapshot,
+            span: tracing::Span::none(),
+        })
+        .await
+        .unwrap()
+        .unwrap();
+
+    for _ in 0..2 {
+        let new_ok = actor
+            .send(ValidateClient {
+                client_id: "c-lag".to_string(),
+                client_secret: "synthetic-rotated".to_string(),
+                span: tracing::Span::none(),
+            })
+            .await
+            .unwrap();
+        assert!(matches!(new_ok, Ok(true)), "rotated secret must validate");
+        let old_ok = actor
+            .send(ValidateClient {
+                client_id: "c-lag".to_string(),
+                client_secret: "synthetic-old".to_string(),
+                span: tracing::Span::none(),
+            })
+            .await
+            .unwrap();
+        assert!(
+            !matches!(old_ok, Ok(true)),
+            "old secret accepted from stale cache"
+        );
+    }
+}

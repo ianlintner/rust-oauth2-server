@@ -766,6 +766,28 @@ impl Storage for SqlxStorage {
         Ok(client)
     }
 
+    async fn get_client_authoritative(
+        &self,
+        client_id: &str,
+    ) -> Result<Option<Client>, OAuth2Error> {
+        // Primary pool, never the read replica.
+        let client = match &self.pool {
+            DatabasePool::Sqlite(pool) => {
+                sqlx::query_as::<_, Client>("SELECT * FROM clients WHERE client_id = ?")
+                    .bind(client_id)
+                    .fetch_optional(pool)
+                    .await?
+            }
+            DatabasePool::Postgres(pool) => {
+                sqlx::query_as::<_, Client>("SELECT * FROM clients WHERE client_id = $1")
+                    .bind(client_id)
+                    .fetch_optional(pool)
+                    .await?
+            }
+        };
+        Ok(client)
+    }
+
     async fn count_cimd_clients(&self) -> Result<u64, OAuth2Error> {
         let count: i64 = match self.read_pool() {
             DatabasePool::Sqlite(pool) => {

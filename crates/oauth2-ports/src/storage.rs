@@ -18,6 +18,16 @@ pub trait Storage: Send + Sync {
     // Client operations
     async fn save_client(&self, client: &Client) -> Result<(), OAuth2Error>;
     async fn get_client(&self, client_id: &str) -> Result<Option<Client>, OAuth2Error>;
+    /// Read a client from the authoritative (write) store, bypassing any read
+    /// replica. Use it when the result seeds a credential-validation cache right
+    /// after a write: a lagging replica could otherwise cache a pre-rotation
+    /// secret verifier. Defaults to `get_client` for backends without replicas.
+    async fn get_client_authoritative(
+        &self,
+        client_id: &str,
+    ) -> Result<Option<Client>, OAuth2Error> {
+        self.get_client(client_id).await
+    }
     /// Number of client rows materialized from a Client ID Metadata Document
     /// (`cimd_managed = true`). Used to cap how many such rows may accumulate.
     ///

@@ -505,7 +505,9 @@ impl Handler<UpdateClient> for ClientActor {
 
                 // Cache the stored record (credentials are not written by
                 // update_client), not the caller's possibly stale snapshot.
-                if let Some(stored) = db.get_client(&msg.client.client_id).await? {
+                // Read from the authoritative store: a lagging read replica
+                // could still hold a pre-rotation verifier.
+                if let Some(stored) = db.get_client_authoritative(&msg.client.client_id).await? {
                     let _ = self_addr.try_send(CacheClient { client: stored });
                 }
 
