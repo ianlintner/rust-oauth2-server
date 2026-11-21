@@ -17,7 +17,11 @@ use oauth2_observability::Metrics;
 use oauth2_ports::DynStorage;
 
 const CLIENT_ID: &str = "status_client";
-const CLIENT_SECRET: &str = "status_secret";
+/// Runtime-generated secret (no hard-coded credential material).
+fn client_secret() -> &'static str {
+    static SECRET: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    SECRET.get_or_init(|| uuid::Uuid::new_v4().simple().to_string())
+}
 const REDIRECT: &str = "https://good.example/cb";
 
 async fn setup_storage() -> DynStorage {
@@ -34,7 +38,7 @@ async fn setup_storage() -> DynStorage {
 fn make_client() -> Client {
     Client::new(
         CLIENT_ID.to_string(),
-        CLIENT_SECRET.to_string(),
+        client_secret().to_string(),
         vec![REDIRECT.to_string()],
         vec![
             "authorization_code".to_string(),
@@ -67,7 +71,7 @@ async fn login(session: Session, path: web::Path<String>) -> HttpResponse {
 macro_rules! build_app {
     ($storage:expr) => {{
         let storage: DynStorage = $storage.clone();
-        let jwt_secret = "status_jwt_secret".to_string();
+        let jwt_secret = uuid::Uuid::new_v4().simple().to_string();
         let token_actor = TokenActor::new(
             storage.clone(),
             jwt_secret.clone(),
@@ -81,7 +85,7 @@ macro_rules! build_app {
             App::new()
                 .wrap(SessionMiddleware::new(
                     CookieSessionStore::default(),
-                    Key::from(&[7u8; 64]),
+                    Key::generate(),
                 ))
                 .app_data(web::Data::new(TokenActorPool::new(vec![token_actor])))
                 .app_data(web::Data::new(ClientActor::new(storage.clone()).start()))
@@ -178,7 +182,7 @@ fn cc_form() -> [(&'static str, &'static str); 4] {
     [
         ("grant_type", "client_credentials"),
         ("client_id", CLIENT_ID),
-        ("client_secret", CLIENT_SECRET),
+        ("client_secret", client_secret()),
         ("scope", "read"),
     ]
 }
@@ -224,7 +228,7 @@ async fn disabled_client_cannot_introspect_or_revoke() {
     let form = [
         ("token", access.as_str()),
         ("client_id", CLIENT_ID),
-        ("client_secret", CLIENT_SECRET),
+        ("client_secret", client_secret()),
     ];
     assert_invalid_client(post_form!(app, "/oauth/introspect", form)).await;
     assert_invalid_client(post_form!(app, "/oauth/revoke", form)).await;
@@ -310,7 +314,7 @@ async fn disabled_client_cannot_refresh() {
         [
             ("grant_type", "authorization_code"),
             ("client_id", CLIENT_ID),
-            ("client_secret", CLIENT_SECRET),
+            ("client_secret", client_secret()),
             ("code", code.as_str()),
             ("redirect_uri", REDIRECT),
             ("code_verifier", verifier),
@@ -328,7 +332,7 @@ async fn disabled_client_cannot_refresh() {
         [
             ("grant_type", "refresh_token"),
             ("client_id", CLIENT_ID),
-            ("client_secret", CLIENT_SECRET),
+            ("client_secret", client_secret()),
             ("refresh_token", refresh),
         ]
     ))
