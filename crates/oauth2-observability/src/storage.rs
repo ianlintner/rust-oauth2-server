@@ -142,6 +142,24 @@ impl Storage for ObservedStorage {
             .await
     }
 
+    async fn update_client_metadata(&self, client: &Client) -> Result<(), OAuth2Error> {
+        let span = tracing::info_span!(
+            "db.query",
+            trace_id = field::Empty,
+            span_id = field::Empty,
+            "db.system" = %self.db_system,
+            "db.operation" = "update_client_metadata",
+            "db.name" = %self.db_name,
+            "net.peer.name" = %self.net_peer_name,
+            "otel.kind" = "client",
+            client_id = %client.client_id
+        );
+        annotate_span_with_trace_ids(&span);
+        async move { self.inner.update_client_metadata(client).await }
+            .instrument(span)
+            .await
+    }
+
     async fn delete_client(&self, client_id: &str) -> Result<(), OAuth2Error> {
         let span = tracing::info_span!(
             "db.query",

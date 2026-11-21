@@ -1,6 +1,7 @@
 //! Extended admin handlers: user CRUD, client CRUD extensions,
 //! denylist management, audit log, and bulk token operations.
 
+use actix::Addr;
 use actix_session::SessionExt;
 use actix_web::{web, HttpRequest, HttpResponse, Result};
 use chrono::Utc;
@@ -14,6 +15,17 @@ use oauth2_ports::DynStorage;
 
 use super::events::RecentEventsStore;
 use super::login::hash_password;
+use crate::actors::client_actor::{ClientActor, InvalidateClient};
+
+/// Tell the client cache that `client_id` changed. Call after the storage write.
+async fn invalidate_client_cache(client_actor: &Addr<ClientActor>, client_id: &str) -> Result<()> {
+    client_actor
+        .send(InvalidateClient {
+            client_id: client_id.to_string(),
+        })
+        .await
+        .map_err(actix_web::error::ErrorInternalServerError)
+}
 
 // --- Audit helper -----------------------------------------------------------
 
@@ -528,6 +540,7 @@ pub async fn update_client(
     req: HttpRequest,
     path: web::Path<String>,
     db: web::Data<DynStorage>,
+    client_actor: web::Data<Addr<ClientActor>>,
     events_store: web::Data<RecentEventsStore>,
     body: web::Json<UpdateClientRequest>,
 ) -> Result<HttpResponse> {
@@ -568,6 +581,7 @@ pub async fn update_client(
     db.update_client(&client)
         .await
         .map_err(actix_web::error::ErrorInternalServerError)?;
+    invalidate_client_cache(&client_actor, &client.client_id).await?;
 
     let audit = build_audit(
         &req,
@@ -594,6 +608,7 @@ pub async fn set_client_enabled(
     req: HttpRequest,
     path: web::Path<String>,
     db: web::Data<DynStorage>,
+    client_actor: web::Data<Addr<ClientActor>>,
     events_store: web::Data<RecentEventsStore>,
     body: web::Json<SetEnabledRequest>,
 ) -> Result<HttpResponse> {
@@ -616,6 +631,7 @@ pub async fn set_client_enabled(
     if !body.enabled {
         let _ = db.revoke_tokens_by_client_id(&target.client_id).await;
     }
+    invalidate_client_cache(&client_actor, &target.client_id).await?;
 
     let audit = build_audit(
         &req,
@@ -637,6 +653,7 @@ pub async fn regenerate_client_secret(
     req: HttpRequest,
     path: web::Path<String>,
     db: web::Data<DynStorage>,
+    client_actor: web::Data<Addr<ClientActor>>,
     events_store: web::Data<RecentEventsStore>,
 ) -> Result<HttpResponse> {
     let all = db
@@ -661,6 +678,7 @@ pub async fn regenerate_client_secret(
     db.set_client_secret(&target.client_id, &new_secret)
         .await
         .map_err(actix_web::error::ErrorInternalServerError)?;
+    invalidate_client_cache(&client_actor, &target.client_id).await?;
 
     let audit = build_audit(
         &req,
