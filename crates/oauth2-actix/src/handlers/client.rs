@@ -93,6 +93,19 @@ const SUPPORTED_AUTH_METHODS: [&str; 9] = [
 /// `subjectAltName` and therefore require a registered `tls_client_auth_san`.
 const SAN_AUTH_METHODS: [&str; 2] = ["tls_client_auth_san_uri", "tls_client_auth_san_dns"];
 
+/// `true` if `method` is a supported `token_endpoint_auth_method` (RFC 7591 §2).
+pub(crate) fn is_supported_auth_method(method: &str) -> bool {
+    SUPPORTED_AUTH_METHODS.contains(&method)
+}
+
+/// Methods that authenticate with a stored shared secret.
+pub(crate) fn is_secret_auth_method(method: &str) -> bool {
+    matches!(
+        method,
+        "client_secret_basic" | "client_secret_post" | "client_secret_jwt"
+    )
+}
+
 fn validate_token_endpoint_auth_method(
     method: &str,
     grant_types: &[String],
@@ -589,6 +602,12 @@ pub async fn update_client_configuration(
     client.grant_types = serde_json::to_string(&body.grant_types).unwrap_or_default();
     client.scope = body.scope.clone();
     client.token_endpoint_auth_method = body.token_endpoint_auth_method.clone();
+    // Never leave a secret-based client with an empty secret (it is returned
+    // in the response below, as for any confidential client).
+    if is_secret_auth_method(&client.token_endpoint_auth_method) && client.client_secret.is_empty()
+    {
+        client.client_secret = uuid::Uuid::new_v4().to_string().replace('-', "");
+    }
     client.response_types = serde_json::to_string(&body.response_types).unwrap_or_default();
     client.contacts = serde_json::to_string(&body.contacts).unwrap_or_default();
     client.logo_uri = body.logo_uri.clone().unwrap_or_default();

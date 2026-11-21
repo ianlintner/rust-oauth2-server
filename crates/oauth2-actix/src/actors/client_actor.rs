@@ -601,11 +601,14 @@ impl Handler<ValidateClient> for ClientActor {
 
                 // Use constant-time comparison to prevent timing attacks
                 use subtle::ConstantTimeEq;
-                let secret_match = client
-                    .client_secret
-                    .as_bytes()
-                    .ct_eq(presented_secret.as_bytes())
-                    .into();
+                let secret_match = !client.client_secret.is_empty()
+                    && !presented_secret.is_empty()
+                    && bool::from(
+                        client
+                            .client_secret
+                            .as_bytes()
+                            .ct_eq(presented_secret.as_bytes()),
+                    );
 
                 // Emit event
                 if let Some(event_bus) = event_bus {

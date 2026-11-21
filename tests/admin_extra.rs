@@ -692,6 +692,165 @@ async fn update_client_mutates_metadata() {
 }
 
 #[actix_web::test]
+async fn update_client_rejects_unsupported_auth_method() {
+    let storage = setup_storage().await;
+    let client = make_client_row("badm");
+    storage.save_client(&client).await.unwrap();
+
+    let app = test::init_service(
+        App::new()
+            .wrap(SessionMiddleware::new(
+                CookieSessionStore::default(),
+                session_key(),
+            ))
+            .app_data(web::Data::new(storage.clone()))
+            .app_data(web::Data::new(RecentEventsStore::new(16)))
+            .app_data(web::Data::new(ClientActor::new(storage.clone()).start()))
+            .route("/test/login", web::get().to(seed_session))
+            .route(
+                "/admin/api/clients/{id}",
+                web::put().to(admin_extra::update_client),
+            ),
+    )
+    .await;
+    let cookie = admin_cookie!(app);
+
+    let req = test::TestRequest::put()
+        .uri(&format!("/admin/api/clients/{}", client.id))
+        .insert_header(("Cookie", cookie))
+        .set_json(json!({ "token_endpoint_auth_method": "client_secret_basik" }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 400);
+
+    let reloaded = storage
+        .get_client(&client.client_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(reloaded.token_endpoint_auth_method, "client_secret_basic");
+}
+
+#[actix_web::test]
+async fn create_client_rejects_unsupported_auth_method() {
+    let storage = setup_storage().await;
+    let app = test::init_service(
+        App::new()
+            .wrap(SessionMiddleware::new(
+                CookieSessionStore::default(),
+                session_key(),
+            ))
+            .app_data(web::Data::new(storage))
+            .app_data(web::Data::new(RecentEventsStore::new(16)))
+            .route("/test/login", web::get().to(seed_session))
+            .route(
+                "/admin/api/clients",
+                web::post().to(admin_extra::create_client),
+            ),
+    )
+    .await;
+    let cookie = admin_cookie!(app);
+
+    let req = test::TestRequest::post()
+        .uri("/admin/api/clients")
+        .insert_header(("Cookie", cookie))
+        .set_json(json!({ "name": "Typo", "token_endpoint_auth_method": "nonee" }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 400);
+}
+
+#[actix_web::test]
+async fn update_public_client_to_secret_method_provisions_secret() {
+    let storage = setup_storage().await;
+    let mut client = make_client_row("pub2conf");
+    client.client_secret = String::new();
+    client.token_endpoint_auth_method = "none".to_string();
+    storage.save_client(&client).await.unwrap();
+
+    let app = test::init_service(
+        App::new()
+            .wrap(SessionMiddleware::new(
+                CookieSessionStore::default(),
+                session_key(),
+            ))
+            .app_data(web::Data::new(storage.clone()))
+            .app_data(web::Data::new(RecentEventsStore::new(16)))
+            .app_data(web::Data::new(ClientActor::new(storage.clone()).start()))
+            .route("/test/login", web::get().to(seed_session))
+            .route(
+                "/admin/api/clients/{id}",
+                web::put().to(admin_extra::update_client),
+            ),
+    )
+    .await;
+    let cookie = admin_cookie!(app);
+
+    let req = test::TestRequest::put()
+        .uri(&format!("/admin/api/clients/{}", client.id))
+        .insert_header(("Cookie", cookie))
+        .set_json(json!({ "token_endpoint_auth_method": "client_secret_post" }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    let secret = body["client_secret"]
+        .as_str()
+        .expect("secret returned once on public->confidential change");
+    assert!(secret.len() > 16);
+
+    let reloaded = storage
+        .get_client(&client.client_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(reloaded.token_endpoint_auth_method, "client_secret_post");
+    assert_eq!(reloaded.client_secret, secret);
+}
+
+#[actix_web::test]
+async fn update_client_keeps_existing_secret_when_method_unchanged() {
+    let storage = setup_storage().await;
+    let client = make_client_row("keep");
+    storage.save_client(&client).await.unwrap();
+
+    let app = test::init_service(
+        App::new()
+            .wrap(SessionMiddleware::new(
+                CookieSessionStore::default(),
+                session_key(),
+            ))
+            .app_data(web::Data::new(storage.clone()))
+            .app_data(web::Data::new(RecentEventsStore::new(16)))
+            .app_data(web::Data::new(ClientActor::new(storage.clone()).start()))
+            .route("/test/login", web::get().to(seed_session))
+            .route(
+                "/admin/api/clients/{id}",
+                web::put().to(admin_extra::update_client),
+            ),
+    )
+    .await;
+    let cookie = admin_cookie!(app);
+
+    let req = test::TestRequest::put()
+        .uri(&format!("/admin/api/clients/{}", client.id))
+        .insert_header(("Cookie", cookie))
+        .set_json(json!({ "token_endpoint_auth_method": "client_secret_basic" }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    assert!(body.get("client_secret").is_none());
+
+    let reloaded = storage
+        .get_client(&client.client_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(reloaded.client_secret, "secret");
+}
+
+#[actix_web::test]
 async fn set_client_enabled_toggles_and_revokes_tokens_on_disable() {
     let storage = setup_storage().await;
     let client = make_client_row("togl");

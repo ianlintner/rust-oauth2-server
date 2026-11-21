@@ -143,6 +143,12 @@ pub(crate) fn validate_scope_subset(requested: &str, allowed: &str) -> Result<()
 }
 
 pub(crate) fn client_secret_matches(client: &oauth2_core::Client, presented_secret: &str) -> bool {
+    // An empty shared secret is never a credential (RFC 6749 §2.3.1). Public
+    // clients store an empty secret; comparing it with an empty form parameter
+    // must not authenticate them.
+    if client.client_secret.is_empty() || presented_secret.is_empty() {
+        return false;
+    }
     client
         .client_secret
         .as_bytes()
@@ -600,6 +606,11 @@ fn process_jar(
         }
         // Shared-secret clients: verify HS256 with client_secret.
         "client_secret_basic" | "client_secret_post" | "client_secret_jwt" => {
+            if client.client_secret.is_empty() {
+                return Err(OAuth2Error::invalid_request(
+                    "client has no shared secret for HS256 verification",
+                ));
+            }
             let key = DecodingKey::from_secret(client.client_secret.as_bytes());
             let mut validation = Validation::new(Algorithm::HS256);
             validation.set_audience(&[authorization_endpoint_url]);
@@ -1498,6 +1509,11 @@ fn validate_jwt_client_assertion(
             if header.alg != Algorithm::HS256 {
                 return Err(OAuth2Error::invalid_client(
                     "client_secret_jwt requires HS256 algorithm",
+                ));
+            }
+            if client.client_secret.is_empty() {
+                return Err(OAuth2Error::invalid_client(
+                    "client has no shared secret for client_secret_jwt",
                 ));
             }
             let key = DecodingKey::from_secret(client.client_secret.as_bytes());
@@ -3100,5 +3116,23 @@ mod client_auth_tests {
         assert!(reject_multiple_client_auth_methods(false, true, false).is_ok());
         assert!(reject_multiple_client_auth_methods(false, false, true).is_ok());
         assert!(reject_multiple_client_auth_methods(false, false, false).is_ok());
+    }
+
+    #[test]
+    fn client_secret_matches_rejects_empty_stored_or_presented_secret() {
+        let mut empty = oauth2_core::Client::new(
+            "public-client".to_string(),
+            String::new(),
+            vec![],
+            vec![],
+            String::new(),
+            "public".to_string(),
+        );
+        assert!(!client_secret_matches(&empty, ""));
+        assert!(!client_secret_matches(&empty, "anything"));
+
+        empty.client_secret = "real-secret".to_string();
+        assert!(!client_secret_matches(&empty, ""));
+        assert!(client_secret_matches(&empty, "real-secret"));
     }
 }
