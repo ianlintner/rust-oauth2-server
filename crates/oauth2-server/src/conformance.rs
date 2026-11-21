@@ -66,6 +66,7 @@ const GRANT_TYPES: &[&str] = &[
     "refresh_token",
     "client_credentials",
     "urn:ietf:params:oauth:grant-type:device_code",
+    "urn:ietf:params:oauth:grant-type:jwt-bearer",
 ];
 
 // ── Seed file model (schemas/seed.schema.json) ──────────────────────────────
@@ -106,6 +107,10 @@ pub struct SeedClient {
     pub scopes: Option<Vec<String>>,
     #[serde(default)]
     pub grant_types: Option<Vec<String>>,
+    /// Public-only JWK set (RFC 7517) used to verify the client's
+    /// `private_key_jwt` assertions and JAR request objects (contract §2a).
+    #[serde(default)]
+    pub jwks: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -125,7 +130,68 @@ pub struct SeedUser {
     pub auto_approve_clients: Option<Vec<String>>,
 }
 
+/// JWK members that carry private key material (RFC 7518 §6). The seed is
+/// public-only (contract §2a); any of these makes the seed invalid.
+const PRIVATE_JWK_MEMBERS: &[&str] = &["d", "p", "q", "dp", "dq", "qi", "oth", "k"];
+
+/// Validate a seeded client `jwks` against the contract schema: an object
+/// with only `keys`, a non-empty array of objects each with a non-empty `kty`
+/// and optional non-empty `kid`/`alg`, and no private key members.
+fn validate_public_jwks(client_id: &str, jwks: &serde_json::Value) -> Result<(), String> {
+    let obj = jwks
+        .as_object()
+        .ok_or_else(|| format!("client {client_id:?}: jwks must be an object"))?;
+    if let Some(extra) = obj.keys().find(|k| k.as_str() != "keys") {
+        return Err(format!(
+            "client {client_id:?}: jwks has unknown field {extra:?}"
+        ));
+    }
+    let keys = obj
+        .get("keys")
+        .and_then(|k| k.as_array())
+        .ok_or_else(|| format!("client {client_id:?}: jwks.keys must be an array"))?;
+    if keys.is_empty() {
+        return Err(format!(
+            "client {client_id:?}: jwks.keys must contain at least one key"
+        ));
+    }
+    for key in keys {
+        let key = key
+            .as_object()
+            .ok_or_else(|| format!("client {client_id:?}: each jwks key must be an object"))?;
+        if !key
+            .get("kty")
+            .and_then(|v| v.as_str())
+            .is_some_and(|s| !s.is_empty())
+        {
+            return Err(format!(
+                "client {client_id:?}: each jwks key needs a non-empty kty"
+            ));
+        }
+        for member in ["kid", "alg"] {
+            if key
+                .get(member)
+                .is_some_and(|v| !v.as_str().is_some_and(|s| !s.is_empty()))
+            {
+                return Err(format!(
+                    "client {client_id:?}: jwks key {member} must be a non-empty string"
+                ));
+            }
+        }
+        if let Some(private) = PRIVATE_JWK_MEMBERS.iter().find(|m| key.contains_key(**m)) {
+            return Err(format!(
+                "client {client_id:?}: jwks key carries private key material ({private:?}); the seed is public-only"
+            ));
+        }
+    }
+    Ok(())
+}
+
 impl SeedClient {
+    fn is_private_key_jwt(&self) -> bool {
+        self.token_endpoint_auth_method.as_deref() == Some("private_key_jwt")
+    }
+
     fn is_public(&self) -> bool {
         self.public == Some(true) || self.token_endpoint_auth_method.as_deref() == Some("none")
     }
@@ -399,7 +465,7 @@ impl Seed {
         if let Some(method) = client.token_endpoint_auth_method.as_deref() {
             if !matches!(
                 method,
-                "none" | "client_secret_basic" | "client_secret_post"
+                "none" | "client_secret_basic" | "client_secret_post" | "private_key_jwt"
             ) {
                 return Err(format!(
                     "client {id:?}: token_endpoint_auth_method {method:?} is not supported"
@@ -424,10 +490,30 @@ impl Seed {
                     "client {id:?}: a public client must use method none"
                 ));
             }
+        } else if client.is_private_key_jwt() {
+            if client.client_secret.is_some() {
+                return Err(format!(
+                    "client {id:?}: a private_key_jwt client must not carry a secret"
+                ));
+            }
         } else if client.client_secret.is_none() {
             return Err(format!(
                 "client {id:?}: a confidential client needs client_secret (or set public: true)"
             ));
+        }
+        match (&client.jwks, client.is_private_key_jwt()) {
+            (None, true) => {
+                return Err(format!(
+                    "client {id:?}: token_endpoint_auth_method private_key_jwt requires jwks"
+                ))
+            }
+            (Some(_), false) => {
+                return Err(format!(
+                    "client {id:?}: jwks is only valid with private_key_jwt"
+                ))
+            }
+            (Some(jwks), true) => validate_public_jwks(id, jwks)?,
+            (None, false) => {}
         }
         if client.redirect_uris.is_empty() {
             return Err(format!("client {id:?}: redirect_uris must not be empty"));
@@ -564,6 +650,9 @@ pub async fn apply(seed: &Seed, storage: &DynStorage) -> Result<Applied, String>
                 .clone()
                 .unwrap_or_else(|| "client_secret_basic".to_string())
         };
+        if let Some(jwks) = &seeded.jwks {
+            client.jwks = jwks.to_string();
+        }
         storage
             .save_client(&client)
             .await
@@ -746,6 +835,84 @@ users:
         rejects(&text, "is not RS/ES/PS/HS + 3 digits");
     }
 
+    const JWT_CLIENT: &str = "
+  - client_id: client-jwt
+    token_endpoint_auth_method: private_key_jwt
+    redirect_uris: [https://client.example/callback]
+    grant_types: [client_credentials]
+    jwks:
+      keys:
+        - {kty: EC, kid: client-assertion, crv: P-256, alg: ES256, x: MKBCTNIcKUSDii11ySs3526iDZ8AiTo7Tu6KPAqv7D4, y: 4Etl6SRW2YiLUrN5vfvVHuhp7x8PxltmWWlbbM4IFyM}
+";
+
+    /// Insert `client` into VALID's `clients:` list (before `users:`).
+    fn with_client(client: &str) -> String {
+        VALID.replace(
+            "users:",
+            &format!("{}users:", client.trim_start_matches('\n')),
+        )
+    }
+
+    #[test]
+    fn accepts_jwt_bearer_grant_type() {
+        let text = with_client(JWT_CLIENT).replace(
+            "[client_credentials]",
+            "[client_credentials, \"urn:ietf:params:oauth:grant-type:jwt-bearer\"]",
+        );
+        Seed::parse(&text).expect("jwt-bearer is in the contract seed schema");
+    }
+
+    #[test]
+    fn parses_private_key_jwt_client_with_public_jwks() {
+        let seed = Seed::parse(&with_client(JWT_CLIENT)).expect("valid seed");
+        assert_eq!(seed.clients[2].client_id, "client-jwt");
+        assert!(seed.clients[2].jwks.is_some());
+    }
+
+    #[test]
+    fn rejects_bad_client_jwks() {
+        let no_jwks = "
+  - client_id: client-jwt
+    token_endpoint_auth_method: private_key_jwt
+    redirect_uris: [https://client.example/callback]
+";
+        rejects(&with_client(no_jwks), "requires jwks");
+        // private key material must never be accepted from the seed
+        rejects(
+            &with_client(JWT_CLIENT).replace("alg: ES256,", "alg: ES256, d: AAAA,"),
+            "private key",
+        );
+        // keys must be a non-empty array of objects with a kty
+        rejects(
+            &with_client(JWT_CLIENT).replace("keys:\n", "keys: []\n#"),
+            "at least one key",
+        );
+        rejects(&with_client(JWT_CLIENT).replace("kty: EC, ", ""), "kty");
+        // jwks on a secret-based client is not meaningful
+        rejects(
+            &VALID.replace(
+                "    grant_types: [authorization_code, refresh_token]",
+                "    grant_types: [authorization_code]\n    jwks: {keys: [{kty: oct}]}",
+            ),
+            "only valid with private_key_jwt",
+        );
+    }
+
+    #[tokio::test]
+    async fn apply_stores_client_jwks_for_private_key_jwt() {
+        let storage = oauth2_storage_factory::create_storage("sqlite::memory:")
+            .await
+            .unwrap();
+        storage.init().await.unwrap();
+        let seed = Seed::parse(&with_client(JWT_CLIENT)).unwrap();
+        apply(&seed, &storage).await.unwrap();
+        let client = storage.get_client("client-jwt").await.unwrap().unwrap();
+        assert_eq!(client.token_endpoint_auth_method, "private_key_jwt");
+        let jwks: serde_json::Value = serde_json::from_str(&client.jwks).unwrap();
+        assert_eq!(jwks["keys"][0]["kid"], "client-assertion");
+        assert!(client.client_secret.is_empty());
+    }
+
     #[test]
     fn rejects_inconsistent_clients() {
         // confidential without secret
@@ -767,7 +934,7 @@ users:
             "must use method none",
         );
         rejects(
-            &VALID.replace("client_secret_basic", "private_key_jwt"),
+            &VALID.replace("client_secret_basic", "tls_client_auth"),
             "not supported",
         );
         rejects(
@@ -891,7 +1058,7 @@ users:
             .collect();
         assert_eq!(kids, ["seed-rs", "seed-hs"]);
         let pem = std::str::from_utf8(&applied.signing_keys[0].key_material).unwrap();
-        assert!(pem.starts_with("-----BEGIN PRIVATE KEY-----"));
+        assert!(pem.starts_with("-----BEGIN RSA PRIVATE KEY-----"));
     }
 
     #[tokio::test]

@@ -1204,6 +1204,13 @@ pub async fn run() -> std::io::Result<()> {
     tracing::info!("Metrics endpoint at http://{}/metrics", bind_addr);
 
     let conformance_readiness = conformance_applied.as_ref().map(|a| a.readiness());
+    // SUT interface v2 controls: exist only in conformance mode and are shared
+    // (one `Arc`) across all worker threads so a toggle is process-wide.
+    let conformance_controls = conformance_applied.as_ref().map(|_| {
+        web::Data::new(oauth2_actix::handlers::conformance::ConformanceControls::default())
+    });
+    let dpop_nonce_issuer =
+        web::Data::new(oauth2_actix::handlers::dpop_nonce::DpopNonceIssuer::from_env());
     let server_config = config.server.clone();
     let app_config = config.clone();
     let key_rotation_grace_hours = oauth2_actix::handlers::admin_keys::KeyRotationGraceHours(
@@ -1382,6 +1389,9 @@ pub async fn run() -> std::io::Result<()> {
         if let Some(readiness) = &conformance_readiness {
             app = app.app_data(web::Data::new(readiness.clone()));
         }
+        if let Some(controls) = &conformance_controls {
+            app = app.app_data(controls.clone());
+        }
 
         // Trust proxy headers flag — shared with rate limit middleware and login handler.
         app = app.app_data(web::Data::new(server_config.trust_proxy_headers));
@@ -1427,9 +1437,9 @@ pub async fn run() -> std::io::Result<()> {
         // Operators set `OAUTH2_DPOP_NONCE_SECRET` (32 bytes) explicitly
         // for multi-instance deploys; otherwise we generate a per-process
         // secret at startup, which forces clients to refresh on restart.
-        app = app.app_data(web::Data::new(
-            oauth2_actix::handlers::dpop_nonce::DpopNonceIssuer::from_env(),
-        ));
+        // Built once outside the per-worker factory: otherwise every worker
+        // would draw its own random secret and reject nonces issued by a peer.
+        app = app.app_data(dpop_nonce_issuer.clone());
 
         app
             // Root route
@@ -1840,6 +1850,24 @@ pub async fn run() -> std::io::Result<()> {
                 "/metrics",
                 web::get().to(oauth2_actix::handlers::admin::system_metrics),
             )
+            // Conformance SUT interface v2 (contract section 7): registered
+            // only when conformance mode is on; otherwise these are 404s.
+            .configure(|cfg| {
+                if conformance_controls.is_some() {
+                    cfg.service(
+                        web::scope("/conformance")
+                            .route(
+                                "/capabilities",
+                                web::get().to(oauth2_actix::handlers::conformance::capabilities),
+                            )
+                            .route(
+                                "/dpop-nonce",
+                                web::post()
+                                    .to(oauth2_actix::handlers::conformance::set_dpop_nonce),
+                            ),
+                    );
+                }
+            })
             // Eventing endpoints
             .service(
                 web::scope("/events")
