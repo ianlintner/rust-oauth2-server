@@ -212,54 +212,59 @@ pub async fn login_submit(
             actix_web::error::ErrorInternalServerError("Internal error")
         })?;
 
-    let user = match user {
-        Some(u) if u.enabled => u,
-        Some(u) => {
-            // Account exists but is disabled — return generic error identical to
-            // the "unknown user" branch to prevent enumeration of disabled
-            // accounts. Log internally for operational visibility.
-            tracing::info!(
-                user_id = %u.id,
-                "Login attempt against disabled account"
-            );
-            metrics.oauth_failed_authentications.inc();
-            return Ok(HttpResponse::SeeOther()
-                .append_header(("Location", "/auth/login?error=invalid_credentials"))
-                .finish());
+    // Every attempt performs exactly one Argon2 verification so failure timing
+    // does not reveal whether the account exists, is enabled, or has a usable
+    // hash (CWE-204/208). Unknown, disabled and unparseable-hash accounts are
+    // verified against a process-wide dummy hash of identical cost.
+    let usable = user.as_ref().filter(|u| u.enabled).and_then(|u| {
+        match PasswordHash::new(&u.password_hash) {
+            // Argon2 rejects a digest-less hash or a non-Argon2 algorithm as a
+            // plain mismatch without doing any hashing, so treat both as unusable.
+            Ok(h) if h.hash.is_none() || !h.algorithm.as_str().starts_with("argon2") => {
+                tracing::error!("Unusable password hash for user {}", u.id);
+                None
+            }
+            Ok(h) => Some(h),
+            Err(e) => {
+                tracing::error!("Invalid password hash format for user {}: {e}", u.id);
+                None
+            }
         }
-        None => {
-            // Unknown username — return generic error to avoid user enumeration.
-            metrics.oauth_failed_authentications.inc();
-            return Ok(HttpResponse::SeeOther()
-                .append_header(("Location", "/auth/login?error=invalid_credentials"))
-                .finish());
-        }
-    };
-
-    // Verify password against stored Argon2 hash
-    let parsed_hash = match PasswordHash::new(&user.password_hash) {
-        Ok(h) => h,
-        Err(e) => {
-            tracing::error!(
-                "Invalid password hash format for user {}: {e}",
-                user.username
-            );
-            metrics.oauth_failed_authentications.inc();
-            return Ok(HttpResponse::SeeOther()
-                .append_header(("Location", "/auth/login?error=invalid_credentials"))
-                .finish());
-        }
-    };
-
-    if Argon2::default()
-        .verify_password(form.password.as_bytes(), &parsed_hash)
-        .is_err()
-    {
-        metrics.oauth_failed_authentications.inc();
-        return Ok(HttpResponse::SeeOther()
-            .append_header(("Location", "/auth/login?error=invalid_credentials"))
-            .finish());
+    });
+    if let Some(u) = user.as_ref().filter(|u| !u.enabled) {
+        // Log internally for operational visibility only.
+        tracing::info!(user_id = %u.id, "Login attempt against disabled account");
     }
+    let argon2 = Argon2::default();
+    let verified = match usable {
+        Some(h) => match argon2.verify_password(form.password.as_bytes(), &h) {
+            Ok(()) => true,
+            // Plain mismatch: the full Argon2 computation already ran.
+            Err(argon2::password_hash::Error::PasswordInvalid) => false,
+            // A syntactically valid PHC string that Argon2 cannot use (missing
+            // digest, unsupported algorithm/params) fails before any hashing
+            // work, so pay the cost against the dummy instead.
+            Err(e) => {
+                tracing::error!("Stored password hash unusable for verification: {e}");
+                let _ = argon2.verify_password(form.password.as_bytes(), &dummy_password_hash());
+                false
+            }
+        },
+        None => {
+            let _ = argon2.verify_password(form.password.as_bytes(), &dummy_password_hash());
+            false
+        }
+    };
+
+    let user = match user {
+        Some(u) if verified => u,
+        _ => {
+            metrics.oauth_failed_authentications.inc();
+            return Ok(HttpResponse::SeeOther()
+                .append_header(("Location", "/auth/login?error=invalid_credentials"))
+                .finish());
+        }
+    };
 
     // --- Credentials valid — establish session ---
     session.renew(); // Rotate session ID to prevent session fixation attacks
@@ -317,6 +322,22 @@ pub async fn login_submit(
     Ok(HttpResponse::SeeOther()
         .append_header(("Location", redirect_url))
         .finish())
+}
+
+/// Argon2 hash of a random value, computed once per process with the same
+/// parameters as real hashes. Used to equalise failed-login work.
+fn dummy_password_hash() -> PasswordHash {
+    static DUMMY: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    let s = DUMMY.get_or_init(|| {
+        hash_password(&uuid::Uuid::new_v4().to_string()).expect("hash dummy password")
+    });
+    PasswordHash::new(s).expect("dummy hash is valid")
+}
+
+/// Compute the dummy hash now so the first failed login does not also pay for
+/// generating it. Call once at startup before serving requests.
+pub fn init_login_timing() {
+    let _ = dummy_password_hash();
 }
 
 /// Hash a plaintext password using Argon2id.
