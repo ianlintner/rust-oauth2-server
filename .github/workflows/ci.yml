@@ -666,20 +666,19 @@ jobs:
             "$image" \
             "/tmp/imagetools-dockerhub-${{ matrix.variant_name }}.txt"
 
-  # Documentation
-  docs:
-    name: Build and Deploy Documentation
+  # Build the Pages artifact in its own job. Deploying in the same job races
+  # the artifact listing used by actions/deploy-pages (actions/deploy-pages#451):
+  # the upload can finalize a fraction of a second before the listing still
+  # shows no "github-pages" artifact. Completing this job first makes the
+  # artifact visible to the dependent deploy job.
+  docs-build:
+    name: Build Documentation
     runs-on: ubuntu-latest
     needs: [checks]
     if: github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
     timeout-minutes: 20
     permissions:
       contents: read
-      pages: write
-      id-token: write
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -768,6 +767,23 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
 
+  # Deploy only after the build job has completed, so the artifact is already
+  # registered when deploy-pages lists the workflow's artifacts. Keep the
+  # environment on the job that actually deploys.
+  docs:
+    name: Build and Deploy Documentation
+    needs: [docs-build]
+    if: github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5
