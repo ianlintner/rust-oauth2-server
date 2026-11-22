@@ -421,6 +421,20 @@ curl -s https://auth.example.com/admin/resources \
 resource's `txn_challenge_jwks_uri`, when set, is what makes it eligible to
 issue [Transaction Authorization Challenges](#transaction-authorization-challenge-human-in-the-loop).
 
+#### Resource indicators on the token endpoint (RFC 8707)
+
+The `resource` parameter is accepted on the `authorization_code`,
+`client_credentials` and `refresh_token` grants (repeatable). Every value must
+be an absolute `http`/`https` URI without a fragment; otherwise the token
+endpoint returns `invalid_target`. When the protected-resource registry above
+is non-empty, each requested value must also match a registered `resource_uri`
+exactly (an empty registry means syntax validation only).
+
+On refresh, the requested resources must stay within the resources bound to
+the original token. Omitting `resource` inherits the original set; requesting
+a new or wider audience returns `invalid_target` rather than issuing a token
+with an expanded `aud` claim.
+
 ### Trusted issuers — `/admin/trusted-issuers`
 
 Drives the [jwt-bearer grant](#cross-domain-chaining-jwt-bearer-grant--id-jag)

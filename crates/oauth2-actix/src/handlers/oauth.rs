@@ -28,7 +28,7 @@ use crate::handlers::jwks_cache::JwksCache;
 use crate::handlers::wellknown::OidcConfig;
 use oauth2_core::models::actor::SUB_PROFILE_AI_AGENT;
 use oauth2_core::models::key_set::KeySet;
-use oauth2_core::{IdTokenClaims, OAuth2Error, TokenResponse};
+use oauth2_core::{IdTokenClaims, OAuth2Error, ProtectedResource, TokenResponse};
 use oauth2_ports::DynStorage;
 
 const DEVICE_CODE_GRANT_TYPE: &str = "urn:ietf:params:oauth:grant-type:device_code";
@@ -140,6 +140,61 @@ pub(crate) fn validate_scope_subset(requested: &str, allowed: &str) -> Result<()
     }
 
     Ok(())
+}
+
+/// RFC 8707 §2: validate the `resource` request parameter on grants that
+/// otherwise pass it straight through to the token actor. Each value must be
+/// an absolute URI without a fragment. When the protected-resource registry
+/// is populated, only registered resource URIs may be requested; an empty
+/// registry falls back to syntax validation only (documented compatibility
+/// behaviour for deployments that do not use the registry).
+pub(crate) async fn validate_resource_indicators(
+    requested: &[String],
+    storage: Option<&DynStorage>,
+) -> Result<Vec<String>, OAuth2Error> {
+    let mut values = Vec::with_capacity(requested.len());
+    for value in requested {
+        ProtectedResource::validate_uri(value)?;
+        if !values.contains(value) {
+            values.push(value.clone());
+        }
+    }
+
+    if let Some(storage) = storage {
+        let registry = storage.list_resources().await?;
+        if !registry.is_empty() {
+            for value in &values {
+                if !registry.iter().any(|r| r.resource_uri == *value) {
+                    return Err(OAuth2Error::new(
+                        "invalid_target",
+                        Some("requested resource is not a registered protected resource"),
+                    ));
+                }
+            }
+        }
+    }
+
+    Ok(values)
+}
+
+/// RFC 8707 §2.2: on refresh, the requested resources must stay within the
+/// resources bound to the token being refreshed. An omitted `resource`
+/// inherits the original set. Exact string comparison only — no prefix or
+/// case-normalised matching.
+pub(crate) fn validate_refresh_resources(
+    requested: Vec<String>,
+    original: &[String],
+) -> Result<Vec<String>, OAuth2Error> {
+    if requested.is_empty() {
+        return Ok(original.to_vec());
+    }
+    if !requested.iter().all(|r| original.contains(r)) {
+        return Err(OAuth2Error::new(
+            "invalid_target",
+            Some("requested resource exceeds the original grant's resources"),
+        ));
+    }
+    Ok(requested)
 }
 
 pub(crate) fn client_secret_matches(client: &oauth2_core::Client, presented_secret: &str) -> bool {
@@ -1969,6 +2024,7 @@ pub async fn token(
                 mtls_san_uri.as_deref(),
                 mtls_san_dns.as_deref(),
                 cimd.clone(),
+                storage.clone(),
             )
             .await
         }
@@ -1986,6 +2042,7 @@ pub async fn token(
                 mtls_san_dns.as_deref(),
                 cimd.clone(),
                 agent.clone(),
+                storage.clone(),
             )
             .await
         }
@@ -2716,6 +2773,7 @@ async fn handle_client_credentials_grant(
     mtls_san_uri: Option<&str>,
     mtls_san_dns: Option<&str>,
     cimd: Option<web::Data<CimdFetcher>>,
+    storage: Option<web::Data<DynStorage>>,
 ) -> Result<HttpResponse, OAuth2Error> {
     // Validate client exists + grant permissions.
     let client = resolve_client(
@@ -2775,6 +2833,11 @@ async fn handle_client_credentials_grant(
         (None, None)
     };
 
+    // RFC 8707 §2: validate resource indicators before they reach the token
+    // actor, where they would otherwise become the access token's `aud`.
+    let resources =
+        validate_resource_indicators(&req.resource, storage.as_ref().map(|d| d.get_ref())).await?;
+
     // Create token (no user, client-only)
     let token = token_actor
         .route(&req.client_id)
@@ -2784,7 +2847,7 @@ async fn handle_client_credentials_grant(
             scope,
             include_refresh: false,
             token_family: None,
-            resources: req.resource,
+            resources,
             cnf: cnf_claim.clone(),
             authorization_details: rar_details,
             act: None,
@@ -2822,6 +2885,7 @@ async fn handle_refresh_token_grant(
     mtls_san_dns: Option<&str>,
     cimd: Option<web::Data<CimdFetcher>>,
     agent: oauth2_config::AgentConfig,
+    storage: Option<web::Data<DynStorage>>,
 ) -> Result<HttpResponse, OAuth2Error> {
     let refresh_token_str = req
         .refresh_token
@@ -2898,6 +2962,16 @@ async fn handle_refresh_token_grant(
         None => old_token.scope.clone(),
     };
 
+    // RFC 8707 §2.2: the refreshed token's audiences must stay within the
+    // original grant's. If the request omits `resource`, inherit the original
+    // set. The old token's resource is persisted, so the restriction survives
+    // restarts and earlier rotations.
+    let original_resources = old_token.resources();
+    let resources = validate_refresh_resources(
+        validate_resource_indicators(&req.resource, storage.as_ref().map(|d| d.get_ref())).await?,
+        &original_resources,
+    )?;
+
     // Propagate the token family UUID so replay detection can revoke the entire chain.
     // On first rotation the old token has no family yet — start a new one and persist
     // it onto the old token record BEFORE revoking so that a later replay of the
@@ -2949,7 +3023,7 @@ async fn handle_refresh_token_grant(
             scope,
             include_refresh: true,
             token_family: Some(family),
-            resources: req.resource.clone(),
+            resources,
             cnf: old_cnf.clone(),
             authorization_details: None,
             // Phase 7 (7.C.4): a rotated token represents the same delegation
