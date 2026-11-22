@@ -330,6 +330,13 @@ impl Storage for ObservedStorage {
             .await
     }
 
+    async fn consume_refresh_token(&self, refresh_token: &str) -> Result<bool, OAuth2Error> {
+        let span = self.span("consume_refresh_token");
+        async move { self.inner.consume_refresh_token(refresh_token).await }
+            .instrument(span)
+            .await
+    }
+
     async fn revoke_token_by_id(&self, id: &str) -> Result<u64, OAuth2Error> {
         let span = self.span("revoke_token_by_id");
         async move { self.inner.revoke_token_by_id(id).await }
@@ -438,7 +445,7 @@ impl Storage for ObservedStorage {
             .await
     }
 
-    async fn mark_authorization_code_used(&self, code: &str) -> Result<(), OAuth2Error> {
+    async fn mark_authorization_code_used(&self, code: &str) -> Result<bool, OAuth2Error> {
         let code_prefix = code.chars().take(12).collect::<String>();
         let span = tracing::info_span!(
             "db.query",
