@@ -156,6 +156,29 @@ pub(crate) fn client_secret_matches(client: &oauth2_core::Client, presented_secr
         .into()
 }
 
+/// The credentials needed to authenticate a client at any OAuth endpoint.
+///
+/// `TokenRequest` converts into this; the introspection and revocation
+/// endpoints build it directly. All three then share
+/// [`authenticate_confidential_client`], so a client is authenticated by the
+/// method it registered everywhere (RFC 7662 §2.1 / RFC 7009 §2.1).
+#[derive(Debug, Default)]
+pub(crate) struct ClientCredentials {
+    pub(crate) client_secret: Option<String>,
+    pub(crate) client_assertion_type: Option<String>,
+    pub(crate) client_assertion: Option<String>,
+}
+
+impl From<&TokenRequest> for ClientCredentials {
+    fn from(req: &TokenRequest) -> Self {
+        Self {
+            client_secret: req.client_secret.clone(),
+            client_assertion_type: req.client_assertion_type.clone(),
+            client_assertion: req.client_assertion.clone(),
+        }
+    }
+}
+
 /// Authenticate a confidential client for the token endpoint.
 ///
 /// Dispatches to the correct authentication method based on the client's
@@ -175,7 +198,7 @@ pub(crate) fn client_secret_matches(client: &oauth2_core::Client, presented_secr
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn authenticate_confidential_client(
     client: &oauth2_core::Client,
-    req: &TokenRequest,
+    credentials: &ClientCredentials,
     token_endpoint_url: &str,
     issuer: &str,
     resolved_jwks: Option<&serde_json::Value>,
@@ -185,17 +208,19 @@ pub(crate) fn authenticate_confidential_client(
     mtls_san_dns: Option<&str>,
 ) -> Result<(), OAuth2Error> {
     match client.token_endpoint_auth_method.as_str() {
-        "client_secret_basic" | "client_secret_post" => match req.client_secret.as_deref() {
-            Some(secret) => {
-                if !client_secret_matches(client, secret) {
-                    return Err(OAuth2Error::invalid_client("Invalid client_secret"));
+        "client_secret_basic" | "client_secret_post" => {
+            match credentials.client_secret.as_deref() {
+                Some(secret) => {
+                    if !client_secret_matches(client, secret) {
+                        return Err(OAuth2Error::invalid_client("Invalid client_secret"));
+                    }
+                    Ok(())
                 }
-                Ok(())
+                None => Err(OAuth2Error::invalid_client("Missing client_secret")),
             }
-            None => Err(OAuth2Error::invalid_client("Missing client_secret")),
-        },
+        }
         "client_secret_jwt" | "private_key_jwt" => {
-            let assertion_type = req
+            let assertion_type = credentials
                 .client_assertion_type
                 .as_deref()
                 .ok_or_else(|| OAuth2Error::invalid_client("Missing client_assertion_type"))?;
@@ -204,7 +229,7 @@ pub(crate) fn authenticate_confidential_client(
                     "Unsupported client_assertion_type",
                 ));
             }
-            let assertion = req
+            let assertion = credentials
                 .client_assertion
                 .as_deref()
                 .ok_or_else(|| OAuth2Error::invalid_client("Missing client_assertion"))?;
@@ -2156,7 +2181,7 @@ async fn handle_device_code_grant(
         resolve_client_jwks(&client, jwks_cache.as_ref().map(|d| d.as_ref())).await?;
     authenticate_confidential_client(
         &client,
-        &req,
+        &ClientCredentials::from(&req),
         &token_endpoint_url,
         &oidc_config.issuer,
         resolved_jwks.as_ref(),
@@ -2506,7 +2531,7 @@ async fn handle_authorization_code_grant(
             resolve_client_jwks(&client, jwks_cache.as_ref().map(|d| d.as_ref())).await?;
         authenticate_confidential_client(
             &client,
-            &req,
+            &ClientCredentials::from(&req),
             &token_endpoint_url,
             &oidc_config.issuer,
             resolved_jwks.as_ref(),
@@ -2720,7 +2745,7 @@ async fn handle_client_credentials_grant(
         resolve_client_jwks(&client, jwks_cache.as_ref().map(|d| d.as_ref())).await?;
     authenticate_confidential_client(
         &client,
-        &req,
+        &ClientCredentials::from(&req),
         &token_endpoint_url,
         &oidc_config.issuer,
         resolved_jwks.as_ref(),
@@ -2820,7 +2845,7 @@ async fn handle_refresh_token_grant(
             resolve_client_jwks(&client, jwks_cache.as_ref().map(|d| d.as_ref())).await?;
         authenticate_confidential_client(
             &client,
-            &req,
+            &ClientCredentials::from(&req),
             &token_endpoint_url,
             &oidc_config.issuer,
             resolved_jwks.as_ref(),

@@ -8,7 +8,11 @@ use crate::actors::{
     ValidateTokenStateless,
 };
 use crate::handlers::dpop::{build_request_url_bounded, validate_dpop_proof, DpopReplayStore};
-use crate::handlers::oauth::{client_secret_matches, parse_client_basic_auth};
+use crate::handlers::jwks_cache::JwksCache;
+use crate::handlers::oauth::{
+    authenticate_confidential_client, parse_client_basic_auth, reject_multiple_client_auth_methods,
+    resolve_client_jwks, ClientCredentials,
+};
 use crate::handlers::txn_token::{verify_txn_token, TXN_TOKEN_TYP};
 use crate::handlers::wellknown::OidcConfig;
 use oauth2_config::Config;
@@ -59,12 +63,27 @@ fn inactive_introspection_response() -> HttpResponse {
     }))
 }
 
+/// Authenticate the caller of the introspection or revocation endpoint using
+/// the same registered method as the token endpoint (RFC 7662 §2.1, RFC 7009
+/// §2.1, RFC 6749 §2.3).
+///
+/// `require_auth=false` (introspection with `public_introspection` on) allows
+/// an anonymous caller. `allow_public_client_id_only=true` (revocation) lets a
+/// public client identify itself by `client_id` alone, as RFC 7009 §2.1
+/// permits. Public clients cannot authenticate at introspection: that would
+/// turn the endpoint into an unauthenticated validity oracle.
+#[allow(clippy::too_many_arguments)]
 async fn authenticate_client(
     req: &HttpRequest,
     form_client_id: Option<&str>,
     form_client_secret: Option<&str>,
+    form_assertion_type: Option<&str>,
+    form_assertion: Option<&str>,
     client_actor: &web::Data<Addr<ClientActor>>,
+    jwks_cache: Option<&web::Data<JwksCache>>,
+    issuer: &str,
     require_auth: bool,
+    allow_public_client_id_only: bool,
 ) -> Result<Option<oauth2_core::Client>, OAuth2Error> {
     let basic = parse_client_basic_auth(req)?;
     let basic_client_id = basic.as_ref().map(|(client_id, _)| client_id.as_str());
@@ -73,10 +92,10 @@ async fn authenticate_client(
         .map(|(_, client_secret)| client_secret.as_str());
 
     // RFC 6749 §2.3: one authentication method per request.
-    crate::handlers::oauth::reject_multiple_client_auth_methods(
+    reject_multiple_client_auth_methods(
         basic.is_some(),
         form_client_secret.is_some(),
-        false,
+        form_assertion.is_some(),
     )?;
 
     if let (Some(body_id), Some(basic_id)) = (form_client_id, basic_client_id) {
@@ -98,28 +117,86 @@ async fn authenticate_client(
     let client_id = form_client_id.or(basic_client_id);
     let client_secret = form_client_secret.or(basic_client_secret);
 
-    match (client_id, client_secret) {
-        (None, None) if !require_auth => Ok(None),
-        (None, None) => Err(OAuth2Error::invalid_client("Missing client authentication")),
-        (Some(_), None) => Err(OAuth2Error::invalid_client("Missing client_secret")),
-        (None, Some(_)) => Err(OAuth2Error::invalid_request("Missing client_id")),
-        (Some(client_id), Some(client_secret)) => {
-            let client = client_actor
-                .send(GetClient {
-                    client_id: client_id.to_string(),
-                    span: tracing::Span::current(),
-                })
-                .await
-                .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))??;
-
-            // A disabled client gets the same answer as a wrong secret.
-            if !client.enabled || !client_secret_matches(&client, client_secret) {
-                return Err(OAuth2Error::invalid_client("Invalid client credentials"));
-            }
-
-            Ok(Some(client))
-        }
+    // No credentials at all: anonymous introspection, or a missing
+    // identification on revocation.
+    if client_id.is_none()
+        && client_secret.is_none()
+        && form_assertion.is_none()
+        && form_assertion_type.is_none()
+    {
+        return if require_auth {
+            Err(OAuth2Error::invalid_client("Missing client authentication"))
+        } else {
+            Ok(None)
+        };
     }
+
+    let client_id = client_id.ok_or_else(|| OAuth2Error::invalid_request("Missing client_id"))?;
+    let client = client_actor
+        .send(GetClient {
+            client_id: client_id.to_string(),
+            span: tracing::Span::current(),
+        })
+        .await
+        .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))??;
+
+    if !client.enabled {
+        return Err(OAuth2Error::invalid_client("Invalid client credentials"));
+    }
+
+    // Public clients: revocation accepts client_id alone; introspection never
+    // treats a public client as an authenticated caller. An empty form secret
+    // must not count as authentication (CWE-287).
+    if client.is_public() {
+        if allow_public_client_id_only
+            && client_secret.is_none()
+            && form_assertion.is_none()
+            && form_assertion_type.is_none()
+        {
+            return Ok(Some(client));
+        }
+        return Err(OAuth2Error::invalid_client(
+            "Public clients cannot authenticate at this endpoint",
+        ));
+    }
+
+    // mTLS is deliberately not supported here: the proxy headers it relies on
+    // are not trustworthy yet (see RFC_CONFORMANCE_AUDIT.md, G1). Enabling it
+    // here would widen that weakness to two more endpoints.
+    if matches!(
+        client.token_endpoint_auth_method.as_str(),
+        "tls_client_auth"
+            | "tls_client_auth_san_uri"
+            | "tls_client_auth_san_dns"
+            | "self_signed_tls_client_auth"
+    ) {
+        return Err(OAuth2Error::invalid_client(
+            "mTLS client authentication is not supported on this endpoint",
+        ));
+    }
+
+    // Delegate to the token endpoint's single authentication implementation
+    // so the registered method is honoured everywhere.
+    let credentials = ClientCredentials {
+        client_secret: client_secret.map(str::to_string),
+        client_assertion_type: form_assertion_type.map(str::to_string),
+        client_assertion: form_assertion.map(str::to_string),
+    };
+    let resolved_jwks = resolve_client_jwks(&client, jwks_cache.map(|d| d.get_ref())).await?;
+    let token_endpoint_url = format!("{}/oauth/token", issuer.trim_end_matches('/'));
+    authenticate_confidential_client(
+        &client,
+        &credentials,
+        &token_endpoint_url,
+        issuer,
+        resolved_jwks.as_ref(),
+        None, // mTLS methods are rejected above
+        None,
+        None,
+        None,
+    )?;
+
+    Ok(Some(client))
 }
 
 #[derive(Debug, Deserialize)]
@@ -129,6 +206,8 @@ pub struct IntrospectRequest {
     token_type_hint: Option<String>,
     client_id: Option<String>,
     client_secret: Option<String>,
+    client_assertion_type: Option<String>,
+    client_assertion: Option<String>,
 }
 
 /// JWT payload for RFC 9701 token introspection JWT responses.
@@ -160,6 +239,7 @@ pub async fn introspect(
     // that predate them keep working.
     agent_config: Option<web::Data<oauth2_config::AgentConfig>>,
     keyset: Option<web::Data<std::sync::Arc<tokio::sync::RwLock<KeySet>>>>,
+    jwks_cache: Option<web::Data<JwksCache>>,
 ) -> Result<HttpResponse, OAuth2Error> {
     let opaque_access_tokens = config
         .as_ref()
@@ -173,8 +253,16 @@ pub async fn introspect(
         &req,
         form.client_id.as_deref(),
         form.client_secret.as_deref(),
+        form.client_assertion_type.as_deref(),
+        form.client_assertion.as_deref(),
         &client_actor,
+        jwks_cache.as_ref(),
+        oidc_config
+            .as_ref()
+            .map(|c| c.issuer.as_str())
+            .unwrap_or("http://localhost"),
         !public_introspection,
+        false,
     )
     .await
     {
@@ -539,6 +627,8 @@ pub struct RevokeRequest {
     token_type_hint: Option<String>,
     client_id: Option<String>,
     client_secret: Option<String>,
+    client_assertion_type: Option<String>,
+    client_assertion: Option<String>,
 }
 
 /// Token revocation endpoint
@@ -549,12 +639,23 @@ pub async fn revoke(
     token_actor: web::Data<TokenActorPool>,
     client_actor: web::Data<Addr<ClientActor>>,
     metrics: web::Data<Metrics>,
+    // Optional so existing inline `App` builders keep working.
+    oidc_config: Option<web::Data<OidcConfig>>,
+    jwks_cache: Option<web::Data<JwksCache>>,
 ) -> Result<HttpResponse, OAuth2Error> {
     let caller = match authenticate_client(
         &req,
         form.client_id.as_deref(),
         form.client_secret.as_deref(),
+        form.client_assertion_type.as_deref(),
+        form.client_assertion.as_deref(),
         &client_actor,
+        jwks_cache.as_ref(),
+        oidc_config
+            .as_ref()
+            .map(|c| c.issuer.as_str())
+            .unwrap_or("http://localhost"),
+        true,
         true,
     )
     .await

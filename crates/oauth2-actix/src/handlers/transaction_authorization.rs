@@ -54,7 +54,7 @@ use crate::handlers::jwt_bearer::{decode_unverified_claims, select_key};
 use crate::handlers::login::html_escape;
 use crate::handlers::oauth::{
     apply_dpop_token_type, authenticate_confidential_client, enforce_jti_replay, no_store_headers,
-    parse_client_basic_auth, resolve_client_jwks, TokenRequest,
+    parse_client_basic_auth, resolve_client_jwks, ClientCredentials, TokenRequest,
 };
 use crate::handlers::wellknown::OidcConfig;
 
@@ -213,7 +213,7 @@ pub async fn transaction_authorization(
         resolve_client_jwks(&client, jwks_cache.as_ref().map(|d| d.as_ref())).await?;
     authenticate_confidential_client(
         &client,
-        &auth_request,
+        &ClientCredentials::from(&auth_request),
         &token_endpoint_url,
         &oidc_config.issuer,
         resolved_jwks.as_ref(),
@@ -791,7 +791,7 @@ pub(crate) async fn handle_transaction_authorization_grant(
         resolve_client_jwks(&client, jwks_cache.as_ref().map(|d| d.as_ref())).await?;
     authenticate_confidential_client(
         &client,
-        &req,
+        &ClientCredentials::from(&req),
         &token_endpoint_url,
         &oidc_config.issuer,
         resolved_jwks.as_ref(),
