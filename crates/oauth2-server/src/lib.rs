@@ -495,6 +495,10 @@ pub async fn run() -> std::io::Result<()> {
         None => None,
     };
 
+    // Pre-compute the dummy Argon2 hash used to equalise failed-login timing so
+    // the first failed login does not pay for generating it.
+    oauth2_actix::handlers::login::init_login_timing();
+
     // Seed a default admin user if none exists yet.
     // In production, change the password immediately or use OAUTH2_SEED_PASSWORD env var.
     if conformance_applied.is_none() {
