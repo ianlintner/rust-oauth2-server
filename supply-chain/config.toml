@@ -29,7 +29,7 @@ audit-as-crates-io = true
 audit-as-crates-io = true
 
 [[exemptions.actix]]
-version = "0.13.5"
+version = "0.13.6"
 criteria = "safe-to-deploy"
 
 [[exemptions.actix-codec]]
@@ -1193,11 +1193,11 @@ criteria = "safe-to-deploy"
 suggest = false
 
 [[exemptions.mongodb]]
-version = "3.10.0"
+version = "3.10.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.mongodb-internal-macros]]
-version = "3.10.0"
+version = "3.10.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.mutually_exclusive_features]]
@@ -1951,7 +1951,7 @@ version = "0.1.44"
 criteria = "safe-to-deploy"
 
 [[exemptions.tracing-actix-web]]
-version = "0.7.25"
+version = "0.7.26"
 criteria = "safe-to-deploy"
 
 [[exemptions.tracing-attributes]]
@@ -2053,6 +2053,10 @@ criteria = "safe-to-deploy"
 
 [[exemptions.uuid]]
 version = "1.29.0"
+criteria = "safe-to-deploy"
+
+[[exemptions.uuid]]
+version = "1.29.2"
 criteria = "safe-to-deploy"
 
 [[exemptions.v_escape-base]]
