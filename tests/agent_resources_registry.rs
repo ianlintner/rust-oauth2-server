@@ -95,6 +95,19 @@ async fn storage_save_get_list_delete_round_trip() {
 // Admin HTTP round-trip
 // ---------------------------------------------------------------------------
 
+/// The guard re-reads the session's user from storage, so the admin id used
+/// by `as_admin` must exist there.
+async fn seed_admin(storage: &oauth2_ports::DynStorage) {
+    let mut user = oauth2_core::User::new(
+        "admin".to_string(),
+        "$argon2id$unused".to_string(),
+        "admin@example.test".to_string(),
+    );
+    user.id = "admin-uid".to_string();
+    user.role = "admin".to_string();
+    storage.save_user(&user).await.expect("seed admin");
+}
+
 fn session_key() -> Key {
     Key::from(&[7u8; 64])
 }
@@ -125,6 +138,7 @@ async fn admin_resources_post_then_get_round_trip() {
         .await
         .expect("create storage");
     storage.init().await.expect("init storage");
+    seed_admin(&storage).await;
 
     let app = test::init_service(
         App::new()
@@ -203,6 +217,7 @@ async fn admin_resources_rejects_invalid_target_uri() {
         .await
         .expect("create storage");
     storage.init().await.expect("init storage");
+    seed_admin(&storage).await;
 
     let app = test::init_service(
         App::new()

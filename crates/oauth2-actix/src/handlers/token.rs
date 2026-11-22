@@ -112,7 +112,8 @@ async fn authenticate_client(
                 .await
                 .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))??;
 
-            if !client_secret_matches(&client, client_secret) {
+            // A disabled client gets the same answer as a wrong secret.
+            if !client.enabled || !client_secret_matches(&client, client_secret) {
                 return Err(OAuth2Error::invalid_client("Invalid client credentials"));
             }
 

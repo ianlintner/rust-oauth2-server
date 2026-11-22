@@ -76,13 +76,21 @@ pub(crate) async fn resolve_client(
         return Ok(client);
     }
 
-    client_actor
+    let client: Client = client_actor
         .send(GetClient {
             client_id: client_id.to_string(),
             span: tracing::Span::current(),
         })
         .await
-        .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))?
+        .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))??;
+
+    // The caller has not authenticated yet, so a disabled client must look
+    // the same as an unknown one.
+    if !client.enabled {
+        return Err(OAuth2Error::invalid_client("Client not found"));
+    }
+
+    Ok(client)
 }
 
 /// Persist the `clients` row for a client resolved from a metadata document.

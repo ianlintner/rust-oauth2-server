@@ -13,6 +13,7 @@ use oauth2_core::{
 };
 use oauth2_ports::DynStorage;
 
+use super::client::{is_secret_auth_method, is_supported_auth_method};
 use super::events::RecentEventsStore;
 use super::login::hash_password;
 use crate::actors::client_actor::{ClientActor, InvalidateClient};
@@ -428,6 +429,12 @@ pub async fn create_client(
             "error_description": "name is required"
         })));
     }
+    if !is_supported_auth_method(&body.token_endpoint_auth_method) {
+        return Ok(HttpResponse::BadRequest().json(serde_json::json!({
+            "error": "invalid_request",
+            "error_description": "unsupported token_endpoint_auth_method"
+        })));
+    }
 
     let client_id = body
         .client_id
@@ -571,8 +578,25 @@ pub async fn update_client(
         client.scope = scope.clone();
     }
     if let Some(method) = &body.token_endpoint_auth_method {
+        if !is_supported_auth_method(method) {
+            return Ok(HttpResponse::BadRequest().json(serde_json::json!({
+                "error": "invalid_request",
+                "error_description": "unsupported token_endpoint_auth_method"
+            })));
+        }
         client.token_endpoint_auth_method = method.clone();
     }
+    // A client moved to a secret-based method must never be left with an
+    // empty secret: provision one (returned once, like creation/regeneration).
+    let provisioned_secret = if is_secret_auth_method(&client.token_endpoint_auth_method)
+        && client.client_secret.is_empty()
+    {
+        let s = Uuid::new_v4().to_string().replace('-', "");
+        client.client_secret = s.clone();
+        Some(s)
+    } else {
+        None
+    };
     if let Some(en) = body.enabled {
         client.enabled = en;
     }
@@ -581,6 +605,14 @@ pub async fn update_client(
     db.update_client(&client)
         .await
         .map_err(actix_web::error::ErrorInternalServerError)?;
+    // `update_client` intentionally leaves credential columns untouched. A
+    // newly provisioned secret must therefore be written through the explicit
+    // rotation path, which protects it for storage.
+    if let Some(secret) = &provisioned_secret {
+        db.set_client_secret(&client.client_id, secret)
+            .await
+            .map_err(actix_web::error::ErrorInternalServerError)?;
+    }
     invalidate_client_cache(&client_actor, &client.client_id).await?;
 
     let audit = build_audit(
@@ -595,13 +627,17 @@ pub async fn update_client(
     );
     record_audit(db.as_ref(), events_store.as_ref(), audit).await;
 
-    Ok(HttpResponse::Ok().json(serde_json::json!({
+    let mut resp = serde_json::json!({
         "id": client.id,
         "client_id": client.client_id,
         "name": client.name,
         "enabled": client.enabled,
         "updated_at": client.updated_at.to_rfc3339(),
-    })))
+    });
+    if let Some(secret) = provisioned_secret {
+        resp["client_secret"] = serde_json::Value::String(secret);
+    }
+    Ok(HttpResponse::Ok().json(resp))
 }
 
 pub async fn set_client_enabled(

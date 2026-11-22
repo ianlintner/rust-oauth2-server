@@ -605,6 +605,8 @@ impl Handler<ValidateClient> for ClientActor {
                 };
 
                 // Use constant-time comparison to prevent timing attacks
+                // Stored v1 records are verified in constant time; legacy
+                // plaintext and empty secrets never match.
                 let secret_match = client.verify_secret(&presented_secret);
 
                 // Emit event

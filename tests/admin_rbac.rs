@@ -13,7 +13,7 @@ use serde_json::json;
 use oauth2_actix::handlers::admin_extra;
 use oauth2_actix::handlers::events::RecentEventsStore;
 use oauth2_actix::middleware::admin_guard::AdminGuard;
-use oauth2_core::{Client, Token};
+use oauth2_core::{Client, Token, User};
 use oauth2_ports::DynStorage;
 
 /// Serializes tests that mutate the process-global OAUTH2_ADMIN_CLIENT_IDS env
@@ -29,6 +29,19 @@ async fn setup_storage() -> DynStorage {
         .expect("create storage");
     storage.init().await.expect("init");
     storage
+}
+
+/// The guard re-reads the session's user from storage, so the fixed ids used
+/// by `as_admin` / `as_plain_user` must exist there.
+async fn seed_session_user(storage: &DynStorage, id: &str, role: &str) {
+    let mut user = User::new(
+        id.to_string(),
+        "$argon2id$unused".to_string(),
+        format!("{id}@rbac.example"),
+    );
+    user.id = id.to_string();
+    user.role = role.to_string();
+    storage.save_user(&user).await.expect("seed user");
 }
 
 fn session_key() -> Key {
@@ -141,6 +154,7 @@ async fn admin_api_without_session_returns_302_on_api_paths() {
 #[actix_web::test]
 async fn plain_user_session_gets_403_on_admin_api() {
     let storage = setup_storage().await;
+    seed_session_user(&storage, "user-uid", "user").await;
     let app = test::init_service(
         App::new()
             .wrap(SessionMiddleware::new(
@@ -190,6 +204,7 @@ async fn plain_user_session_gets_403_on_admin_api() {
 #[actix_web::test]
 async fn admin_session_can_invoke_admin_api() {
     let storage = setup_storage().await;
+    seed_session_user(&storage, "admin-uid", "admin").await;
     let app = test::init_service(
         App::new()
             .wrap(SessionMiddleware::new(

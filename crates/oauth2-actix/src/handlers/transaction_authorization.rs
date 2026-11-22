@@ -708,6 +708,7 @@ pub async fn approve_submit(
 
     let user_id: Option<String> = session.get("user_id").unwrap_or(None);
     let user_id = user_id.ok_or_else(|| OAuth2Error::access_denied("Authentication required"))?;
+    crate::handlers::session_user::require_active_user(storage.get_ref(), &user_id).await?;
 
     let record = load_actionable(storage.as_ref(), &form.transaction_authorization_id).await?;
 
