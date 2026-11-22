@@ -142,8 +142,10 @@ pub(crate) fn validate_scope_subset(requested: &str, allowed: &str) -> Result<()
 }
 
 pub(crate) fn client_secret_matches(client: &oauth2_core::Client, presented_secret: &str) -> bool {
-    // An empty shared secret is never a credential. Stored v1 records are
-    // verified in constant time; legacy plaintext never matches.
+    // An empty shared secret is never a credential (RFC 6749 §2.3.1). Public
+    // clients store an empty secret; comparing it with an empty form parameter
+    // must not authenticate them. Stored v1 records are verified in constant
+    // time; legacy plaintext never matches.
     if client.client_secret.is_empty() || presented_secret.is_empty() {
         return false;
     }
@@ -600,11 +602,14 @@ fn process_jar(
         }
         // Shared-secret clients: verify HS256 with client_secret.
         "client_secret_basic" | "client_secret_post" | "client_secret_jwt" => {
-            let secret_key = client.symmetric_key().ok_or_else(|| {
-                OAuth2Error::invalid_request(
-                    "JAR HS256 verification unavailable: no usable shared-secret key material",
-                )
-            })?;
+            let secret_key = client
+                .symmetric_key()
+                .filter(|key| !key.is_empty())
+                .ok_or_else(|| {
+                    OAuth2Error::invalid_request(
+                        "JAR HS256 verification unavailable: no usable shared-secret key material",
+                    )
+                })?;
             let key = DecodingKey::from_secret(&secret_key);
             let mut validation = Validation::new(Algorithm::HS256);
             validation.set_audience(&[authorization_endpoint_url]);
@@ -1518,11 +1523,14 @@ fn validate_jwt_client_assertion(
                     "client_secret_jwt requires HS256 algorithm",
                 ));
             }
-            let secret_key = client.symmetric_key().ok_or_else(|| {
-                OAuth2Error::invalid_client(
-                    "client_secret_jwt unavailable: no usable shared-secret key material",
-                )
-            })?;
+            let secret_key = client
+                .symmetric_key()
+                .filter(|key| !key.is_empty())
+                .ok_or_else(|| {
+                    OAuth2Error::invalid_client(
+                        "client_secret_jwt unavailable: no usable shared-secret key material",
+                    )
+                })?;
             let key = DecodingKey::from_secret(&secret_key);
             let mut validation = Validation::new(Algorithm::HS256);
             // `aud` MUST contain the token endpoint URL (RFC 7523 §3). RFC
