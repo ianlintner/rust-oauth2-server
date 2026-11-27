@@ -107,6 +107,27 @@ impl Storage for ObservedStorage {
             .await
     }
 
+    async fn get_client_authoritative(
+        &self,
+        client_id: &str,
+    ) -> Result<Option<Client>, OAuth2Error> {
+        let span = tracing::info_span!(
+            "db.query",
+            trace_id = field::Empty,
+            span_id = field::Empty,
+            "db.system" = %self.db_system,
+            "db.operation" = "get_client_authoritative",
+            "db.name" = %self.db_name,
+            "net.peer.name" = %self.net_peer_name,
+            "otel.kind" = "client",
+            client_id = %client_id
+        );
+        annotate_span_with_trace_ids(&span);
+        async move { self.inner.get_client_authoritative(client_id).await }
+            .instrument(span)
+            .await
+    }
+
     async fn count_cimd_clients(&self) -> Result<u64, OAuth2Error> {
         let span = tracing::info_span!(
             "db.query",

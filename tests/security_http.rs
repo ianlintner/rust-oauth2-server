@@ -240,7 +240,7 @@ impl CountingStorage {
     fn with_client(client: Client) -> (DynStorage, Arc<CountingStats>) {
         let stats = Arc::new(CountingStats::default());
         let storage: DynStorage = Arc::new(Self {
-            client: Mutex::new(Some(client)),
+            client: Mutex::new(Some(client.for_storage())),
             stats: stats.clone(),
         });
         (storage, stats)

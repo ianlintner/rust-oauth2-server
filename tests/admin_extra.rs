@@ -805,7 +805,9 @@ async fn update_public_client_to_secret_method_provisions_secret() {
         .unwrap()
         .unwrap();
     assert_eq!(reloaded.token_endpoint_auth_method, "client_secret_post");
-    assert_eq!(reloaded.client_secret, secret);
+    // Stored v1 records are verifiers; the plaintext is never persisted.
+    assert!(reloaded.client_secret.starts_with("c1$"));
+    assert!(reloaded.verify_secret(secret));
 }
 
 #[actix_web::test]
@@ -847,7 +849,9 @@ async fn update_client_keeps_existing_secret_when_method_unchanged() {
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(reloaded.client_secret, "secret");
+    // The stored credential stays a v1 verifier after a metadata-only update.
+    assert!(reloaded.client_secret.starts_with("c1$"));
+    assert!(reloaded.verify_secret("secret"));
 }
 
 #[actix_web::test]
@@ -987,7 +991,8 @@ async fn regenerate_client_secret_replaces_secret() {
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(reloaded.client_secret, new_secret);
+    assert!(reloaded.verify_secret(new_secret));
+    assert!(!reloaded.verify_secret(&original_secret));
 }
 
 // ---------------------------------------------------------------------------
@@ -1766,5 +1771,8 @@ async fn rfc7592_update_does_not_restore_rotated_secret() {
 
     let stored = storage.get_client(&client_id).await.unwrap().unwrap();
     assert_eq!(stored.name, "Renamed");
-    assert_eq!(stored.client_secret, "rotated-secret");
+    assert!(
+        stored.verify_secret("rotated-secret"),
+        "RFC 7592 update must not restore the pre-rotation secret"
+    );
 }

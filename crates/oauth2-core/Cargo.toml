@@ -24,6 +24,7 @@ rsa = { version = "0.9", features = ["pem"] }
 sha2 = "0.11"
 base64 = { version = "0.23", default-features = false, features = ["std"] }
 aes-gcm = "0.11"
+subtle = "2.5"
 rand = { version = "0.9.4", default-features = false, features = ["std", "std_rng", "os_rng"] }
 
 serde = { version = "1.0", features = ["derive"] }

@@ -540,14 +540,9 @@ async fn authenticate_registration_token(
         ));
     }
 
-    // Constant-time comparison
-    use subtle::ConstantTimeEq;
-    let matches: bool = client
-        .registration_access_token
-        .as_bytes()
-        .ct_eq(token.as_bytes())
-        .into();
-    if !matches {
+    // Constant-time comparison against the stored verifier; a legacy
+    // plaintext value never matches.
+    if !oauth2_core::at_rest::verify_bearer(token, &client.registration_access_token) {
         return Err(OAuth2Error::invalid_client(
             "Invalid registration_access_token",
         ));
@@ -566,8 +561,20 @@ pub async fn read_client_configuration(
     let client_id = path.into_inner();
     let client = authenticate_registration_token(&req, &client_id, &client_actor).await?;
 
-    let resp = ClientRegistrationResponse::from_client(&client, &oidc_config.issuer);
+    let mut resp = ClientRegistrationResponse::from_client(&client, &oidc_config.issuer);
+    resp.registration_access_token = presented_registration_token(&req);
     Ok(HttpResponse::Ok().json(resp))
+}
+
+/// The bearer the caller just authenticated with (the stored value is only a
+/// verifier, so RFC 7592 responses echo what was presented).
+fn presented_registration_token(req: &HttpRequest) -> String {
+    req.headers()
+        .get("Authorization")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "))
+        .map(|s| s.trim().to_string())
+        .unwrap_or_default()
 }
 
 /// `PUT /connect/register/{client_id}` — RFC 7592 §2.2 update client.
@@ -656,7 +663,8 @@ pub async fn update_client_configuration(
         .await
         .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))??;
 
-    let resp = ClientRegistrationResponse::from_client(&updated, &oidc_config.issuer);
+    let mut resp = ClientRegistrationResponse::from_client(&updated, &oidc_config.issuer);
+    resp.registration_access_token = presented_registration_token(&req);
     Ok(HttpResponse::Ok().json(resp))
 }
 

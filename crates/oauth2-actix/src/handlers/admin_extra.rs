@@ -605,6 +605,14 @@ pub async fn update_client(
     db.update_client(&client)
         .await
         .map_err(actix_web::error::ErrorInternalServerError)?;
+    // `update_client` intentionally leaves credential columns untouched. A
+    // newly provisioned secret must therefore be written through the explicit
+    // rotation path, which protects it for storage.
+    if let Some(secret) = &provisioned_secret {
+        db.set_client_secret(&client.client_id, secret)
+            .await
+            .map_err(actix_web::error::ErrorInternalServerError)?;
+    }
     invalidate_client_cache(&client_actor, &client.client_id).await?;
 
     let audit = build_audit(

@@ -17,14 +17,17 @@ fn span() -> tracing::Span {
 }
 
 fn make_client() -> Client {
-    Client::new(
+    let client = Client::new(
         "client-cache-order".to_string(),
         "old-secret".to_string(),
         vec!["https://example.com/cb".to_string()],
         vec!["authorization_code".to_string()],
         "read".to_string(),
         "Cache order".to_string(),
-    )
+    );
+    // In-memory fixtures must already be in at-rest form, like rows loaded
+    // from a real backend.
+    client.for_storage()
 }
 
 /// One in-memory client whose first `get_client` call parks after reading the
@@ -150,7 +153,7 @@ async fn lookup_in_flight_during_invalidation_does_not_recache_old_record() {
     // Rotation commits and the cache is invalidated while A is parked.
     let mut rotated = original.clone();
     rotated.client_secret = "new-secret".to_string();
-    storage.save_client(&rotated).await.unwrap();
+    storage.save_client(&rotated.for_storage()).await.unwrap();
     actor
         .send(InvalidateClient {
             client_id: client_id.clone(),
@@ -160,8 +163,8 @@ async fn lookup_in_flight_during_invalidation_does_not_recache_old_record() {
 
     release.notify_one();
     let seen = lookup.await.unwrap().unwrap().unwrap();
-    assert_eq!(
-        seen.client_secret, "old-secret",
+    assert!(
+        seen.verify_secret("old-secret"),
         "A began before the change"
     );
 
@@ -243,7 +246,7 @@ async fn metadata_update_does_not_write_secret_or_enabled() {
         .unwrap()
         .unwrap();
     assert_eq!(stored.name, "renamed");
-    assert_eq!(stored.client_secret, "rotated-secret");
+    assert!(stored.verify_secret("rotated-secret"));
     assert!(!stored.enabled);
 }
 

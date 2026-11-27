@@ -5,7 +5,6 @@ use base64::{engine::general_purpose, Engine as _};
 use percent_encoding::percent_decode_str;
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
-use subtle::ConstantTimeEq;
 use url::{form_urlencoded, Url};
 use uuid::Uuid;
 
@@ -145,15 +144,12 @@ pub(crate) fn validate_scope_subset(requested: &str, allowed: &str) -> Result<()
 pub(crate) fn client_secret_matches(client: &oauth2_core::Client, presented_secret: &str) -> bool {
     // An empty shared secret is never a credential (RFC 6749 §2.3.1). Public
     // clients store an empty secret; comparing it with an empty form parameter
-    // must not authenticate them.
+    // must not authenticate them. Stored v1 records are verified in constant
+    // time; legacy plaintext never matches.
     if client.client_secret.is_empty() || presented_secret.is_empty() {
         return false;
     }
-    client
-        .client_secret
-        .as_bytes()
-        .ct_eq(presented_secret.as_bytes())
-        .into()
+    client.verify_secret(presented_secret)
 }
 
 /// The credentials needed to authenticate a client at any OAuth endpoint.
@@ -631,12 +627,15 @@ fn process_jar(
         }
         // Shared-secret clients: verify HS256 with client_secret.
         "client_secret_basic" | "client_secret_post" | "client_secret_jwt" => {
-            if client.client_secret.is_empty() {
-                return Err(OAuth2Error::invalid_request(
-                    "client has no shared secret for HS256 verification",
-                ));
-            }
-            let key = DecodingKey::from_secret(client.client_secret.as_bytes());
+            let secret_key = client
+                .symmetric_key()
+                .filter(|key| !key.is_empty())
+                .ok_or_else(|| {
+                    OAuth2Error::invalid_request(
+                        "JAR HS256 verification unavailable: no usable shared-secret key material",
+                    )
+                })?;
+            let key = DecodingKey::from_secret(&secret_key);
             let mut validation = Validation::new(Algorithm::HS256);
             validation.set_audience(&[authorization_endpoint_url]);
             validation.set_required_spec_claims(&["exp", "iss"]);
@@ -1549,12 +1548,15 @@ fn validate_jwt_client_assertion(
                     "client_secret_jwt requires HS256 algorithm",
                 ));
             }
-            if client.client_secret.is_empty() {
-                return Err(OAuth2Error::invalid_client(
-                    "client has no shared secret for client_secret_jwt",
-                ));
-            }
-            let key = DecodingKey::from_secret(client.client_secret.as_bytes());
+            let secret_key = client
+                .symmetric_key()
+                .filter(|key| !key.is_empty())
+                .ok_or_else(|| {
+                    OAuth2Error::invalid_client(
+                        "client_secret_jwt unavailable: no usable shared-secret key material",
+                    )
+                })?;
+            let key = DecodingKey::from_secret(&secret_key);
             let mut validation = Validation::new(Algorithm::HS256);
             // `aud` MUST contain the token endpoint URL (RFC 7523 §3). RFC
             // 7523bis additionally allows the issuer identifier of the
@@ -2930,9 +2932,10 @@ async fn handle_refresh_token_grant(
         .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))??;
 
     // RFC 9449 §5: preserve the DPoP / mTLS `cnf` binding from the original token.
-    // Decode the JWT without signature verification to extract the cnf claim.
-    let old_cnf =
-        oauth2_core::Claims::decode_unverified(&old_token.access_token).and_then(|c| c.cnf);
+    // The stored access token is only a verifier (not a JWT), so the binding
+    // comes from the persisted `cnf` column, which is written for every issued
+    // token alongside the claim.
+    let old_cnf = old_token.cnf_value();
 
     // Mint new access + refresh token pair.
     //
@@ -3055,10 +3058,7 @@ pub async fn par(
 
         match presented_secret {
             Some(secret) => {
-                if !bool::from(subtle::ConstantTimeEq::ct_eq(
-                    client.client_secret.as_bytes(),
-                    secret.as_bytes(),
-                )) {
+                if !client.verify_secret(&secret) {
                     return Err(OAuth2Error::invalid_client("Invalid client_secret in PAR"));
                 }
             }

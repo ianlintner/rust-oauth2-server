@@ -57,6 +57,13 @@ pub struct AuthorizationCode {
 }
 
 impl AuthorizationCode {
+    /// Copy with the code replaced by its at-rest verifier (idempotent).
+    pub fn for_storage(&self) -> Self {
+        let mut c = self.clone();
+        c.code = crate::at_rest::protect_bearer(&c.code);
+        c
+    }
+
     /// Build an authorization code with the RFC-default 10-minute lifetime.
     ///
     /// Prefer [`new_with_ttl`] when a configurable TTL is available.

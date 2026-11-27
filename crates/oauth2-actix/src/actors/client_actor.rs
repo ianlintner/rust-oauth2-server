@@ -197,6 +197,9 @@ impl ClientActor {
     }
 
     fn insert_cached_client(&mut self, client: Client) {
+        // Callers pass records already in at-rest form (loaded from storage
+        // or Redis) or protect them first. Never re-protect here: that would
+        // turn rejected legacy values into valid verifiers.
         self.cache.put(
             client.client_id.clone(),
             CachedClient {
@@ -390,9 +393,11 @@ impl Handler<RegisterClient> for ClientActor {
 
                 db.save_client(&client).await?;
 
-                // Send back to actor for LRU cache insertion.
+                // Send back to actor for LRU cache insertion. `client` still
+                // holds the raw secret for the one-time response; cache only
+                // the at-rest form.
                 let _ = self_addr.try_send(CacheClient {
-                    client: client.clone(),
+                    client: client.for_storage(),
                     epoch,
                 });
 
@@ -599,16 +604,10 @@ impl Handler<ValidateClient> for ClientActor {
                     }
                 };
 
-                // Use constant-time comparison to prevent timing attacks
-                use subtle::ConstantTimeEq;
-                let secret_match = !client.client_secret.is_empty()
-                    && !presented_secret.is_empty()
-                    && bool::from(
-                        client
-                            .client_secret
-                            .as_bytes()
-                            .ct_eq(presented_secret.as_bytes()),
-                    );
+                // Use constant-time comparison to prevent timing attacks.
+                // Stored v1 records are verified in constant time; legacy
+                // plaintext and empty secrets never match.
+                let secret_match = client.verify_secret(&presented_secret);
 
                 // Emit event
                 if let Some(event_bus) = event_bus {
@@ -648,6 +647,7 @@ impl Handler<UpdateClient> for ClientActor {
     fn handle(&mut self, msg: UpdateClient, ctx: &mut Self::Context) -> Self::Result {
         let db = self.db.clone();
         let self_addr = ctx.address();
+        let epoch_shared = self.epoch.clone();
 
         let parent_span = msg.span.clone();
         let actor_span = tracing::info_span!(
@@ -666,14 +666,25 @@ impl Handler<UpdateClient> for ClientActor {
                 // statement instead of copying them from an earlier read.
                 db.update_client_metadata(&msg.client).await?;
 
-                // Do not cache the caller's copy; drop every cached copy and
-                // let the next lookup read what storage holds.
+                // Invalidate first: a lookup that read storage before this
+                // write can no longer fill a stale verifier into the cache.
                 self_addr
                     .send(InvalidateClient {
                         client_id: msg.client.client_id.clone(),
                     })
                     .await
                     .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))?;
+
+                // Cache the authoritative post-write record rather than the
+                // caller's possibly stale snapshot; a read replica could still
+                // hold a pre-rotation verifier.
+                let epoch = epoch_shared.load(Ordering::SeqCst);
+                if let Some(stored) = db.get_client_authoritative(&msg.client.client_id).await? {
+                    let _ = self_addr.try_send(CacheClient {
+                        client: stored,
+                        epoch,
+                    });
+                }
 
                 db.get_client(&msg.client.client_id)
                     .await?

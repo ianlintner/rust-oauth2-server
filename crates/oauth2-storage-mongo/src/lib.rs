@@ -376,7 +376,7 @@ impl Storage for MongoStorage {
 
     async fn save_client(&self, client: &Client) -> Result<(), OAuth2Error> {
         self.clients
-            .insert_one(client)
+            .insert_one(client.for_storage())
             .await
             .map(|_| ())
             .map_err(Self::mongo_err_to_oauth)
@@ -398,8 +398,15 @@ impl Storage for MongoStorage {
 
     async fn update_client(&self, client: &Client) -> Result<(), OAuth2Error> {
         let filter = doc! { "client_id": &client.client_id };
+        // Metadata only: never write the credential fields from a (possibly
+        // stale or legacy) snapshot; issuance and set_client_secret own them.
+        let mut set = mongodb::bson::to_document(client)
+            .map_err(|e| OAuth2Error::new("server_error", Some(&e.to_string())))?;
+        set.remove("client_secret");
+        set.remove("registration_access_token");
         self.clients
-            .replace_one(filter, client)
+            .clone_with_type::<mongodb::bson::Document>()
+            .update_one(filter, doc! { "$set": set })
             .await
             .map(|_| ())
             .map_err(Self::mongo_err_to_oauth)
@@ -459,8 +466,9 @@ impl Storage for MongoStorage {
     }
 
     async fn save_token(&self, token: &Token) -> Result<(), OAuth2Error> {
+        // Only verifiers of the bearer values are persisted (storage format v1).
         self.tokens
-            .insert_one(token)
+            .insert_one(token.for_storage())
             .await
             .map(|_| ())
             .map_err(Self::mongo_err_to_oauth)
@@ -470,23 +478,38 @@ impl Storage for MongoStorage {
         &self,
         access_token: &str,
     ) -> Result<Option<Token>, OAuth2Error> {
-        self.tokens
-            .find_one(doc! { "access_token": access_token })
+        let lookup = oauth2_core::at_rest::hash_bearer(access_token);
+        Ok(self
+            .tokens
+            .find_one(doc! { "access_token": lookup })
             .await
-            .map_err(Self::mongo_err_to_oauth)
+            .map_err(Self::mongo_err_to_oauth)?
+            .map(|mut t| {
+                t.access_token = access_token.to_string();
+                t
+            }))
     }
 
     async fn get_token_by_refresh_token(
         &self,
         refresh_token: &str,
     ) -> Result<Option<Token>, OAuth2Error> {
-        self.tokens
-            .find_one(doc! { "refresh_token": refresh_token })
+        let lookup = oauth2_core::at_rest::hash_bearer(refresh_token);
+        Ok(self
+            .tokens
+            .find_one(doc! { "refresh_token": lookup })
             .await
-            .map_err(Self::mongo_err_to_oauth)
+            .map_err(Self::mongo_err_to_oauth)?
+            .map(|mut t| {
+                t.refresh_token = Some(refresh_token.to_string());
+                t
+            }))
     }
 
     async fn revoke_token(&self, token: &str) -> Result<(), OAuth2Error> {
+        // Raw bearer or already-stored verifier (revocation only narrows access).
+        let token = oauth2_core::at_rest::protect_bearer(token);
+        let token = token.as_str();
         self.tokens
             .update_many(
                 doc! { "$or": [ {"access_token": token }, {"refresh_token": token } ] },
@@ -509,6 +532,7 @@ impl Storage for MongoStorage {
     }
 
     async fn set_token_family(&self, access_token: &str, family: &str) -> Result<(), OAuth2Error> {
+        let access_token = oauth2_core::at_rest::protect_bearer(access_token);
         self.tokens
             .update_one(
                 doc! { "access_token": access_token },
@@ -524,7 +548,7 @@ impl Storage for MongoStorage {
         auth_code: &AuthorizationCode,
     ) -> Result<(), OAuth2Error> {
         self.authorization_codes
-            .insert_one(auth_code)
+            .insert_one(auth_code.for_storage())
             .await
             .map(|_| ())
             .map_err(Self::mongo_err_to_oauth)
@@ -534,13 +558,20 @@ impl Storage for MongoStorage {
         &self,
         code: &str,
     ) -> Result<Option<AuthorizationCode>, OAuth2Error> {
-        self.authorization_codes
-            .find_one(doc! { "code": code })
+        let lookup = oauth2_core::at_rest::hash_bearer(code);
+        Ok(self
+            .authorization_codes
+            .find_one(doc! { "code": lookup })
             .await
-            .map_err(Self::mongo_err_to_oauth)
+            .map_err(Self::mongo_err_to_oauth)?
+            .map(|mut c| {
+                c.code = code.to_string();
+                c
+            }))
     }
 
     async fn mark_authorization_code_used(&self, code: &str) -> Result<(), OAuth2Error> {
+        let code = oauth2_core::at_rest::protect_bearer(code);
         self.authorization_codes
             .update_one(doc! { "code": code }, doc! { "$set": { "used": true } })
             .await
@@ -553,7 +584,7 @@ impl Storage for MongoStorage {
         device_auth: &DeviceAuthorization,
     ) -> Result<(), OAuth2Error> {
         self.device_authorizations
-            .insert_one(device_auth)
+            .insert_one(device_auth.for_storage())
             .await
             .map(|_| ())
             .map_err(Self::mongo_err_to_oauth)
@@ -563,10 +594,16 @@ impl Storage for MongoStorage {
         &self,
         device_code: &str,
     ) -> Result<Option<DeviceAuthorization>, OAuth2Error> {
-        self.device_authorizations
-            .find_one(doc! { "device_code": device_code })
+        let lookup = oauth2_core::at_rest::hash_bearer(device_code);
+        Ok(self
+            .device_authorizations
+            .find_one(doc! { "device_code": lookup })
             .await
-            .map_err(Self::mongo_err_to_oauth)
+            .map_err(Self::mongo_err_to_oauth)?
+            .map(|mut d| {
+                d.device_code = device_code.to_string();
+                d
+            }))
     }
 
     async fn get_device_authorization_by_user_code(
@@ -606,6 +643,7 @@ impl Storage for MongoStorage {
     }
 
     async fn mark_device_authorization_used(&self, device_code: &str) -> Result<(), OAuth2Error> {
+        let device_code = oauth2_core::at_rest::protect_bearer(device_code);
         self.device_authorizations
             .update_one(
                 doc! { "device_code": device_code },
@@ -800,6 +838,7 @@ impl Storage for MongoStorage {
         // Write `expires_at` as RFC 3339 string to match the encoding produced
         // by `insert_one`, preventing the mixed-encoding deserialization bug.
         let past = (chrono::Utc::now() - chrono::Duration::seconds(1)).to_rfc3339();
+        let device_code = oauth2_core::at_rest::protect_bearer(device_code);
         self.device_authorizations
             .update_one(
                 doc! { "device_code": device_code },
@@ -912,6 +951,7 @@ impl Storage for MongoStorage {
         client_secret: &str,
     ) -> Result<(), OAuth2Error> {
         let now = chrono::Utc::now().to_rfc3339();
+        let client_secret = oauth2_core::at_rest::protect_client_secret(client_secret);
         self.clients
             .update_one(
                 doc! { "client_id": client_id },
