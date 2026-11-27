@@ -6,6 +6,17 @@
 
 ### Fixed
 
+- Introspection and revocation now authenticate clients with the method
+  registered in `token_endpoint_auth_method`, sharing the token endpoint's
+  authentication implementation. A `private_key_jwt` or `client_secret_jwt`
+  client can no longer authenticate at those endpoints with a leftover shared
+  secret; it must present a valid client assertion. Public clients (`none`)
+  are handled explicitly: revocation still accepts `client_id` alone (RFC 7009
+  §2.1), while introspection never treats a public client as an authenticated
+  caller unless `public_introspection` is enabled. mTLS methods are rejected
+  here until the proxy header trust issue (G1) is fixed. Existing
+  `private_key_jwt` integrations that introspected or revoked with a shared
+  secret must switch to their registered method.
 - Enforce client and user status on grant paths. A disabled client is now
   refused (`invalid_client`) at `/oauth/authorize`, `/oauth/par`, every
   `/oauth/token` grant, device authorization, introspection and revocation.

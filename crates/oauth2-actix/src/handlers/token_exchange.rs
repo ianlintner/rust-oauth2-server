@@ -33,7 +33,7 @@ use crate::handlers::client_resolver::{materialize_cimd_client, resolve_client};
 use crate::handlers::jwks_cache::JwksCache;
 use crate::handlers::oauth::{
     authenticate_confidential_client, no_store_headers, resolve_client_jwks, validate_scope_subset,
-    TokenRequest,
+    ClientCredentials, TokenRequest,
 };
 use crate::handlers::wellknown::OidcConfig;
 
@@ -138,7 +138,7 @@ pub(crate) async fn exchange(
         resolve_client_jwks(&client, jwks_cache.as_ref().map(|d| d.as_ref())).await?;
     authenticate_confidential_client(
         &client,
-        &req,
+        &ClientCredentials::from(&req),
         &token_endpoint_url,
         &oidc_config.issuer,
         resolved_jwks.as_ref(),
